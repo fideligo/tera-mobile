@@ -1,0 +1,23 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Photoplethysmography needs the rear camera and its torch. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+
+    <!--
+        BUILD_SPEC 6.2. Without this declaration the platform caps sensor delivery at 200 Hz on
+        Android 12+, and the profiler would report that cap as if it were the device's ceiling.
+        Declared here, in the capture package, so the patient app inherits it by depending on
+        this plugin rather than by remembering to add it.
+    -->
+    <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
+
+    <!--
+        required="false": a handset without one of these is a device that cannot run Tera, which
+        is a result the profiler should be able to record. Marking them required would stop the
+        app installing on exactly the devices worth documenting as ineligible.
+    -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.flash" android:required="false" />
+    <uses-feature android:name="android.hardware.sensor.accelerometer" android:required="false" />
+
+</manifest>

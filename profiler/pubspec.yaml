@@ -1,0 +1,27 @@
+name: tera_profiler
+description: "Tera device capability profiler. Answers one question: can this handset run Tera?"
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # The acquisition layer. All sensor and camera work lives there, with no dependency on this
+  # app's UI — the patient capture app will be its second consumer.
+  tera_capture:
+    path: ../packages/tera_capture
+  # Optional upload to POST /v1/device-profiles. The only network dependency.
+  http: ^1.2.2
+  # @immutable on the result types.
+  meta: ^1.15.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
