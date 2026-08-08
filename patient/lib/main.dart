@@ -17,7 +17,10 @@ library;
 import 'package:flutter/material.dart';
 
 import 'api/api_client.dart';
+import 'auth/auth_controller.dart';
 import 'auth/token_store.dart';
+import 'ui/home_screen.dart';
+import 'ui/sign_in_screen.dart';
 import 'ui/tokens.dart';
 
 /// The backend, overridable at build time so a demo can point at a laptop on the venue
@@ -43,21 +46,27 @@ class TeraPatientApp extends StatefulWidget {
 class _TeraPatientAppState extends State<TeraPatientApp> {
   late final TokenStore _tokenStore;
   late final ApiClient _api;
+  late final AuthController _auth;
 
   @override
   void initState() {
     super.initState();
     _tokenStore = SecureTokenStore();
-    _api = ApiClient(
-      baseUrl: apiBaseUrl,
-      tokenStore: _tokenStore,
-      // Set in M2, when there is a navigator to return to sign-in with.
-      onSessionLost: () {},
+    _auth = AuthController(
+      api: _api = ApiClient(
+        baseUrl: apiBaseUrl,
+        tokenStore: _tokenStore,
+        // A refresh that cannot be recovered returns the app to sign-in rather than leaving
+        // the patient tapping a screen whose requests all fail.
+        onSessionLost: () => _auth.onSessionLost(),
+      ),
     );
+    _auth.restore();
   }
 
   @override
   void dispose() {
+    _auth.dispose();
     _api.dispose();
     super.dispose();
   }
@@ -68,47 +77,22 @@ class _TeraPatientAppState extends State<TeraPatientApp> {
       title: 'Tera',
       debugShowCheckedModeBanner: false,
       theme: buildTeraTheme(),
-      home: const _Placeholder(),
+      home: AnimatedBuilder(
+        animation: _auth,
+        builder: (context, _) => switch (_auth.status) {
+          AuthStatus.checking => const _Loading(),
+          AuthStatus.signedOut => SignInScreen(auth: _auth),
+          AuthStatus.signedIn => HomeScreen(auth: _auth),
+        },
+      ),
     );
   }
 }
 
-/// Temporary landing screen. Replaced by the sign-in screen in M2.
-class _Placeholder extends StatelessWidget {
-  const _Placeholder();
+class _Loading extends StatelessWidget {
+  const _Loading();
 
   @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Tera')),
-      body: Padding(
-        padding: const EdgeInsets.all(TeraSpacing.md),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Patient application',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: TeraColors.ink),
-            ),
-            const SizedBox(height: TeraSpacing.sm),
-            const Text(
-              'Sign-in arrives in the next step. Auth client and secure token storage are in '
-              'place.',
-              style: TextStyle(color: TeraColors.muted, height: 1.4),
-            ),
-            const SizedBox(height: TeraSpacing.lg),
-            Container(
-              decoration: systemFlagDecoration(),
-              padding: const EdgeInsets.all(TeraSpacing.md),
-              child: const Text(
-                'Tera monitors change between clinic visits. It does not replace a cuff, does '
-                'not diagnose, and does not advise on medication.',
-                style: TextStyle(fontSize: 12, height: 1.5, color: TeraColors.ink),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      const Scaffold(body: Center(child: CircularProgressIndicator()));
 }

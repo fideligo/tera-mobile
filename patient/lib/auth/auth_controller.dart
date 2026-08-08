@@ -1,0 +1,75 @@
+/// Session state for the app.
+///
+/// A [ChangeNotifier] rather than a state-management package: the app has one piece of global
+/// state — whether someone is signed in — and adding a dependency to hold one boolean and a
+/// [StoredSession] would be a worse trade than the twenty lines below.
+library;
+
+import 'package:flutter/foundation.dart';
+
+import '../api/api_client.dart';
+import 'token_store.dart';
+
+enum AuthStatus { checking, signedOut, signedIn }
+
+class AuthController extends ChangeNotifier {
+  AuthController({required ApiClient api}) : _api = api;
+
+  final ApiClient _api;
+
+  AuthStatus _status = AuthStatus.checking;
+  StoredSession? _session;
+  String? _error;
+
+  AuthStatus get status => _status;
+  StoredSession? get session => _session;
+  String? get error => _error;
+  bool get isSignedIn => _status == AuthStatus.signedIn;
+
+  /// Restore a session from secure storage at launch.
+  ///
+  /// A stored session is treated as valid without a round trip: the first real request will
+  /// refresh or fail, and blocking the launch on a network call would leave a patient staring
+  /// at a spinner on a bad connection.
+  Future<void> restore() async {
+    _session = await _api.currentSession();
+    _status = _session == null ? AuthStatus.signedOut : AuthStatus.signedIn;
+    notifyListeners();
+  }
+
+  Future<bool> signIn({required String username, required String password}) async {
+    _error = null;
+    notifyListeners();
+
+    try {
+      _session = await _api.signIn(username: username, password: password);
+      _status = AuthStatus.signedIn;
+      notifyListeners();
+      return true;
+    } on ApiException catch (e) {
+      _error = e.message;
+      notifyListeners();
+      return false;
+    } on Object {
+      _error = 'Could not reach Tera. Check your connection and try again.';
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<void> signOut() async {
+    await _api.signOut();
+    _session = null;
+    _status = AuthStatus.signedOut;
+    _error = null;
+    notifyListeners();
+  }
+
+  /// Called by [ApiClient] when a refresh fails and the session cannot be recovered.
+  void onSessionLost() {
+    _session = null;
+    _status = AuthStatus.signedOut;
+    _error = 'Your session has ended. Please sign in again.';
+    notifyListeners();
+  }
+}
