@@ -93,7 +93,10 @@ Future<DebugExportResult> exportRawCapture(CaptureResult capture) async {
 /// fewer dependency in the patient app is worth more than the abstraction. App-specific external
 /// storage needs no permission, and the files go when the app is uninstalled.
 Future<Directory> _exportDirectory() async {
-  const externalRoot = '/storage/emulated/0/Android/data/id.tera.patient/files';
+  // Must match applicationId in android/app/build.gradle.kts exactly. It is 'id.tera.tera_patient',
+  // not 'id.tera.patient' — a mismatch does not fail loudly, it silently falls through to the
+  // temp directory below, and the files are then somewhere nobody thinks to look.
+  const externalRoot = '/storage/emulated/0/Android/data/id.tera.tera_patient/files';
   final external = Directory(externalRoot);
   try {
     if (await external.exists() || (await external.create(recursive: true)).existsSync()) {

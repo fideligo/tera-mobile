@@ -1,4 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+        The patient app talks to the API in every build, so INTERNET belongs here and not only in
+        the debug manifest the Flutter template puts it in. CAMERA and HIGH_SAMPLING_RATE_SENSORS
+        merge in from packages/tera_capture, so the app inherits them by depending on the plugin
+        rather than by remembering to repeat them.
+    -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="tera_patient"
         android:name="${applicationName}"

@@ -4,4 +4,18 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!--
+        Cleartext HTTP, in debug builds ONLY.
+
+        Android 9+ blocks cleartext by default, so a handset on the venue Wi-Fi talking to
+        http://<laptop-ip>:8000 fails with a connection error that looks like the backend being
+        down. During development the API is plain HTTP on a LAN and there is no certificate to
+        present.
+
+        Deliberately NOT in src/main: a release build must not be able to send a health record
+        over an unencrypted connection, and putting this in the shared manifest would mean
+        exactly that, silently, forever.
+    -->
+    <application android:usesCleartextTraffic="true" />
 </manifest>
