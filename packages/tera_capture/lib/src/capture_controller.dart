@@ -35,7 +35,14 @@ import 'models.dart';
 import 'rate_statistics.dart';
 
 export 'capture_platform.dart'
-    show AccelerometerInfo, CaptureConfig, CaptureException, HandsetInfo;
+    show
+        AccelerometerInfo,
+        CaptureConfig,
+        CaptureException,
+        // The seam consumers substitute in tests: a fake platform lets a capture flow be
+        // exercised on a laptop, with no handset, no camera and no sensor.
+        CapturePlatform,
+        HandsetInfo;
 
 /// A completed recording of one stream.
 class CaptureRecording<T> {

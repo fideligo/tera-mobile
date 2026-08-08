@@ -7,6 +7,8 @@ library;
 import 'package:flutter/material.dart';
 
 import '../auth/auth_controller.dart';
+import 'capture_screen.dart';
+import 'eligibility_screen.dart';
 import 'tokens.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -52,13 +54,22 @@ class HomeScreen extends StatelessWidget {
             style: TextStyle(color: TeraColors.ink, height: 1.5),
           ),
           const SizedBox(height: TeraSpacing.lg),
-          Container(
-            decoration: systemFlagDecoration(),
-            padding: const EdgeInsets.all(TeraSpacing.md),
-            child: const Text(
-              'Device eligibility and guided capture arrive in the next step.',
-              style: TextStyle(fontSize: 12, height: 1.5, color: TeraColors.ink),
+          FilledButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => EligibilityScreen(
+                  onProceed: (_) => Navigator.of(context).pushReplacement(
+                    MaterialPageRoute<void>(
+                      builder: (_) => CaptureScreen(
+                        // The terminal step lands in M4; the flow up to it is complete.
+                        onComplete: (_) => Navigator.of(context).pop(),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             ),
+            child: const Text('Start a spot check'),
           ),
         ],
       ),
