@@ -59,10 +59,7 @@ class ApiClient {
   // ------------------------------------------------------------------ auth
 
   /// Exchange credentials for tokens and store them.
-  Future<StoredSession> signIn({
-    required String username,
-    required String password,
-  }) async {
+  Future<StoredSession> signIn({required String username, required String password}) async {
     final response = await _http.post(
       Uri.parse('$baseUrl/v1/auth/token'),
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -75,8 +72,10 @@ class ApiClient {
       throw ApiException('Incorrect username or password.', statusCode: 401);
     }
     if (response.statusCode != 200) {
-      throw ApiException('Sign-in failed (${response.statusCode}).',
-          statusCode: response.statusCode);
+      throw ApiException(
+        'Sign-in failed (${response.statusCode}).',
+        statusCode: response.statusCode,
+      );
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -142,9 +141,7 @@ class ApiClient {
   };
 
   /// Send, and on 401 refresh once and retry once.
-  Future<http.Response> _send(
-    Future<http.Response> Function(String token) request,
-  ) async {
+  Future<http.Response> _send(Future<http.Response> Function(String token) request) async {
     var session = await _tokens.read();
     if (session == null) throw SessionExpiredException('You are not signed in.');
 
@@ -205,10 +202,7 @@ class ApiClient {
       if (response.body.isEmpty) return const {};
       return jsonDecode(response.body) as Map<String, dynamic>;
     }
-    throw ApiException(
-      _messageFor(response),
-      statusCode: response.statusCode,
-    );
+    throw ApiException(_messageFor(response), statusCode: response.statusCode);
   }
 
   /// Surface the backend's own explanation where it has one — it is written for a person.

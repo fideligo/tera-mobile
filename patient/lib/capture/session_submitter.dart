@@ -64,10 +64,7 @@ class SessionSubmitter {
       final response = await _api.postJson(
         '/v1/sessions',
         payload,
-        extraHeaders: {
-          'X-Session-Nonce': nonce['nonce'] as String,
-          'Idempotency-Key': sessionId,
-        },
+        extraHeaders: {'X-Session-Nonce': nonce['nonce'] as String, 'Idempotency-Key': sessionId},
       );
       return _outcomeFrom(response);
     } on ApiException catch (e) {

@@ -70,10 +70,7 @@ class SignalResult {
     required this.nBeatsUsable,
     required this.quality,
     this.rejectionReason,
-  }) : assert(
-         accepted || rejectionReason != null,
-         'a rejected session must carry a reason',
-       );
+  }) : assert(accepted || rejectionReason != null, 'a rejected session must carry a reason');
 
   final bool accepted;
 

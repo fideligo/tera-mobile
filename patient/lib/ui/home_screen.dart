@@ -27,7 +27,7 @@ class HomeScreen extends StatelessWidget {
         actions: [
           TextButton(
             onPressed: () => auth.signOut(),
-            style: TextButton.styleFrom(foregroundColor: Colors.white),
+            style: TextButton.styleFrom(foregroundColor: TeraColors.paper),
             child: const Text('Sign out'),
           ),
         ],
@@ -42,11 +42,7 @@ class HomeScreen extends StatelessWidget {
           const SizedBox(height: TeraSpacing.lg),
           const Text(
             'Spot check',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w600,
-              color: TeraColors.ink,
-            ),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: TeraColors.ink),
           ),
           const SizedBox(height: TeraSpacing.sm),
           const Text(

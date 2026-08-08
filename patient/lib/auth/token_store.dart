@@ -50,9 +50,7 @@ class SecureTokenStore implements TokenStore {
   SecureTokenStore({FlutterSecureStorage? storage})
     : _storage =
           storage ??
-          const FlutterSecureStorage(
-            aOptions: AndroidOptions(encryptedSharedPreferences: true),
-          );
+          const FlutterSecureStorage(aOptions: AndroidOptions(encryptedSharedPreferences: true));
 
   final FlutterSecureStorage _storage;
 
@@ -73,12 +71,7 @@ class SecureTokenStore implements TokenStore {
       // in again, which is the only useful thing to do with it.
       return null;
     }
-    return StoredSession(
-      accessToken: access,
-      refreshToken: refresh,
-      role: role,
-      subject: subject,
-    );
+    return StoredSession(accessToken: access, refreshToken: refresh, role: role, subject: subject);
   }
 
   @override

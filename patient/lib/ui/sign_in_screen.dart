@@ -36,10 +36,7 @@ class _SignInScreenState extends State<SignInScreen> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
     setState(() => _busy = true);
-    await widget.auth.signIn(
-      username: _username.text.trim(),
-      password: _password.text,
-    );
+    await widget.auth.signIn(username: _username.text.trim(), password: _password.text);
     if (mounted) setState(() => _busy = false);
   }
 
@@ -91,8 +88,7 @@ class _SignInScreenState extends State<SignInScreen> {
                       obscureText: true,
                       textInputAction: TextInputAction.done,
                       onFieldSubmitted: (_) => _submit(),
-                      validator: (v) =>
-                          (v == null || v.isEmpty) ? 'Enter your password.' : null,
+                      validator: (v) => (v == null || v.isEmpty) ? 'Enter your password.' : null,
                     ),
 
                     if (error != null) ...[

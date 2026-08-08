@@ -188,10 +188,12 @@ class _SessionResultScreenState extends State<SessionResultScreen> {
   /// Invariant 1: a spot check produces a direction relative to the patient's own baseline, never
   /// a pressure. `magnitude_sd` is not rendered in the patient view at all.
   String _trendWording(String direction) => switch (direction) {
-    'increase' => 'This spot check sits above your usual range. It is not a blood-pressure '
-        'reading. Use your cuff to check.',
-    'decrease' => 'This spot check sits below your usual range. It is not a blood-pressure '
-        'reading. Use your cuff to check.',
+    'increase' =>
+      'This spot check sits above your usual range. It is not a blood-pressure '
+          'reading. Use your cuff to check.',
+    'decrease' =>
+      'This spot check sits below your usual range. It is not a blood-pressure '
+          'reading. Use your cuff to check.',
     _ => 'This spot check sits within your usual range. It is not a blood-pressure reading.',
   };
 
@@ -199,13 +201,7 @@ class _SessionResultScreenState extends State<SessionResultScreen> {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(TeraSpacing.md),
-      decoration: flagged
-          ? systemFlagDecoration()
-          : BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: TeraColors.ink200),
-            ),
+      decoration: flagged ? systemFlagDecoration() : panelDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

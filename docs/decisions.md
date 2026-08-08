@@ -810,6 +810,27 @@ fall through to an empty episode list, which would read as a missing record.
 
 ---
 
+## Surface hierarchy in the patient app
+
+`lib/ui/tokens.dart` mirrors the web client's rework — mint is the page, white is the panel, brand
+is the app bar and primary actions. The full argument, the measured table and the reproducing
+script live in the tera-web repo's `docs/decisions.md`; the short version is the one measurement
+that drives it:
+
+**A white panel on the mint page is 1.08:1.** Mint and white are near-identical in luminance, so a
+panel is not a panel because of its fill — it is a panel because of its border. `panelDecoration()`
+is the single place that treatment is defined, and it uses `ink500` (#718392, 3.62:1 on mint,
+3.92:1 on paper) because `ink200` at 1.23:1 cannot hold an edge on mint.
+
+`TeraColors.paper` exists so a bare `Colors.white` is auditable. After the sweep there is no
+`Colors.white` anywhere in `lib/` outside the token file.
+
+The app bar moved from ink to brand, and `systemFlagDecoration()` moved from an ink rule on
+`ink100` to a muted rule on `muted100` — the rule carries the meaning, the fill is a hint at
+1.25:1 and is not asked to be more.
+
+---
+
 ## Environment notes
 
 The Compose Postgres publishes on host port **5434**, not 5432 or 5433 — both were already taken

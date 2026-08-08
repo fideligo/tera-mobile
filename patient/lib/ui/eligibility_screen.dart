@@ -67,14 +67,7 @@ class _EligibilityScreenState extends State<EligibilityScreen> {
             ],
           ] else ...[
             Container(
-              decoration: result.canProceed
-                  ? const BoxDecoration(
-                      color: Colors.white,
-                      border: Border.fromBorderSide(
-                        BorderSide(color: TeraColors.ink300),
-                      ),
-                    )
-                  : systemFlagDecoration(),
+              decoration: result.canProceed ? panelDecoration() : systemFlagDecoration(),
               padding: const EdgeInsets.all(TeraSpacing.md),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -88,10 +81,7 @@ class _EligibilityScreenState extends State<EligibilityScreen> {
                     ),
                   ),
                   const SizedBox(height: TeraSpacing.sm),
-                  Text(
-                    result.detail,
-                    style: const TextStyle(color: TeraColors.ink, height: 1.5),
-                  ),
+                  Text(result.detail, style: const TextStyle(color: TeraColors.ink, height: 1.5)),
                 ],
               ),
             ),
