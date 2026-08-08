@@ -1,0 +1,158 @@
+/// Measuring the handset well enough to register it as a device profile.
+///
+/// A session cannot be submitted without a `device_profile_id`, and the backend's
+/// `DeviceProfileCreate` has **no optional measurements** — by design. Invariant 9: if a figure
+/// could not be measured, the submission fails rather than carrying a plausible substitute.
+///
+/// So the patient app measures the same five things the profiler measures, from the same package,
+/// rather than sending defaults for the ones the eligibility probe happens not to need. The
+/// eligibility gate itself only depends on the accelerometer rate; the camera rate and the clock
+/// offset spread are gathered because a device profile is not honest without them.
+library;
+
+import 'package:meta/meta.dart';
+import 'package:tera_capture/tera_capture.dart';
+
+/// How long to sample the camera when measuring its sustained rate.
+///
+/// Shorter than the profiler's warm run: this is registration, not qualification, and the number
+/// it produces is recorded as what it is — a rate measured over a few seconds on a cold camera.
+const Duration cameraProbeDuration = Duration(seconds: 6);
+
+/// Clock-offset readings, and the gap between them.
+///
+/// What matters is the *spread* across readings, not the absolute offset: a constant offset is
+/// absorbed by personal calibration, an unstable one is not. Two readings is the minimum from
+/// which any spread can be computed; five gives it somewhere to show.
+const int clockOffsetRuns = 5;
+const Duration clockOffsetSpacing = Duration(milliseconds: 400);
+
+/// Everything `POST /v1/device-profiles` requires, and nothing it does not.
+///
+/// Every field here was measured on this handset. There is deliberately no constructor that
+/// accepts a default for any of them.
+@immutable
+class DeviceMeasurements {
+  const DeviceMeasurements({
+    required this.handset,
+    required this.capabilities,
+    required this.accelRateHz,
+    required this.cameraFps,
+    required this.clockOffsetSdMs,
+  });
+
+  final HandsetInfo handset;
+  final CameraCapabilities capabilities;
+
+  /// Achieved, not requested.
+  final double accelRateHz;
+
+  /// Sustained rate from frame timestamps, over [cameraProbeDuration].
+  final double cameraFps;
+
+  /// Spread of the realtime/uptime offset across [clockOffsetRuns] readings.
+  final double clockOffsetSdMs;
+
+  /// The request body. Mirrors the profiler's payload exactly, so a handset registered from
+  /// either route grades identically.
+  Map<String, dynamic> toDeviceProfilePayload(String patientId) => {
+    'patient_id': patientId,
+    'model': handset.displayName,
+    'os_version': 'Android ${handset.androidRelease}',
+    'accel_rate_hz': accelRateHz,
+    'camera_fps': cameraFps,
+    'camera_hw_level': switch (capabilities.hardwareLevel) {
+      // The only value whose Dart name and wire name differ.
+      CameraHardwareLevel.level3 => 'level_3',
+      final level => level.name,
+    },
+    'manual_sensor': capabilities.hasManualSensor,
+    'timestamp_source': capabilities.timestampSource.name,
+    'clock_offset_sd_ms': clockOffsetSdMs,
+    // Invariant 9. This is a real handset; nothing here is seeded.
+    'synthetic': false,
+  };
+}
+
+/// Raised when the handset could not be measured. Carries a reason a patient can act on.
+class DeviceMeasurementFailure implements Exception {
+  const DeviceMeasurementFailure(this.reason);
+
+  final String reason;
+
+  @override
+  String toString() => reason;
+}
+
+/// Gathers the measurements a device profile needs.
+///
+/// Takes the accelerometer rate and camera capabilities the eligibility probe already
+/// established, so the patient is not made to repeat a six-second measurement that just ran.
+class DeviceMeasurer {
+  DeviceMeasurer({TeraCapture? capture}) : _capture = capture ?? TeraCapture();
+
+  final TeraCapture _capture;
+
+  Future<DeviceMeasurements> measure({
+    required CameraCapabilities capabilities,
+    required double accelRateHz,
+  }) async {
+    final HandsetInfo handset;
+    try {
+      handset = await _capture.readHandsetInfo();
+    } on Object catch (e) {
+      throw DeviceMeasurementFailure('The phone did not report its model. $e');
+    }
+
+    final double cameraFps;
+    try {
+      // The same configuration a real capture uses. A rate measured with auto-exposure running
+      // is not the rate the method will see, so measuring under different settings would
+      // register a figure the handset never actually delivers during a spot check.
+      final recording = await _capture.recordCamera(
+        cameraProbeDuration,
+        config: const CaptureConfig(),
+      );
+      final stats = recording.rateStatistics;
+      if (stats == null) {
+        throw const DeviceMeasurementFailure(
+          'The camera did not deliver enough frames to measure its speed.',
+        );
+      }
+      cameraFps = stats.meanRateHz;
+    } on DeviceMeasurementFailure {
+      rethrow;
+    } on Object catch (e) {
+      throw DeviceMeasurementFailure('The camera could not be measured. $e');
+    }
+
+    final offsets = <double>[];
+    for (var i = 0; i < clockOffsetRuns; i++) {
+      try {
+        offsets.add((await _capture.readClockOffset()).offsetMillis);
+      } on Object {
+        // One failed reading is survivable; too few to compute a spread is not, and that is
+        // caught below rather than papered over with a default.
+      }
+      if (i < clockOffsetRuns - 1) {
+        await Future<void>.delayed(clockOffsetSpacing);
+      }
+    }
+
+    final offsetStats = OffsetStatistics.fromOffsetsMillis(offsets);
+    if (offsetStats == null) {
+      throw const DeviceMeasurementFailure(
+        'The phone’s two clocks could not be compared often enough to tell whether they '
+        'stay in step.',
+      );
+    }
+
+    return DeviceMeasurements(
+      handset: handset,
+      capabilities: capabilities,
+      accelRateHz: accelRateHz,
+      cameraFps: cameraFps,
+      clockOffsetSdMs: offsetStats.sdMillis,
+    );
+  }
+}

@@ -24,6 +24,12 @@ class AuthController extends ChangeNotifier {
   AuthStatus get status => _status;
   StoredSession? get session => _session;
   String? get error => _error;
+
+  /// The authenticated client, for screens that call the API directly.
+  ///
+  /// Exposed rather than threaded separately through the widget tree, so there is exactly one
+  /// client in the app and therefore exactly one refresh-in-flight guard.
+  ApiClient get api => _api;
   bool get isSignedIn => _status == AuthStatus.signedIn;
 
   /// Restore a session from secure storage at launch.

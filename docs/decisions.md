@@ -778,6 +778,38 @@ rewriting the type; the downgrade is a documented no-op, as in `0003`.
 
 ---
 
+## The patient app registers its own device profile
+
+A session payload references a `device_profile_id`, and nothing else creates one for a patient
+handset: the profiler is a separate utility that a patient does not run, and there is no endpoint
+that lists a patient's existing profiles — only `GET /v1/device-profiles/{id}`.
+
+So the app registers the handset itself, the first time a spot check is taken, and caches the id.
+
+**It measures all five figures rather than defaulting the ones the eligibility gate does not
+need.** `DeviceProfileCreate` deliberately has no optional measurements (invariant 9): a figure
+that could not be measured must fail the submission, not arrive as a plausible substitute. The
+eligibility probe only needs the accelerometer rate, so `DeviceMeasurer` additionally measures the
+camera rate and the clock-offset spread, from the same package the profiler uses, and the payload
+mirrors the profiler's exactly — a handset registered by either route grades identically.
+
+The camera probe runs under the same `CaptureConfig` as a real capture. A rate measured with
+auto-exposure running is not the rate the method will see, so measuring under different settings
+would register a figure the handset never delivers during a spot check.
+
+Two smaller choices:
+
+- **The open episode, not the first.** A closed episode is a finished course of monitoring, and
+  appending to it misfiles the reading in a way that looks correct afterwards.
+- **The stored `qualified_status` is what counts**, not the app's own grading of the same
+  numbers. The app grades to decide whether to let the patient proceed; the backend's verdict is
+  what every session references.
+
+A clinician account resolves to no patient and is told so directly, rather than being allowed to
+fall through to an empty episode list, which would read as a missing record.
+
+---
+
 ## Environment notes
 
 The Compose Postgres publishes on host port **5434**, not 5432 or 5433 — both were already taken
