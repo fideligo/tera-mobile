@@ -701,6 +701,83 @@ dependency, and only for the optional upload.
 
 ---
 
+## The signal-processing contract (for whoever implements the real chain)
+
+`packages/tera_capture` stops at acquisition. `patient/lib/signal/signal_pipeline.dart` is the
+seam where beat detection, beat pairing and PTT derivation arrive. This section is the contract
+in full, so it can be implemented without reading the Flutter code.
+
+### Input — one capture, both streams recorded concurrently over the same window
+
+| Field | Type | Units | Notes |
+|---|---|---|---|
+| `accelerometer.samples[].timestampNanos` | int | ns | The sensor's own base, from `SensorEvent.timestamp`. Never arrival time. |
+| `accelerometer.samples[].x/y/z` | double | m/s² | Sternum-mounted. The SCG signal. |
+| `frames.samples[].timestampNanos` | int | ns | Hardware timestamp, in the base `SENSOR_INFO_TIMESTAMP_SOURCE` declares. |
+| `frames.samples[].roiMean` | double | 0–255 | Mean luminance over a centred ROI, one per frame. The PPG signal. **Frames themselves never cross this boundary** (invariant 2). |
+| `frames.samples[].frameNumber` | int | — | For dropped-frame accounting. |
+| `clockBasis` | `CrossStreamClockCheck` | — | The time-base relationship between the two streams, measured rather than trusted. |
+
+**Check `clockBasis` before pairing beats.** If the two streams do not share a base they are
+offset by however long the handset has slept since boot, and pairing them produces a confident
+nonsense figure that looks normal on every other measure. If the relationship could not be
+established, that is also not a basis for a PTT.
+
+### Output — `SignalResult`, mapping onto the session payload in BUILD_SPEC 4.2
+
+| Field | Type | Units | Notes |
+|---|---|---|---|
+| `accepted` | bool | — | The gate decision. |
+| `pttMs` | `List<double>` | **ms** | One interval per usable beat. Plausible range 80–400; the backend's gate rejects outside it. Empty when rejected. |
+| `nBeatsTotal` | int | — | Beats detected. |
+| `nBeatsUsable` | int | — | Beats surviving the gate. Must equal `pttMs.length` and must not exceed `nBeatsTotal`; the backend enforces both. |
+| `quality.accel_rate_hz` | double | Hz | Achieved, not requested. |
+| `quality.camera_fps` | double | fps | Achieved. |
+| `quality.dropped_frame_pct` | double | 0–100 | |
+| `quality.snr_db` | double | dB | |
+| `quality.motion_index` | double | 0–1 | 0 still, 1 unusable. |
+| `quality.clock_offset_ms` | double? | ms | Optional. |
+| `rejectionReason` | enum | — | Required when `accepted` is false; the constructor asserts it. |
+
+### The accept/reject boundary
+
+Reject when the signal does not support a number. The proposal specifies dual-estimator
+agreement — time-domain peak detection against frequency-domain spectral estimation — with
+rejection when the two disagree beyond tolerance. **Rejecting is a correct output, not a failure
+of the implementation.** The system declining to produce a number when the signal does not
+support one is the designed behaviour.
+
+### The one prohibition
+
+**Never return plausible values that were not derived.** Every number here becomes a row in a
+patient's clinical record and a line in a clinician's summary. A fabricated interval becomes a
+genuine trend in the backend and an estimate on a patient's screen, indistinguishable downstream
+from a measured one. That is exactly what the estimate-versus-measurement separation exists to
+prevent.
+
+### Why the stub rejects everything
+
+`UnimplementedSignalPipeline` returns `accepted: false` with reason
+`signal_processing_unavailable` for every session. That value is deliberately **not** a
+signal-quality reason: a judge, a teammate or a clinician must be able to tell "the signal was
+bad" from "this part of the system does not exist yet", and collapsing the two would make an
+unfinished component look like a working one that happened to reject.
+
+Sessions are still submitted and still stored, so the flow is demonstrably complete end to end,
+and rejected sessions are already designed to be visible in the timeline and the clinician
+summary (invariant 3) — nothing is hidden. `model_version` is `tera-patient-0.1.0-nosignal`, so
+every row carries its own provenance without anyone having to remember it.
+
+The quality block is genuinely measured: rates and dropped frames come from the capture that
+just happened. `snr_db` and `motion_index` cannot be computed without the signal chain and are
+reported at their worst rather than invented favourably.
+
+**Paired backend change:** `signal_processing_unavailable` is added to the `rejection_reason`
+enum by an additive migration. Additive because Postgres enum values cannot be dropped without
+rewriting the type; the downgrade is a documented no-op, as in `0003`.
+
+---
+
 ## Environment notes
 
 The Compose Postgres publishes on host port **5434**, not 5432 or 5433 — both were already taken
