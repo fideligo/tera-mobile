@@ -17,6 +17,9 @@ library;
 
 export 'src/capture_controller.dart';
 export 'src/clock_basis.dart';
+// Serialisation only — retains nothing, writes nothing, sends nothing. See the library docs for
+// why this does not move the boundary, and why it sits outside the clinical path.
+export 'src/debug_csv.dart';
 export 'src/measurement.dart';
 export 'src/models.dart';
 export 'src/rate_statistics.dart';

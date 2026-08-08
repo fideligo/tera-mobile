@@ -20,6 +20,7 @@ import 'dart:async';
 import 'package:tera_capture/tera_capture.dart';
 
 import 'profile_result.dart';
+import 'raw_export.dart';
 import 'smoke_report.dart';
 
 const String profilerVersion = 'tera-profiler-0.1.0';
@@ -146,6 +147,10 @@ class ProfileRunner {
         onProgress: (n) => onProgress('  $n samples...'),
       );
       _accelerometerBasis = recording.clockBasis;
+      // Developer builds only, and serialised here inside the scope that already holds the
+      // recording — nothing is retained for longer than before.
+      final rawPath = await exportAccelerometerRun(recording, label: 'sustained');
+      if (rawPath != null) onProgress('  raw series written to $rawPath');
       final stats = recording.rateStatistics;
       accelRate = stats == null
           ? Measurement<RateStatistics>.failed(
@@ -434,6 +439,9 @@ class ProfileRunner {
       _cameraBasis ??= recording.clockBasis(
         capabilities.isOk ? capabilities.requireValue.timestampSource : null,
       );
+
+      final rawPath = await exportCameraRun(recording, label: label);
+      if (rawPath != null) onProgress('  raw series written to $rawPath');
 
       final stats = recording.rateStatistics;
       rate = stats == null

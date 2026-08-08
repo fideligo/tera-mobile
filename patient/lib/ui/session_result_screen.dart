@@ -16,6 +16,7 @@ import '../capture/device_measurement.dart';
 import '../capture/eligibility_check.dart';
 import '../capture/session_context.dart';
 import '../capture/session_submitter.dart';
+import '../debug/raw_capture_export.dart';
 import '../signal/signal_pipeline.dart';
 import 'capture_screen.dart';
 import 'tokens.dart';
@@ -59,6 +60,7 @@ class _SessionResultScreenState extends State<SessionResultScreen> {
   _Stage _stage = _Stage.analysing;
   SubmissionOutcome? _outcome;
   String? _failure;
+  String? _exportNote;
 
   @override
   void initState() {
@@ -177,10 +179,62 @@ class _SessionResultScreenState extends State<SessionResultScreen> {
             ),
           ],
         ],
+        // Compile-time constant. In a build without --dart-define=TERA_DEBUG_CAPTURE the whole
+        // branch is removed, so the raw export is absent rather than merely hidden.
+        if (kDebugCaptureEnabled) ...[const SizedBox(height: TeraSpacing.md), _debugExport()],
         const SizedBox(height: TeraSpacing.lg),
         FilledButton(onPressed: widget.onDone, child: const Text('Done')),
       ],
     );
+  }
+
+  /// The raw-export affordance. Only compiled into a developer build.
+  ///
+  /// The terms are printed here rather than in a README, because the person about to tap it is
+  /// the person who needs to have read them.
+  Widget _debugExport() => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(TeraSpacing.md),
+    decoration: systemFlagDecoration(),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'DEVELOPER BUILD',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.2,
+            color: TeraColors.ink,
+          ),
+        ),
+        const SizedBox(height: TeraSpacing.sm),
+        const Text(
+          debugCaptureNotice,
+          style: TextStyle(color: TeraColors.ink, height: 1.5, fontSize: 13),
+        ),
+        const SizedBox(height: TeraSpacing.md),
+        OutlinedButton(onPressed: _exportRaw, child: const Text('Write raw signals to this phone')),
+        if (_exportNote != null) ...[
+          const SizedBox(height: TeraSpacing.sm),
+          Text(
+            _exportNote!,
+            style: const TextStyle(color: TeraColors.ink800, fontSize: 12, height: 1.4),
+          ),
+        ],
+      ],
+    ),
+  );
+
+  Future<void> _exportRaw() async {
+    try {
+      final result = await exportRawCapture(widget.capture);
+      if (!mounted) return;
+      setState(() => _exportNote = 'Written to:\n${result.accelPath}\n${result.framesPath}');
+    } on Object catch (e) {
+      if (!mounted) return;
+      setState(() => _exportNote = 'Export failed. $e');
+    }
   }
 
   /// Direction in words, with no number attached.

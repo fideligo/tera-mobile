@@ -831,6 +831,58 @@ The app bar moved from ink to brand, and `systemFlagDecoration()` moved from an 
 
 ---
 
+## Raw CSV export — a documented exception to invariant 2, not a repeal
+
+The signal chain cannot be written against summary statistics. It needs the raw accelerometer and
+ROI series from a real handset, and until now nothing kept them: the profiler reduced each
+recording to statistics and dropped it, and the patient app never wrote one down.
+
+So both apps can now write the two series to CSV, **in a developer build only**.
+
+### What is unchanged
+
+Invariant 2 is a property of the *clinical path*, and that path is untouched. The API accepts one
+derived interval per beat and nothing deeper; there is no field for a waveform, and no code added
+here goes near a submission. `tera_capture` still reduces each camera frame to one number inside
+the platform layer, so there is no image data to export even deliberately.
+
+### The terms, which are printed in the UI at the point of use
+
+- **Own or teammate handsets only. Never a patient's.**
+- **Purely local.** There is no network path from the export. The profiler's upload sends a device
+  profile — model, rates, hardware level, clock spread — and never a sample.
+- **Delete after analysis.** App-specific external storage clears on uninstall, but that is a
+  backstop, not the plan.
+
+### Why a compile-time flag rather than a runtime toggle
+
+`kDebugCaptureEnabled` comes from `--dart-define=TERA_DEBUG_CAPTURE`. In a build that did not pass
+it, the guard is a constant `false`, the branch is tree-shaken, and no sequence of taps reaches
+the export. A runtime switch would leave the capability in every shipped build, one mis-set
+boolean away from writing a patient's raw waveform to disk. That difference is worth more than the
+convenience of toggling it.
+
+### Two smaller choices
+
+- **The profiler retains nothing new.** Each recording is serialised inside the scope that already
+  held it and dropped immediately after, so the memory profile of a run is unchanged.
+- **A failed export never fails a profiling run.** Sixty seconds of measurement on a borrowed
+  handset is the point; the CSV is a bonus, and losing it quietly beats losing the run.
+
+### Where the serialiser lives
+
+`packages/tera_capture/lib/src/debug_csv.dart` — pure functions from a recording to a string. No
+file IO, no retention, no network. **This does not move the package boundary:** the five things
+the package deliberately does not do are buffer retention, filtering, event detection, beat
+pairing and the quality gate, and a CSV formatter is none of them. File IO and the flag live in
+the applications, because those are the parts with consequences.
+
+`frame_number` is exported rather than a row index, so a dropped frame stays visible as a gap
+instead of silently closing up — otherwise the achieved rate would look perfect offline. There is
+a test for exactly that.
+
+---
+
 ## Environment notes
 
 The Compose Postgres publishes on host port **5434**, not 5432 or 5433 — both were already taken
