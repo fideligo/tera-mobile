@@ -37,7 +37,7 @@ class HomeScreen extends StatelessWidget {
         children: [
           Text(
             'Signed in as $subject',
-            style: const TextStyle(color: TeraColors.muted, fontSize: 13),
+            style: const TextStyle(color: TeraColors.neutral700, fontSize: TeraText.small),
           ),
           const SizedBox(height: TeraSpacing.lg),
           const Text(

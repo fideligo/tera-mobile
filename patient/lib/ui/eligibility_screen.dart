@@ -62,7 +62,7 @@ class _EligibilityScreenState extends State<EligibilityScreen> {
               const SizedBox(height: TeraSpacing.sm),
               const Text(
                 'Hold the phone still.',
-                style: TextStyle(color: TeraColors.muted, fontSize: 13),
+                style: TextStyle(color: TeraColors.neutral700, fontSize: TeraText.small),
               ),
             ],
           ] else ...[

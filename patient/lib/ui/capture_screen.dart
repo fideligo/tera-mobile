@@ -230,7 +230,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
       // Live counts, so a patient can see it is working and an engineer can see it is not.
       Text(
         'Motion readings: $_accelSamples\nCamera frames: $_frames',
-        style: const TextStyle(fontSize: 12, height: 1.6, color: TeraColors.ink800),
+        style: const TextStyle(fontSize: TeraText.small, height: 1.6, color: TeraColors.neutral700),
       ),
     ];
   }

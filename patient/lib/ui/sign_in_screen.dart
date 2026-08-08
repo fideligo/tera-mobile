@@ -68,7 +68,11 @@ class _SignInScreenState extends State<SignInScreen> {
                     const Text(
                       'Monitoring between clinic visits. Tera does not replace a cuff and '
                       'does not diagnose.',
-                      style: TextStyle(color: TeraColors.muted, height: 1.45),
+                      style: TextStyle(
+                        color: TeraColors.neutral700,
+                        fontSize: TeraText.body,
+                        height: 1.45,
+                      ),
                     ),
                     const SizedBox(height: TeraSpacing.xl),
 
@@ -113,7 +117,11 @@ class _SignInScreenState extends State<SignInScreen> {
                     const SizedBox(height: TeraSpacing.md),
                     const Text(
                       'Accounts are created by your clinic. There is no self-registration.',
-                      style: TextStyle(fontSize: 12, height: 1.5, color: TeraColors.ink800),
+                      style: TextStyle(
+                        fontSize: TeraText.small,
+                        height: 1.5,
+                        color: TeraColors.neutral700,
+                      ),
                     ),
                   ],
                 ),

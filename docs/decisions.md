@@ -883,6 +883,39 @@ a test for exactly that.
 
 ---
 
+## Brand carries meaning, neutrals carry structure (patient app)
+
+`lib/ui/tokens.dart` follows the web client's rework: page is a light neutral (`#F7F8F9`), panels
+are white, and a nine-step neutral scale mixed from Deep Space Blue does the structural work. The
+full argument and the measured table live in the tera-web repo's `docs/decisions.md`; both clients
+are measured by the same script so they cannot drift apart silently.
+
+Two things specific to this app.
+
+**Wine Plum is system state only.** `systemFlagDecoration()` is plum: a rejected session, an
+unqualified handset, a failed sign-in, an unreachable API. The new `attentionDecoration()` is for
+things that describe the *patient* — no hue at all, weight and an ink rule. A deviation is
+physiological and never gets plum. The debug-export panel moved to `attentionDecoration()` too: a
+developer affordance is not a system fault and plum overstated it.
+
+**The type is a step larger than the web client throughout**, because the persona is a 52-year-old
+with hypertension holding a phone against their sternum, often in poor light. `TeraText` is
+30/21/17/15/12 against the web's 28/18/15/13/11, buttons have a 52dp minimum height, and there is
+no small grey text on a light ground: supporting copy is `neutral700` at 15px, never a lighter
+step at a smaller size. Several 12px and 13px `muted` strings were exactly that and were raised.
+
+## Seeing the patient app
+
+`patient/tool/screenshots.ps1` pulls a screencap from an attached emulator or handset into
+`patient/screenshots/` (git-ignored). It deliberately does not drive the app through its screens —
+there is no reliable way to do that from adb without a UI-automation harness, and one is not worth
+adding. Take a shot, tap to the next screen, take another. The value is in looking.
+
+Note for anyone reproducing: `adb` is not on `PATH` on the development machine. It lives at
+`%LOCALAPPDATA%\Android\Sdk\platform-toolsdb.exe`.
+
+---
+
 ## Environment notes
 
 The Compose Postgres publishes on host port **5434**, not 5432 or 5433 — both were already taken

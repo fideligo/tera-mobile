@@ -195,7 +195,9 @@ class _SessionResultScreenState extends State<SessionResultScreen> {
   Widget _debugExport() => Container(
     width: double.infinity,
     padding: const EdgeInsets.all(TeraSpacing.md),
-    decoration: systemFlagDecoration(),
+    // attentionDecoration, not systemFlagDecoration: a developer affordance is not a system
+    // fault, and plum would overstate it.
+    decoration: attentionDecoration(),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -211,7 +213,7 @@ class _SessionResultScreenState extends State<SessionResultScreen> {
         const SizedBox(height: TeraSpacing.sm),
         const Text(
           debugCaptureNotice,
-          style: TextStyle(color: TeraColors.ink, height: 1.5, fontSize: 13),
+          style: TextStyle(color: TeraColors.ink, height: 1.5, fontSize: TeraText.small),
         ),
         const SizedBox(height: TeraSpacing.md),
         OutlinedButton(onPressed: _exportRaw, child: const Text('Write raw signals to this phone')),
@@ -219,7 +221,11 @@ class _SessionResultScreenState extends State<SessionResultScreen> {
           const SizedBox(height: TeraSpacing.sm),
           Text(
             _exportNote!,
-            style: const TextStyle(color: TeraColors.ink800, fontSize: 12, height: 1.4),
+            style: const TextStyle(
+              color: TeraColors.neutral700,
+              fontSize: TeraText.small,
+              height: 1.4,
+            ),
           ),
         ],
       ],
