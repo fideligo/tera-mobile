@@ -1,0 +1,29 @@
+name: tera_patient
+description: "Tera patient application. Guided SCG-PPG monitoring between clinic visits."
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.9.2
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # The acquisition layer, shared with the device profiler. All sensor and camera work lives
+  # there and has no dependency on either app's UI.
+  tera_capture:
+    path: ../packages/tera_capture
+  # Talks to the Tera backend.
+  http: ^1.2.2
+  # Tokens are held in the Android Keystore, never in SharedPreferences — see
+  # lib/auth/token_store.dart for why that distinction matters here.
+  flutter_secure_storage: ^9.2.2
+  meta: ^1.15.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
