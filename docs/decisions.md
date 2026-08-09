@@ -716,19 +716,87 @@ in full, so it can be implemented without reading the Flutter code.
 | `frames.samples[].timestampNanos` | int | ns | Hardware timestamp, in the base `SENSOR_INFO_TIMESTAMP_SOURCE` declares. |
 | `frames.samples[].roiMean` | double | 0–255 | Mean luminance over a centred ROI, one per frame. The PPG signal. **Frames themselves never cross this boundary** (invariant 2). |
 | `frames.samples[].frameNumber` | int | — | For dropped-frame accounting. |
-| `clockBasis` | `CrossStreamClockCheck` | — | The time-base relationship between the two streams, measured rather than trusted. |
+| `clockBasis` | `CrossStreamClockCheck` | — | The time-base relationship between the two streams, measured rather than trusted. Shape given in full below. |
 
-**Check `clockBasis` before pairing beats.** If the two streams do not share a base they are
-offset by however long the handset has slept since boot, and pairing them produces a confident
-nonsense figure that looks normal on every other measure. If the relationship could not be
-established, that is also not a basis for a PTT.
+A capture is **60 seconds** (`sessionDuration`, `patient/lib/ui/capture_screen.dart`). Both streams
+run concurrently for that whole window.
+
+**Use the accelerometer's vector magnitude**, `sqrt(x² + y² + z²)`, not a single axis. The phone's
+orientation on the sternum is whatever the patient managed, so no axis reliably carries the
+dorsoventral component. Magnitude is orientation-independent; it includes gravity as a ~9.81 m/s²
+DC term, which the band-pass removes. A dorsoventral-axis implementation gives a cleaner AO complex
+and is a legitimate override *if* orientation can be constrained — in which case the new rule gets
+written here first.
+
+### The clock basis, in full
+
+`CrossStreamClockCheck` (`packages/tera_capture/lib/src/clock_basis.dart`), so this can be
+implemented without opening it:
+
+| Field | Type | Notes |
+|---|---|---|
+| `camera` | `ClockBasisVerification?` | Null when the camera side could not be determined. |
+| `accelerometer` | `ClockBasisVerification?` | Null when the accelerometer side could not be determined. |
+| `sharedBasis` | `bool?` (derived) | `true` both streams verified onto the same base; `false` verified onto different bases; **`null` at least one side inconclusive**. |
+| `verdict` | `String` (derived) | Human-readable, for the profiler report. Not for logic. |
+
+`ClockBasisVerification` carries `observed` (the base actually measured, not the one declared) and
+`clockSeparationMillis` (`double`, ms) — the realtime-minus-uptime separation, i.e. how long the
+handset has slept since boot.
+
+**Acquisition does not reconcile the two streams. It measures and reports, and that is all.**
+
+So the rule for the implementer is a rejection rule, not a correction rule:
+
+- `sharedBasis == true` — proceed. Timestamps are directly comparable.
+- `sharedBasis == false` — **reject with `clock_unstable`.** Do not apply `clockSeparationMillis`
+  as a correction. Below API 31 that offset is only millisecond-resolved, and PTT is carried in
+  10–50 ms shifts: correcting with it would convert a known-bad capture into a confident number
+  with unbounded error. Invariant 7 says escalate when ambiguous, and this is ambiguous.
+- `sharedBasis == null` — **reject with `clock_unstable`.** A relationship that could not be
+  established is not a basis for a PTT. This is deliberately the same outcome as `false` but a
+  distinct input case: "different bases" and "could not tell" are different facts, and the log
+  should say which.
+
+`clockSeparationMillis` exists for diagnostics and for the profiler's device report. It is not an
+input to a clinical capture.
+
+### The fiducial points — what PTT is measured between
+
+The single most consequential definition here, and the one most likely to be assumed rather than
+read. Two implementations that disagree on fiducials produce datasets that are each internally
+consistent and mutually incomparable, and the disagreement stays invisible until calibration
+baselines refuse to line up.
+
+**PTT is measured from the SCG aortic-valve-opening (AO) peak to the PPG foot of the same cardiac
+cycle.** This matches the proposal's own "pulse arrival" language, its PhysioNet PAT analysis, and
+the "pulse-foot detection" component already named in its pre-existing-work table.
+
+The detection rule, not just the physiology:
+
+1. **Band-pass both streams.** SCG 10–50 Hz, which is where the AO complex lives; PPG 0.5–8 Hz.
+   These bands are the conventional starting values, not figures derived from the proposal — the
+   implementer confirms them against real data and records any change here.
+2. **Segment cycles** from the PPG, which is the more periodic of the two: successive systolic
+   upstrokes bound each cycle.
+3. **AO peak** is the maximum positive peak of the band-passed SCG magnitude within the systolic
+   window of that cycle.
+4. **PPG foot** is located by the **intersecting-tangent method**: the intersection of the tangent
+   at the point of maximum first derivative of the upstroke with the horizontal line through the
+   preceding diastolic minimum. Chosen over the plain minimum because it is markedly less sensitive
+   to baseline wander, which fingertip PPG has in quantity.
+5. **Pair** each AO peak with the first PPG foot following it. `ptt = t_foot - t_AO`.
+
+The teammate implementing the real chain may override any of this. **If he does, he writes the new
+definition into this document before he writes the code** — never leaves it implicit in an
+algorithm.
 
 ### Output — `SignalResult`, mapping onto the session payload in BUILD_SPEC 4.2
 
 | Field | Type | Units | Notes |
 |---|---|---|---|
 | `accepted` | bool | — | The gate decision. |
-| `pttMs` | `List<double>` | **ms** | One interval per usable beat. Plausible range 80–400; the backend's gate rejects outside it. Empty when rejected. |
+| `pttMs` | `List<double>` | **ms** | One interval per usable beat, **already filtered to 80–400** by the pipeline (see the accept/reject boundary). Empty when rejected. |
 | `nBeatsTotal` | int | — | Beats detected. |
 | `nBeatsUsable` | int | — | Beats surviving the gate. Must equal `pttMs.length` and must not exceed `nBeatsTotal`; the backend enforces both. |
 | `quality.accel_rate_hz` | double | Hz | Achieved, not requested. |
@@ -746,6 +814,88 @@ agreement — time-domain peak detection against frequency-domain spectral estim
 rejection when the two disagree beyond tolerance. **Rejecting is a correct output, not a failure
 of the implementation.** The system declining to produce a number when the signal does not
 support one is the designed behaviour.
+
+**Out-of-range intervals are dropped by the pipeline, not passed through.** A paired interval
+outside 80–400 ms is discarded and excluded from `nBeatsUsable`; it still counts in `nBeatsTotal`,
+because the beat was detected. If the surviving count then falls below the minimum, reject the
+session with `insufficient_beats`.
+
+The backend's 80–400 ms gate stays exactly as it is, as defence in depth — but it is no longer the
+primary filter, and the pipeline must not rely on it. The reason is asymmetric cost: the backend
+gate rejects the **whole session** if one interval is out of range, so passing a single bad pair
+upward throws away fifty-nine good seconds of capture. Losing one bad pair beats losing the
+session.
+
+**The minimum is a stated threshold, not the implementer's judgement.** The backend's
+`min_usable_beats` is **30** (`backend/app/config.py`, with the reasoning: a 60 s capture at 60 bpm
+gives ~60 beats, so 30 means at least half the capture survived). It is overridable per episode via
+`monitoring_episode.protocol_params.min_beat_count`. The handset mirrors it as a constant and
+cross-checks it against the backend — see the threshold cross-check below.
+
+### Constants
+
+Everything the implementer would otherwise have to guess, in one place.
+
+| Constant | Value | Where it lives |
+|---|---|---|
+| Capture duration | 60 s | `sessionDuration`, `capture_screen.dart` |
+| Minimum usable beats | 30 | backend `min_usable_beats`; mirrored on the handset |
+| Plausible PTT range | 80–400 ms | backend `ptt_min_ms` / `ptt_max_ms`; mirrored on the handset |
+| Maximum interval count | 300 | backend `max_ptt_array_length` (invariant 2 bound) |
+| Accelerometer input | vector magnitude | this document, above |
+| SCG band-pass | 10–50 Hz | starting value; implementer confirms and records |
+| PPG band-pass | 0.5–8 Hz | starting value; implementer confirms and records |
+| Dual-estimator tolerance | see below | handset constant |
+
+**Dual-estimator tolerance.** The time-domain mean heart rate (from detected beat intervals) and
+the frequency-domain estimate (spectral peak of the band-passed PPG) must agree within the
+tolerance or the session is rejected with `poor_signal_quality`. It stays a **handset constant** for
+now rather than backend configuration, because it gates a decision made before anything is
+submitted. Treat the initial value as an engineering choice pending validation against real
+captures, in the same register as `min_usable_beats` — and record the validated figure here once
+there is hardware data to set it from.
+
+### `snr_db` and `motion_index` are not yet defined
+
+Both fields are required by the payload and **neither has an agreed formula.** Defining them
+without real captures to test against would mean inventing a number and then treating it as
+established, which is the one thing this document exists to prevent.
+
+So, explicitly: **the implementer defines the formula for these two and records it here when the
+real chain is implemented.** Until that happens, **the backend must not gate on their absolute
+values.** They are carried, stored and displayed; they are not thresholds. The stub reports
+`snr_db: 0.0` and `motion_index: 1.0` — both at their worst — rather than inventing something
+favourable.
+
+### Error contract
+
+**`process()` does not throw for any signal-related reason.** A signal that cannot be turned into
+intervals is a *return value*: `accepted: false` with the reason that names the actual cause. Bad
+signal is an expected outcome of this system, not an exception.
+
+A throw therefore means a genuine fault — a bug, or a condition the implementation did not
+anticipate. The caller catches it, records the session as rejected with
+`signal_processing_unavailable`, and logs an incident. Invariant 3 says the session is retained
+either way.
+
+That reuses the stub's reason, and the ambiguity is resolvable from the data rather than by
+convention: `model_version` distinguishes the two cases. `tera-patient-0.1.0-nosignal` means the
+chain was absent by design; any other version emitting `signal_processing_unavailable` means the
+chain was present and failed. Nobody has to remember which.
+
+A null or inconclusive `clockBasis` is **not** a fault and must not throw — it is
+`clock_unstable`, as set out above.
+
+### The golden vector
+
+There is no hardware data, so there is a **synthetic paired recording with a known ground-truth
+PTT** committed alongside the tests, and the expected output is documented with it. It exists so an
+implementation can be checked against something other than "it compiles and returns plausible
+numbers" — which is precisely the failure mode the prohibition below warns about.
+
+See `patient/test/fixtures/README.md` for the fixture, its parameters and the tolerance an
+implementation is expected to meet. Synthetic is not real data and does not prove the chain works
+on a chest; it does prove the chain agrees with the contract on this page.
 
 ### The one prohibition
 
@@ -775,6 +925,32 @@ reported at their worst rather than invented favourably.
 **Paired backend change:** `signal_processing_unavailable` is added to the `rejection_reason`
 enum by an additive migration. Additive because Postgres enum values cannot be dropped without
 rewriting the type; the downgrade is a documented no-op, as in `0003`.
+
+### The threshold cross-check
+
+Several thresholds exist in two places at once: 200/500 Hz eligibility bands, the 30-beat minimum,
+the 80–400 ms range. The backend holds them as pydantic-settings, environment-overridable. The
+handset holds them as compile-time Dart constants, because it must decide before it can talk to
+anything. They agree today by hand, and nothing kept them agreeing.
+
+That is a live failure mode, not a theoretical one: set a backend override at a venue and the two
+halves disagree silently, with the handset admitting captures the backend then rejects.
+
+**The check compares verdicts, not numbers.** The handset grades the device and then submits the
+measured figures; the backend independently grades the same figures and returns
+`qualified_status` plus per-measurement `findings`, each carrying the `threshold` it applied. If
+the two verdicts differ, a threshold has drifted — whatever the numbers are.
+
+Comparing verdicts rather than parsing `finding.threshold` is deliberate. That field is prose
+(`">= 500 Hz target, >= 200 Hz minimum"`), built for a human reading a device report. A Dart regex
+over it would be a second place for the two halves to disagree, and it would fail silently the
+first time someone rewords the string. The verdict is a value both sides compute from the same
+inputs, so comparing it detects drift with nothing to parse.
+
+On mismatch the app logs loudly, including the backend's `threshold` prose so a human sees the
+actual numbers, and continues — the backend's grading is authoritative for what it stores, and
+blocking the patient over a configuration disagreement would be the wrong trade. See
+`patient/lib/capture/threshold_crosscheck.dart`.
 
 ---
 
