@@ -954,6 +954,46 @@ blocking the patient over a configuration disagreement would be the wrong trade.
 
 ---
 
+## Invariant 8 on the handset: the half that had to work offline was the half that was missing
+
+The invariant says a red flag produces an immediate instruction to seek emergency care, with no
+measurement offered and no estimate displayed, and that **the path must not depend on network
+availability** — the handset shows it locally, the API call is a record.
+
+The backend half shipped in Phase 1: `POST /v1/events` accepts a `red_flag` event and echoes an
+`emergency_instruction`, with a passing named test. The handset had no symptom entry, no triage and
+no emergency screen. So the only half that was built was the half the invariant does not rely on,
+and the invariant table said "enforced" because it named the endpoint.
+
+**Triage runs first, before the eligibility probe.** Putting it after would make someone reporting
+chest pain sit through six seconds of sensor measurement, and the eligibility screen can itself end
+in "this phone cannot be used" — which would swallow the report entirely.
+
+**Any single flag terminates.** No severity weighting, no combination waved through. Invariant 7: a
+false alarm costs a wasted trip, a false reassurance can cost much more.
+
+**Offline is structural, not a behaviour to remember.** `SymptomTriage.decide` is a pure function
+of the selection — no `ApiClient` in the signature, no clock, no IO — and `emergencyInstruction` is
+a compile-time constant. There is no path from selecting a flag to showing the instruction that can
+touch a socket. The emergency screen paints, and only then does a post-frame callback attempt the
+record.
+
+**The instruction is duplicated rather than fetched.** It is a verbatim copy of
+`ACTION_SEEK_EMERGENCY_CARE` from the backend's `language.py`, asserted by a test so a change there
+fails here. Fetching it would make the one path that must survive a dead network depend on that
+network, which is the exact thing the invariant forbids. The backend's copy is the record of what
+was shown; the handset's is what is shown.
+
+**`RedFlagRecorder` never throws and its result never changes what the patient sees.** A failure is
+reported as a quiet footnote — "this phone could not reach your clinic's record just now, that does
+not change the advice above" — stated rather than apologised for. A patient who may be having a
+cardiac event is not shown a network error and is not made to wait on a retry.
+
+**The screen does not interpret.** Invariant 6 forbids diagnosis and reassurance alike, and the
+temptation here runs in both directions. A test asserts the copy contains no "heart attack", no
+"stroke", no "probably", no "may be nothing". It says what to do and stops. `PopScope` prevents
+swiping back into a measurement.
+
 ## Cuff readings are entered on the handset, and confirmation is a type
 
 Appendix C of the proposal puts manual cuff confirmation on the live-demo critical path, and it

@@ -10,6 +10,7 @@ import '../auth/auth_controller.dart';
 import 'capture_screen.dart';
 import 'cuff_reading_screen.dart';
 import 'eligibility_screen.dart';
+import 'symptom_triage_screen.dart';
 import 'session_result_screen.dart';
 import 'tokens.dart';
 
@@ -94,37 +95,50 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  /// Eligibility, then capture, then the terminal steps.
+  /// Triage, then eligibility, then capture, then the terminal steps.
   ///
   /// Each step replaces the one before it, so the back button never lands a patient in the middle
   /// of a recording that has already finished, and 'Done' returns to this screen rather than
   /// unwinding through screens whose work is over.
+  ///
+  /// **Triage is first.** Invariant 8 requires a red flag to end the session before a measurement
+  /// is offered, and putting it after the eligibility probe would make someone reporting chest
+  /// pain wait through six seconds of sensor measurement — which can itself end in "this phone
+  /// cannot be used", swallowing the report entirely.
   void _startSpotCheck(BuildContext context) {
     final navigator = Navigator.of(context);
 
     navigator.push(
       MaterialPageRoute<void>(
-        builder: (_) => EligibilityScreen(
-          onProceed: (eligibility) => navigator.pushReplacement(
-            MaterialPageRoute<void>(
-              builder: (_) => CaptureScreen(
-                onComplete: (capture) => navigator.pushReplacement(
-                  MaterialPageRoute<void>(
-                    builder: (_) => SessionResultScreen(
-                      api: auth.api,
-                      capture: capture,
-                      // The eligibility probe already measured this handset; carrying its result
-                      // forward avoids repeating six seconds of measurement the patient watched.
-                      eligibility: eligibility,
-                      onDone: () => navigator.popUntil((route) => route.isFirst),
-                    ),
-                  ),
-                ),
-              ),
-            ),
+        builder: (_) => SymptomTriageScreen(
+          api: auth.api,
+          onDone: () => navigator.popUntil((route) => route.isFirst),
+          onProceed: () => navigator.pushReplacement(
+            MaterialPageRoute<void>(builder: (_) => _eligibilityOnwards(navigator)),
           ),
         ),
       ),
     );
   }
+
+  Widget _eligibilityOnwards(NavigatorState navigator) => EligibilityScreen(
+    onProceed: (eligibility) => navigator.pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => CaptureScreen(
+          onComplete: (capture) => navigator.pushReplacement(
+            MaterialPageRoute<void>(
+              builder: (_) => SessionResultScreen(
+                api: auth.api,
+                capture: capture,
+                // The eligibility probe already measured this handset; carrying its result
+                // forward avoids repeating six seconds of measurement the patient watched.
+                eligibility: eligibility,
+                onDone: () => navigator.popUntil((route) => route.isFirst),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
