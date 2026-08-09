@@ -954,6 +954,52 @@ blocking the patient over a configuration disagreement would be the wrong trade.
 
 ---
 
+## Cuff readings are entered on the handset, and confirmation is a type
+
+Appendix C of the proposal puts manual cuff confirmation on the live-demo critical path, and it
+could not be done from the phone at all. The backend has always accepted `POST /v1/cuff-readings`;
+nothing on the handset called it. That also meant the calibration loop — the thing that makes
+PTT-as-change legitimate — could not be demonstrated from the device that does the capturing.
+
+**Manual entry only.** `source` is always `manual_entry`. Seven-segment OCR from a photograph is
+out of scope (BUILD_SPEC 8), the backend refuses both `source = 'photograph'` and any
+`ocr_confidence`, and the app never sends either. The screen says so in words, so a judge does not
+have to infer the absence of a feature from its absence.
+
+**Confirmation is enforced by the type system, not by a flag.** `user_confirmed_at` is NOT NULL in
+the schema, so an unconfirmed reading is not representable — but "not representable" is only true
+if the client cannot construct one. `ConfirmedCuffReading` has a private constructor and is
+produced solely by `DraftCuffReading.confirm()`; `CuffReadingSubmitter.submit` accepts nothing
+else. There is no path from a text field to the API that does not pass through a person saying yes,
+and that is a property of the code rather than of the screen flow, which somebody could otherwise
+reorder.
+
+`confirm()` throws on a draft that does not validate, so an invalid reading cannot be confirmed
+into existence by a caller that forgot to check first.
+
+The reason for the weight: a mistyped blood pressure is not an ordinary typo. It becomes the
+reference every later estimate is measured against, the table is append-only, and a correction is a
+new row rather than an edit. Confirming costs a tap.
+
+**The confirm screen shows the numerals at display size.** A 15pt echo of what was just typed
+confirms nothing — the thing being checked against the cuff display is the digits. This is the one
+place in the patient app where large numerals are right, and it is exactly the case invariant 1
+reserves them for: a cuff measurement, not an estimate.
+
+**Bounds are mirrored, and they are data-entry filters rather than clinical thresholds.** 50–300,
+30–200, 25–250 and "systolic above diastolic" match `check_cuff_reading` field for field so an
+obvious slip is caught while the cuff is still in front of the patient. A value inside the range is
+not "normal" and one at the edge is not an alarm; the app says nothing about what the numbers mean
+(invariant 6). A test asserts the constants against the backend's values so a rebanding fails
+loudly rather than drifting.
+
+**Timestamps are UTC.** `DateTime.now().toUtc()`, asserted in a test — a handset in WIB filing a
+reading eight hours out would corrupt the ordering the whole timeline depends on.
+
+`resolveEpisode()` was split out of `SessionContextResolver.resolve()` for this. A cuff reading
+needs an episode and nothing else; registering a device profile to file a number the patient read
+off a cuff would attach a handset measurement to a record the handset did not take.
+
 ## The patient app registers its own device profile
 
 A session payload references a `device_profile_id`, and nothing else creates one for a patient

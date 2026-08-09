@@ -97,16 +97,19 @@ class SessionContextResolver {
   final ApiClient _api;
   final DeviceProfileStore _profiles;
 
-  /// Resolve the patient, the episode and the device profile, registering the handset if it has
-  /// not been registered from this app before.
-  Future<SessionContext> resolve(DeviceMeasurements measurements) async {
+  /// Resolve just the patient and their open episode.
+  ///
+  /// Split out because a cuff reading needs an episode and nothing else. Registering a device
+  /// profile to file a number the patient read off a cuff would attach a handset measurement to a
+  /// record the handset did not take.
+  Future<({String patientId, String episodeId})> resolveEpisode() async {
     final me = await _api.getJson('/v1/auth/me');
     final patientId = me['patient_id'] as String?;
     if (patientId == null) {
       // A clinician account has no patient record to record against. Saying so plainly beats a
       // 404 from the episode list, which would look like a missing episode.
       throw const SessionContextFailure(
-        'This account is not a patient account, so it cannot record a spot check.',
+        'This account is not a patient account, so it cannot record against a monitoring period.',
       );
     }
 
@@ -117,10 +120,16 @@ class SessionContextResolver {
     if (open.isEmpty) {
       throw const SessionContextFailure(
         'There is no open monitoring period on this account. Your clinic starts one before '
-        'spot checks can be recorded.',
+        'readings can be recorded.',
       );
     }
-    final episodeId = open.first['episode_id'] as String;
+    return (patientId: patientId, episodeId: open.first['episode_id'] as String);
+  }
+
+  /// Resolve the patient, the episode and the device profile, registering the handset if it has
+  /// not been registered from this app before.
+  Future<SessionContext> resolve(DeviceMeasurements measurements) async {
+    final (:patientId, :episodeId) = await resolveEpisode();
 
     final cached = await _profiles.read();
     if (cached != null) {

@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 
 import '../auth/auth_controller.dart';
 import 'capture_screen.dart';
+import 'cuff_reading_screen.dart';
 import 'eligibility_screen.dart';
 import 'session_result_screen.dart';
 import 'tokens.dart';
@@ -55,7 +56,40 @@ class HomeScreen extends StatelessWidget {
             onPressed: () => _startSpotCheck(context),
             child: const Text('Start a spot check'),
           ),
+
+          const SizedBox(height: TeraSpacing.xl),
+          const Divider(),
+          const SizedBox(height: TeraSpacing.lg),
+
+          const Text(
+            'Cuff reading',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: TeraColors.ink),
+          ),
+          const SizedBox(height: TeraSpacing.sm),
+          const Text(
+            'Type in the numbers from your upper-arm cuff. These are the blood-pressure '
+            'measurements your spot checks are compared against, so record them when your clinic '
+            'asks.',
+            style: TextStyle(color: TeraColors.ink, height: 1.5),
+          ),
+          const SizedBox(height: TeraSpacing.lg),
+          OutlinedButton(
+            onPressed: () => _recordCuffReading(context),
+            child: const Text('Record a cuff reading'),
+          ),
         ],
+      ),
+    );
+  }
+
+  void _recordCuffReading(BuildContext context) {
+    final navigator = Navigator.of(context);
+    navigator.push(
+      MaterialPageRoute<void>(
+        builder: (_) => CuffReadingScreen(
+          api: auth.api,
+          onDone: () => navigator.popUntil((route) => route.isFirst),
+        ),
       ),
     );
   }
