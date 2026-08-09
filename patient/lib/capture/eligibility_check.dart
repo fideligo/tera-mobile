@@ -26,6 +26,14 @@ const double targetAccelRateHz = 500.0;
 /// short enough that a patient will wait for it.
 const Duration eligibilityProbeDuration = Duration(seconds: 6);
 
+/// The accelerometer band rule on its own, so the threshold cross-check applies exactly the rule
+/// the gate applies rather than a second copy of it that can drift.
+EligibilityVerdict gradeAccelRate(double achievedHz) {
+  if (achievedHz < minimumAccelRateHz) return EligibilityVerdict.notQualified;
+  if (achievedHz < targetAccelRateHz) return EligibilityVerdict.provisional;
+  return EligibilityVerdict.qualified;
+}
+
 enum EligibilityVerdict {
   /// At or above the target rate.
   qualified,
@@ -119,7 +127,9 @@ class EligibilityChecker {
       );
     }
 
-    if (achieved < minimumAccelRateHz) {
+    final graded = gradeAccelRate(achieved);
+
+    if (graded == EligibilityVerdict.notQualified) {
       return EligibilityResult(
         verdict: EligibilityVerdict.notQualified,
         headline: 'This phone cannot be used',
@@ -133,7 +143,7 @@ class EligibilityChecker {
       );
     }
 
-    if (achieved < targetAccelRateHz) {
+    if (graded == EligibilityVerdict.provisional) {
       return EligibilityResult(
         verdict: EligibilityVerdict.provisional,
         headline: 'This phone can be used',

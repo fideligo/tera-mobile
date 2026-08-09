@@ -14,6 +14,7 @@ import 'package:meta/meta.dart';
 
 import '../api/api_client.dart';
 import 'device_measurement.dart';
+import 'threshold_crosscheck.dart';
 
 @immutable
 class SessionContext {
@@ -124,6 +125,12 @@ class SessionContextResolver {
     final cached = await _profiles.read();
     if (cached != null) {
       final profile = await _api.getJson('/v1/device-profiles/$cached');
+      // Also on the cached path: an override applied to the backend after this handset registered
+      // would otherwise go unnoticed for the life of the install.
+      reportThresholdCrossCheck(
+        accelRateHz: measurements.accelRateHz,
+        deviceProfile: profile,
+      );
       return SessionContext(
         patientId: patientId,
         episodeId: episodeId,
@@ -135,6 +142,10 @@ class SessionContextResolver {
     final created = await _api.postJson(
       '/v1/device-profiles',
       measurements.toDeviceProfilePayload(patientId),
+    );
+    reportThresholdCrossCheck(
+      accelRateHz: measurements.accelRateHz,
+      deviceProfile: created,
     );
     final deviceProfileId = created['id'] as String;
     await _profiles.write(deviceProfileId);
