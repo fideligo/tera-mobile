@@ -70,7 +70,7 @@ class _SessionResultScreenState extends State<SessionResultScreen> {
 
   Future<void> _run() async {
     try {
-      final signal = await const UnimplementedSignalPipeline().process(widget.capture);
+      final signal = await const TeraSignalPipeline().process(widget.capture);
 
       if (!mounted) return;
       setState(() => _stage = _Stage.measuringDevice);

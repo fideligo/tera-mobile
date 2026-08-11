@@ -7,4 +7,9 @@
 /// memory.
 library;
 
-const String signalPipelineVersion = 'tera-patient-0.1.0-nosignal';
+/// Provenance for every row this build writes.
+///
+/// `-nosignal` is gone: the chain is the ML team's `tera_ptt.py`, ported to Dart and pinned
+/// against it in `test/ptt_reference_test.dart`. The version carries the reference it was
+/// ported from, so a row can be traced to the algorithm that produced it.
+const String signalPipelineVersion = 'tera-patient-0.2.0-ptt-dart-r1';

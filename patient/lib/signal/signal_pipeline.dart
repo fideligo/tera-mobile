@@ -45,11 +45,14 @@
 /// measured one.
 library;
 
+import 'dart:math' as math;
+
 import 'package:meta/meta.dart';
 // For the rateStatistics extensions on CaptureRecording; extension methods are only in scope
 // when their defining library is imported.
 import 'package:tera_capture/tera_capture.dart';
 
+import '../capture/dsp/tera_ptt.dart';
 import '../ui/capture_screen.dart';
 
 /// Minimum intervals that must survive the gate for a session to be usable.
@@ -127,47 +130,168 @@ abstract class SignalPipeline {
   Future<SignalResult> process(CaptureResult capture);
 }
 
-/// Stand-in until the real chain lands.
+/// The real chain, running on the handset.
 ///
-/// **It rejects every session, deliberately.** The alternative - returning plausible-looking
-/// intervals - would let the backend compute a genuine trend from invented data and show it to
-/// a patient as an estimate. That is precisely what the estimate-versus-measurement separation
-/// exists to prevent, and it would be undetectable downstream.
+/// Ported from the ML team's `tera_ptt.py`; the DSP lives in `capture/dsp/`. It runs here rather
+/// than on a server because invariant 2 says raw waveform never leaves the phone, and that is a
+/// regulatory claim in the pitch rather than a preference. Only the derived intervals and the
+/// quality figures are submitted.
 ///
-/// So the flow runs end to end, the session reaches the backend, and it is recorded as a
-/// rejected session with a reason naming the actual cause. Rejected sessions are already
-/// designed to be visible in the timeline and the clinician summary, so nothing is hidden.
-class UnimplementedSignalPipeline implements SignalPipeline {
-  const UnimplementedSignalPipeline();
+/// `capture/dsp/tera_ptt.dart` is checked against the Python line by line in
+/// `test/ptt_reference_test.dart` — beat times to the microsecond, every paired interval, and
+/// every gate verdict.
+class TeraSignalPipeline implements SignalPipeline {
+  const TeraSignalPipeline();
 
   @override
   Future<SignalResult> process(CaptureResult capture) async {
     final accelStats = capture.accelerometer.rateStatistics;
     final frameStats = capture.frames.rateStatistics;
 
-    // The quality block is real: measured from the capture that just happened, and what the
-    // backend's plausibility gate checks. Only the beat analysis is absent.
     final quality = <String, dynamic>{
       'accel_rate_hz': accelStats?.meanRateHz ?? 0.0,
       'camera_fps': frameStats?.meanRateHz ?? 0.0,
       'dropped_frame_pct': frameStats?.droppedPercent ?? 100.0,
-      // Not derived from the signal, and not claimed to be. The gate needs the field present,
-      // and a value that cannot be computed is reported at its worst rather than invented
-      // favourably.
       'snr_db': 0.0,
       'motion_index': 1.0,
     };
-
     final offset = capture.clockBasis.camera?.clockSeparationMillis;
     if (offset != null) quality['clock_offset_ms'] = offset;
 
+    // The clock check comes first and is a rejection rule, not a correction rule. Two streams on
+    // different bases are offset by however long the handset has slept since boot; pairing them
+    // produces a confident nonsense figure that looks normal on every other measure.
+    final sharedBasis = capture.clockBasis.sharedBasis;
+    if (sharedBasis != true) {
+      return SignalResult(
+        accepted: false,
+        pttMs: const [],
+        nBeatsTotal: 0,
+        nBeatsUsable: 0,
+        quality: quality,
+        rejectionReason: SignalRejection.clockUnstable,
+      );
+    }
+
+    final accelRate = accelStats?.meanRateHz ?? 0.0;
+    final cameraRate = frameStats?.meanRateHz ?? 0.0;
+    if (accelRate <= 0 || cameraRate <= 0) {
+      return SignalResult(
+        accepted: false,
+        pttMs: const [],
+        nBeatsTotal: 0,
+        nBeatsUsable: 0,
+        quality: quality,
+        rejectionReason: SignalRejection.sensorRateBelowQualified,
+      );
+    }
+
+    // **The chest-normal axis, not the magnitude.** Gravity is about 9.81 m/s2 and the cardiac
+    // signature is about 0.02, so a magnitude is dominated by gravity and reduces to "the
+    // projection onto whichever way gravity happens to point" — which also destroys the sign
+    // that separates valve opening from closing. The ML handoff calls this out as its second
+    // blocker; `docs/decisions.md` records the reversal of the earlier magnitude decision.
+    final scg = [for (final s in capture.accelerometer.samples) s.z];
+    final ppg = [for (final f in capture.frames.samples) f.roiMean];
+
+    final PttAnalysis analysis;
+    try {
+      analysis = analyseCapture(scg: scg, fsScg: accelRate, ppg: ppg, fsPpg: cameraRate);
+    } on Object {
+      // The contract in docs/decisions.md: process() does not throw for signal reasons, so a
+      // throw here is a fault in the chain rather than a bad capture. The session is still
+      // recorded, with a reason that does not blame the signal.
+      return SignalResult(
+        accepted: false,
+        pttMs: const [],
+        nBeatsTotal: 0,
+        nBeatsUsable: 0,
+        quality: quality,
+        rejectionReason: SignalRejection.signalProcessingUnavailable,
+      );
+    }
+
+    quality['snr_db'] = _snrDb(analysis);
+    quality['motion_index'] = _motionIndex(analysis);
+
+    if (!analysis.gate.passed) {
+      return SignalResult(
+        accepted: false,
+        pttMs: const [],
+        nBeatsTotal: analysis.nScgBeats,
+        nBeatsUsable: 0,
+        quality: quality,
+        rejectionReason: _reasonFor(analysis.gate.failure),
+      );
+    }
+
+    // Drop anything outside the plausible band before it reaches the backend. Its identical gate
+    // rejects the *whole session* on one bad interval, so relying on it would throw away a good
+    // capture for one bad pair. Defence in depth stays; it is no longer the primary filter.
+    final usable = [
+      for (final v in analysis.pttMs)
+        if (v >= pttMinMs && v <= pttMaxMs) v,
+    ];
+
+    if (usable.length < minUsableBeats) {
+      return SignalResult(
+        accepted: false,
+        pttMs: const [],
+        nBeatsTotal: analysis.nScgBeats,
+        nBeatsUsable: 0,
+        quality: quality,
+        rejectionReason: SignalRejection.insufficientBeats,
+      );
+    }
+
+    // Invariant 2's array bound. Keeping the most recent intervals rather than truncating from
+    // the front: the end of a capture is the part the patient was most settled for.
+    final bounded = usable.length > maxPttArrayLength
+        ? usable.sublist(usable.length - maxPttArrayLength)
+        : usable;
+
     return SignalResult(
-      accepted: false,
-      pttMs: const [],
-      nBeatsTotal: 0,
-      nBeatsUsable: 0,
+      accepted: true,
+      pttMs: bounded,
+      nBeatsTotal: analysis.nScgBeats,
+      nBeatsUsable: bounded.length,
       quality: quality,
-      rejectionReason: SignalRejection.signalProcessingUnavailable,
     );
+  }
+
+  /// Every gate failure maps onto a reason the backend already knows, and each names something
+  /// the *device* could not do. None describes the patient.
+  static SignalRejection _reasonFor(GateFailure? failure) => switch (failure) {
+    GateFailure.insufficientBeats => SignalRejection.insufficientBeats,
+    GateFailure.lowPairYield => SignalRejection.insufficientBeats,
+    GateFailure.chestBeatDetectionUnreliable => SignalRejection.poorSignalQuality,
+    GateFailure.fingerBeatDetectionUnreliable => SignalRejection.poorSignalQuality,
+    // Chest and finger disagreeing about the heart rate means they are not seeing the same
+    // heartbeats, which on a handset is almost always movement between the two.
+    GateFailure.sensorsDisagree => SignalRejection.excessiveMotion,
+    GateFailure.pttTooVariable => SignalRejection.excessiveMotion,
+    null => SignalRejection.poorSignalQuality,
+  };
+
+  /// A signal-quality figure derived from the beat analysis, in dB.
+  ///
+  /// Defined here rather than left at its worst, now that there is a chain to define it against:
+  /// the ratio of the median transit time to its own dispersion, which is what "how well resolved
+  /// is this measurement" means for PTT. Not a spectral SNR, and labelled as a heuristic in
+  /// `docs/decisions.md` rather than presented as a validated figure.
+  static double _snrDb(PttAnalysis analysis) {
+    final sd = analysis.summary.sd;
+    final med = analysis.summary.median;
+    if (!sd.isFinite || !med.isFinite || sd <= 0) return 0.0;
+    return 20.0 * (math.log(med / sd) / math.ln10);
+  }
+
+  /// 0 still, 1 unusable, from the fraction of detected beats that failed to pair.
+  ///
+  /// Unpaired beats are what motion actually produces: the chest sees a beat and the finger does
+  /// not, or the two drift apart. Also a heuristic, also labelled as one.
+  static double _motionIndex(PttAnalysis analysis) {
+    if (analysis.nScgBeats == 0) return 1.0;
+    return (1.0 - analysis.summary.pairYield).clamp(0.0, 1.0);
   }
 }
