@@ -1341,3 +1341,39 @@ to `excessive_motion`; the two dual-estimator failures to `poor_signal_quality`;
 `signal_processing_unavailable` now means a **fault in the chain**, not its absence — a throw from
 `process()`. `model_version` moves to `tera-patient-0.2.0-ptt-dart-r1` so a row can be traced to
 the algorithm that produced it, and a test asserts it no longer says `nosignal`.
+
+## The rhythm model runs in pure Dart, because a Random Forest cannot be a `.tflite`
+
+`ml/MODEL_HANDOFF.md` section 1 states it directly: TFLite converts TensorFlow/Keras models only,
+and the artefact is a **scikit-learn Random Forest**, so there is no `.tflite` to scaffold against.
+The ML team prepared two on-device routes instead — `model.onnx` via `onnxruntime`, and
+`model_trees.json` for "evaluasi pohon murni di Dart (tanpa dependensi runtime)".
+
+**The second route is taken.** A decision tree is an `if` ladder, so a 400-tree forest needs no
+inference runtime, no native library and no new dependency — which also means nothing new to
+install, sign or debug the day before a deadline. `lib/capture/dsp/rhythm_model.dart` walks the
+trees and averages.
+
+**The 37 MB asset is not bundled.** `RhythmForest.fromJson` takes decoded JSON, so wiring it to a
+real asset is a deliberate act with a build-size cost attached. The handoff's own recommendation
+stands: "Leave `rhythm_model` unset and everything works... A missing flag costs nothing. A false
+'irregular rhythm' on a healthy volunteer in front of a judge costs a lot."
+
+**The operating point comes from the file.** `model_trees.json` ships 0.10024, which is the
+sensitivity-0.90 point the model was validated at. A 0.5 default is not a conservative version of
+that, it is a different model, so the fallback is flagged rather than applied quietly.
+
+**The feature order is enforced, not assumed.** Wrong order gives a confident answer from the wrong
+columns with no error anywhere, so a reordered or wrong-length `features` list is a `FormatException`
+at load. Tested both ways.
+
+**Too few intervals returns null, not "regular".** Fewer than eight usable RR intervals means the
+question was not asked. Reporting a negative would be an answer the data does not support.
+
+The 10 HRV features are pinned against the ML team's own `_hrv_features` by
+`test/fixtures/hrv_reference.json`, generated from their Python. The tree walker is pinned against
+a two-tree forest small enough to verify by reading it, because the real one is 37 MB.
+
+**Not yet wired into the capture flow.** The chain produces SCG beat times and the model consumes
+them, but nothing calls it: with the model off by default and no asset bundled, wiring it would add
+a branch that is dead in every build we ship this week.
