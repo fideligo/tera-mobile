@@ -1221,3 +1221,37 @@ prevent.
 The block copy names the limitation and refers on. A test rejects "pre-eclampsia", "dangerous",
 "normal" and the rest — invariant 6 applies here as everywhere, and it caught a first draft of this
 message that said Tera could not tell "a normal change" from one that matters.
+
+## OCR-first cuff entry, and why an OCR reading is still `manual_entry`
+
+Photographing the tensimeter is now the first offer on the cuff screen, with typing beside it.
+Both routes end at a person confirming the numerals, and the submit call is reachable only from a
+confirm stage.
+
+**The extractor is a mock.** `MockCuffOcrExtractor` returns 152/96, pulse 74, confidence 0.88 after
+a second. There is no model, no image and no camera. It exists so the confirmation UX can be built
+and judged before a real extractor exists.
+
+**The mock marks itself.** `CuffOcrReading.simulated` is set inside the mock and is not a
+constructor parameter a caller could set to false — a mock that can claim not to be one eventually
+will. The suggestion screen shows a system-flag panel saying no photograph was taken. Invariant 9
+applies to a placeholder exactly as it does to the seeder.
+
+**Confidence is displayed and never acted on.** There is deliberately no threshold above which the
+app saves without asking. A confident misread of a seven-segment display is the whole failure mode
+here: an 8 read as a 6 looks precisely as confident as an 8 read as an 8. The screen says so —
+"that is not a check on whether the numbers are right, only you can do that".
+
+**An OCR-assisted reading is submitted as `manual_entry`, and this is not a workaround for D9.** It
+is the same reasoning D9 refuses `photograph` for. `photograph` asserts that the *system* read the
+display and stands behind the value; nothing in this build does. What actually happened is that a
+person read numerals off a device and confirmed them, which is what `manual_entry` means. No
+`ocr_confidence` is sent, and the type-level gate from the manual path is unchanged — a suggestion
+carries no confirmation of its own and has to pass through `DraftCuffReading.confirm()`.
+
+**An implausible suggestion routes to Edit rather than to an error.** Swapped numbers are what a
+misread display most often produces, so "Correct, save" on a 96/152 suggestion drops into the form
+pre-filled with the reason shown, rather than into a dead end.
+
+Widget tests assert `_requests == 0` at every point before an explicit confirmation, so "nothing
+reaches the API without a person saying yes" is checked rather than described.

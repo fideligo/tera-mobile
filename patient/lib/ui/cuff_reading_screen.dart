@@ -1,10 +1,23 @@
 /// Entering a cuff reading, confirming it, and saving it.
 ///
-/// Three stages, and the order is the safety property: **enter, confirm, save**. The submit call
-/// is only reachable from the confirm stage, and the confirm stage is the only place a
-/// `ConfirmedCuffReading` is constructed. A patient cannot reach the API from the keyboard.
+/// Two ways in, one way out. Photograph the tensimeter and get a *suggestion*, or type the numbers
+/// yourself — and **both routes end at a person explicitly confirming the numerals before anything
+/// is saved.** The submit call is reachable only from a confirm stage, and a confirm stage is the
+/// only place a `ConfirmedCuffReading` is constructed.
 ///
-/// The confirmation screen shows the numerals at display size, because the thing being confirmed
+/// # The OCR path does not shorten the flow, it only pre-fills it
+///
+/// A confident misread of a seven-segment display is exactly the failure this is built to catch:
+/// an 8 read as a 6 looks precisely as confident as an 8 read as an 8. So the extractor's
+/// confidence is shown and never acted on, there is no threshold above which the app saves without
+/// asking, and the suggestion screen's two actions are "Correct, save" and "Edit". Nothing here
+/// auto-saves.
+///
+/// Because a person confirmed the numerals, a reading entered this way is still submitted as
+/// `manual_entry`. `source = 'photograph'` would assert that the *system* read the display and
+/// stands behind the value; nothing in this build does.
+///
+/// The confirmation screens show the numerals at display size, because the thing being confirmed
 /// is the numerals and a 15pt echo of what was just typed confirms nothing. This is the one place
 /// in the patient app where large numerals are correct — they are a cuff measurement, which is
 /// exactly what invariant 1 reserves that treatment for.
@@ -14,17 +27,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../api/api_client.dart';
+import '../capture/cuff_ocr.dart';
 import '../capture/cuff_reading.dart';
 import '../capture/session_context.dart';
 import 'tokens.dart';
 
-enum _Stage { enter, confirm, saved }
+enum _Stage { choose, reading, suggestion, enter, confirm, saved }
 
 class CuffReadingScreen extends StatefulWidget {
-  const CuffReadingScreen({super.key, required this.api, required this.onDone});
+  const CuffReadingScreen({
+    super.key,
+    required this.api,
+    required this.onDone,
+    this.ocr = const MockCuffOcrExtractor(),
+  });
 
   final ApiClient api;
   final VoidCallback onDone;
+
+  /// Injectable so a test can drive the flow without waiting on the mock's delay.
+  final CuffOcrExtractor ocr;
 
   @override
   State<CuffReadingScreen> createState() => _CuffReadingScreenState();
@@ -36,8 +58,9 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
   final _diastolic = TextEditingController();
   final _pulse = TextEditingController();
 
-  _Stage _stage = _Stage.enter;
+  _Stage _stage = _Stage.choose;
   DraftCuffReading? _draft;
+  CuffOcrReading? _suggestion;
   bool _busy = false;
   String? _error;
 
@@ -47,6 +70,58 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
     _diastolic.dispose();
     _pulse.dispose();
     super.dispose();
+  }
+
+  /// Mock capture. No camera is opened and no image exists; see `cuff_ocr.dart`.
+  Future<void> _photograph() async {
+    setState(() {
+      _stage = _Stage.reading;
+      _error = null;
+    });
+
+    final reading = await widget.ocr.extract();
+    if (!mounted) return;
+
+    setState(() {
+      _suggestion = reading;
+      // A suggestion, not a draft. It becomes a draft only when a person accepts or edits it.
+      _stage = _Stage.suggestion;
+    });
+  }
+
+  /// "Correct, save" — the explicit confirmation for the OCR route.
+  Future<void> _acceptSuggestion() async {
+    final suggestion = _suggestion;
+    if (suggestion == null) return;
+
+    final draft = DraftCuffReading(
+      systolicMmhg: suggestion.systolicMmhg,
+      diastolicMmhg: suggestion.diastolicMmhg,
+      pulseBpm: suggestion.pulseBpm,
+    );
+
+    final violations = draft.validate();
+    if (violations.isNotEmpty) {
+      // An implausible suggestion is never savable, however confident the extractor was. Drop the
+      // patient into the form with it pre-filled rather than into a dead end.
+      setState(() => _error = violations.first.message);
+      _editSuggestion();
+      return;
+    }
+
+    setState(() => _draft = draft);
+    await _confirmAndSave();
+  }
+
+  /// "Edit" — the same numbers, in the form, for a person to correct.
+  void _editSuggestion() {
+    final suggestion = _suggestion;
+    if (suggestion != null) {
+      _systolic.text = '${suggestion.systolicMmhg}';
+      _diastolic.text = '${suggestion.diastolicMmhg}';
+      _pulse.text = suggestion.pulseBpm?.toString() ?? '';
+    }
+    setState(() => _stage = _Stage.enter);
   }
 
   void _review() {
@@ -118,6 +193,9 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
         child: ListView(
           padding: const EdgeInsets.all(TeraSpacing.md),
           children: switch (_stage) {
+            _Stage.choose => _chooseStage(),
+            _Stage.reading => _readingStage(),
+            _Stage.suggestion => _suggestionStage(),
             _Stage.enter => _enterStage(),
             _Stage.confirm => _confirmStage(),
             _Stage.saved => _savedStage(),
@@ -125,6 +203,157 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
         ),
       ),
     );
+  }
+
+  // ----------------------------------------------------------------- choose ----
+
+  List<Widget> _chooseStage() => [
+    const Text(
+      'Record a cuff reading',
+      style: TextStyle(
+        fontSize: TeraText.section,
+        fontWeight: FontWeight.w600,
+        color: TeraColors.ink,
+      ),
+    ),
+    const SizedBox(height: TeraSpacing.sm),
+    const Text(
+      'These are blood-pressure measurements — the only kind Tera records. Photograph the display '
+      'and check what Tera reads, or type the numbers in yourself.',
+      style: TextStyle(color: TeraColors.ink, height: 1.5),
+    ),
+    const SizedBox(height: TeraSpacing.lg),
+    FilledButton(onPressed: _photograph, child: const Text('Photograph tensimeter')),
+    const SizedBox(height: TeraSpacing.md),
+    OutlinedButton(
+      onPressed: () => setState(() => _stage = _Stage.enter),
+      child: const Text('Type the numbers in'),
+    ),
+    const SizedBox(height: TeraSpacing.lg),
+    const Text(
+      'Whichever you choose, Tera shows you the numbers and waits for you to confirm them before '
+      'saving anything.',
+      style: TextStyle(fontSize: TeraText.small, height: 1.5, color: TeraColors.neutral700),
+    ),
+  ];
+
+  // ---------------------------------------------------------------- reading ----
+
+  List<Widget> _readingStage() => [
+    const SizedBox(height: TeraSpacing.xl),
+    const LinearProgressIndicator(),
+    const SizedBox(height: TeraSpacing.lg),
+    const Text(
+      'Reading the display…',
+      style: TextStyle(
+        fontSize: TeraText.section,
+        fontWeight: FontWeight.w600,
+        color: TeraColors.ink,
+      ),
+    ),
+  ];
+
+  // ------------------------------------------------------------- suggestion ----
+
+  List<Widget> _suggestionStage() {
+    final suggestion = _suggestion!;
+    return [
+      const Text(
+        'Check what Tera read',
+        style: TextStyle(
+          fontSize: TeraText.section,
+          fontWeight: FontWeight.w600,
+          color: TeraColors.ink,
+        ),
+      ),
+      const SizedBox(height: TeraSpacing.sm),
+      const Text(
+        'Compare these against the display on your cuff. If they do not match exactly, choose Edit '
+        'and correct them.',
+        style: TextStyle(color: TeraColors.ink, height: 1.5),
+      ),
+
+      if (suggestion.simulated) ...[
+        const SizedBox(height: TeraSpacing.md),
+        Container(
+          decoration: systemFlagDecoration(),
+          padding: const EdgeInsets.all(TeraSpacing.md),
+          child: const Text(
+            simulatedOcrNotice,
+            style: TextStyle(color: TeraColors.ink, height: 1.4),
+          ),
+        ),
+      ],
+
+      const SizedBox(height: TeraSpacing.lg),
+      Container(
+        decoration: panelDecoration(),
+        padding: const EdgeInsets.all(TeraSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'We read',
+              style: TextStyle(fontSize: TeraText.small, color: TeraColors.neutral700),
+            ),
+            const SizedBox(height: TeraSpacing.xs),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text(
+                  '${suggestion.systolicMmhg} / ${suggestion.diastolicMmhg}',
+                  style: const TextStyle(
+                    fontSize: TeraText.display,
+                    fontWeight: FontWeight.w700,
+                    color: TeraColors.ink,
+                  ),
+                ),
+                const SizedBox(width: TeraSpacing.sm),
+                const Text(
+                  'mmHg',
+                  style: TextStyle(fontSize: TeraText.body, color: TeraColors.neutral700),
+                ),
+              ],
+            ),
+            if (suggestion.pulseBpm != null) ...[
+              const SizedBox(height: TeraSpacing.sm),
+              Text(
+                'Pulse ${suggestion.pulseBpm} bpm',
+                style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
+              ),
+            ],
+            const SizedBox(height: TeraSpacing.md),
+            Text(
+              // Reported, never acted on. There is no confidence at which this screen is skipped.
+              'Tera is ${(suggestion.confidence * 100).round()}% sure it read this correctly. '
+              'That is not a check on whether the numbers are right — only you can do that.',
+              style: const TextStyle(
+                fontSize: TeraText.small,
+                height: 1.5,
+                color: TeraColors.neutral700,
+              ),
+            ),
+          ],
+        ),
+      ),
+
+      if (_error != null) ...[
+        const SizedBox(height: TeraSpacing.md),
+        _errorPanel(_error!),
+      ],
+
+      const SizedBox(height: TeraSpacing.lg),
+      FilledButton(
+        onPressed: _busy ? null : _acceptSuggestion,
+        child: Text(_busy ? 'Saving…' : 'Correct, save'),
+      ),
+      const SizedBox(height: TeraSpacing.md),
+      OutlinedButton(
+        onPressed: _busy ? null : _editSuggestion,
+        child: const Text('Edit'),
+      ),
+    ];
   }
 
   // ------------------------------------------------------------------ enter ----
