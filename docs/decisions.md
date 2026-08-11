@@ -1255,3 +1255,27 @@ pre-filled with the reason shown, rather than into a dead end.
 
 Widget tests assert `_requests == 0` at every point before an explicit confirmation, so "nothing
 reaches the API without a person saying yes" is checked rather than described.
+
+## The intake now reaches the server, and the gate still does not depend on it
+
+`POST /v1/patient-context` is the durable record. Without it the intake vanished on uninstall and
+the server could not see a contraindication it is expected to respect.
+
+**Local first, unconditionally.** `ContextIntakeStore.write` happens before the upload is
+attempted, because `ContextIntakeSafety` reads the local copy. A contraindication that needed a
+network call would fail open on a bad connection, and open is the expensive direction. A patient
+who reported pregnancy is blocked whether or not the server heard about it — asserted.
+
+**`PatientContextSubmitter` never throws, never blocks and never gates.** Same shape as
+`RedFlagRecorder`, for the same reason.
+
+**The wire shape is flat.** `last_clinic_systolic_mmhg`, `last_clinic_diastolic_mmhg`,
+`last_clinic_taken_on`, rather than the nested `last_clinic_bp` the local JSON uses. The backend
+keeps those three in their own columns so a CHECK can hold them together; matching that here keeps
+the mapping in one place rather than two. Blank medication rows the form leaves behind are dropped
+on the way out.
+
+A failed upload is stated rather than apologised for: saved on this phone, not yet in your account,
+save again when you are back online. The earlier copy — "these answers stay on this phone, Tera
+does not send them anywhere" — was true when written and is not any more; it is gone from both the
+form and the home screen.

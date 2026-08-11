@@ -8,6 +8,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../api/api_client.dart';
 import '../capture/context_intake.dart';
 import 'tokens.dart';
 
@@ -16,10 +17,15 @@ class ContextIntakeScreen extends StatefulWidget {
     super.key,
     required this.store,
     required this.onSaved,
+    this.api,
     this.existing,
   });
 
   final ContextIntakeStore store;
+
+  /// Null in a test that only exercises the form and the gate. When present, the intake is also
+  /// filed to `POST /v1/patient-context`.
+  final ApiClient? api;
 
   /// Called with the saved intake when the gate is clear. Not called when it is blocked.
   final void Function(ContextIntake intake) onSaved;
@@ -42,6 +48,10 @@ class _ContextIntakeScreenState extends State<ContextIntakeScreen> {
   DateTime? _clinicDate;
 
   String? _error;
+  bool _busy = false;
+
+  /// Whether the last save reached the server. Null before a save, or when no client was given.
+  bool? _uploaded;
 
   @override
   void initState() {
@@ -150,12 +160,26 @@ class _ContextIntakeScreenState extends State<ContextIntakeScreen> {
     final intake = _collect();
     if (intake == null) return;
 
-    // Stored either way. The answer that closes the gate is the one most worth keeping, and
-    // discarding it would ask the patient the same question every time they opened the app.
+    setState(() => _busy = true);
+
+    // Local first, and unconditionally. The safety gate reads this copy, so it must land whether
+    // or not there is a network — a contraindication that needed a server would fail open.
     await widget.store.write(intake);
 
+    // Then the durable record. Its failure is reported and never blocks: the patient is already
+    // gated correctly by the line above.
+    final api = widget.api;
+    final uploaded = api == null
+        ? null
+        : await PatientContextSubmitter(api: api).submit(intake);
+
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _uploaded = uploaded;
+    });
+
     if (ContextIntakeSafety.evaluate(intake) == IntakeGate.blockedPregnancy) {
-      if (!mounted) return;
       await _showHardStop();
       return;
     }
@@ -356,11 +380,22 @@ class _ContextIntakeScreenState extends State<ContextIntakeScreen> {
               ],
 
               const SizedBox(height: TeraSpacing.lg),
-              FilledButton(onPressed: _save, child: const Text('Save')),
+              FilledButton(
+                onPressed: _busy ? null : _save,
+                child: Text(_busy ? 'Saving…' : 'Save'),
+              ),
               const SizedBox(height: TeraSpacing.md),
-              const Text(
-                'These answers stay on this phone. Tera does not send them anywhere.',
-                style: TextStyle(
+              Text(
+                switch (_uploaded) {
+                  // Stated, not apologised for. The answers are saved and the gate is applied
+                  // either way; only the durable copy is missing.
+                  false =>
+                    'Saved on this phone. It could not reach your Tera account just now and will '
+                    'need saving again when you are back online.',
+                  true => 'Saved to this phone and to your Tera account.',
+                  null => 'Saved on this phone and to your Tera account.',
+                },
+                style: const TextStyle(
                   fontSize: TeraText.small,
                   height: 1.5,
                   color: TeraColors.neutral700,

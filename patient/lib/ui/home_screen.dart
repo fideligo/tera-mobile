@@ -115,7 +115,8 @@ class _HomeScreenState extends State<HomeScreen> {
           Text(
             _intake == null
                 ? 'Tera needs a few details before it can tell whether it is suitable for you.'
-                : 'Your medication, pregnancy and heart-rhythm answers. Kept on this phone.',
+                : 'Your medication, pregnancy and heart-rhythm answers, on this phone and in '
+                      'your Tera account.',
             style: const TextStyle(color: TeraColors.ink, height: 1.5),
           ),
           const SizedBox(height: TeraSpacing.lg),
@@ -155,6 +156,7 @@ class _HomeScreenState extends State<HomeScreen> {
           MaterialPageRoute<void>(
             builder: (_) => ContextIntakeScreen(
               store: _intakeStore,
+              api: auth.api,
               existing: _intake,
               onSaved: (intake) {
                 setState(() => _intake = intake);

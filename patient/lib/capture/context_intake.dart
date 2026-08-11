@@ -11,12 +11,15 @@
 /// model. A contraindication that depended on reaching a server would fail open on a bad
 /// connection, and failing open is the direction that costs something.
 ///
-/// # Stored locally, never sent
+/// # Stored locally *and* on the server
 ///
-/// There is no API surface for this. `POST /v1/events` takes a bounded free-form payload, but
-/// medication names and a pregnancy answer are exactly the clinical content the logging deny-list
-/// exists to keep out of the system, and inventing an endpoint for them is not a routine decision.
-/// The intake stays on the handset in secure storage and gates the flow from there.
+/// The handset copy is what the gate reads, because a contraindication that needed a network call
+/// would fail open on a bad connection. `POST /v1/patient-context` is the durable record: without
+/// it the intake vanished on uninstall, and the server could not see a contraindication it is
+/// expected to respect.
+///
+/// The two are not kept in lockstep. The local write happens first and always; the upload is
+/// attempted after and its failure never blocks the patient — see [PatientContextSubmitter].
 library;
 
 import 'dart:convert';
@@ -24,6 +27,7 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:meta/meta.dart';
 
+import '../api/api_client.dart';
 import 'cuff_reading.dart';
 
 /// Deliberately three-valued. A patient who declines to answer has given a different answer from
@@ -220,4 +224,49 @@ class InMemoryContextIntakeStore implements ContextIntakeStore {
 
   @override
   Future<void> clear() async => _intake = null;
+}
+
+// ------------------------------------------------------------------------ upload ----
+
+/// Sends the intake to `POST /v1/patient-context`.
+///
+/// **Never throws, never blocks, and its result never gates the patient.** The local copy is
+/// already written by the time this runs, and the safety rules read that copy. A patient on a bad
+/// connection is not stopped from using the app, and a patient who reported a contraindication is
+/// blocked whether or not the server heard about it.
+///
+/// The wire shape is flat rather than the nested `last_clinic_bp` object the form uses: the
+/// backend keeps the three clinic-reading values in their own columns so a CHECK can hold them
+/// together, and matching that here keeps the mapping obvious in one place instead of two.
+class PatientContextSubmitter {
+  const PatientContextSubmitter({required ApiClient api}) : _api = api;
+
+  final ApiClient _api;
+
+  static Map<String, dynamic> payload(ContextIntake intake) {
+    final bp = intake.lastClinicBp;
+    return {
+      'last_regimen_change_date': intake.lastRegimenChangeDate?.toUtc().toIso8601String(),
+      'medications': [
+        for (final m in intake.medications)
+          if (!m.isEmpty) {'name': m.name.trim(), 'dose': m.dose.trim()},
+      ],
+      'pregnant': intake.pregnant.wireValue,
+      'known_arrhythmia': intake.knownArrhythmia,
+      'last_clinic_systolic_mmhg': bp?.systolicMmhg,
+      'last_clinic_diastolic_mmhg': bp?.diastolicMmhg,
+      'last_clinic_taken_on': bp?.takenOn.toUtc().toIso8601String(),
+    };
+  }
+
+  /// Returns whether the server accepted it. The caller may show it; nothing else depends on it.
+  Future<bool> submit(ContextIntake intake) async {
+    try {
+      await _api.postJson('/v1/patient-context', payload(intake));
+      return true;
+    } on Object {
+      // Swallowed on purpose. See the class docstring.
+      return false;
+    }
+  }
 }

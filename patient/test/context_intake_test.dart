@@ -1,4 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:tera_patient/api/api_client.dart';
+import 'package:tera_patient/auth/token_store.dart';
 import 'package:tera_patient/capture/context_intake.dart';
 
 ContextIntake intake({
@@ -16,6 +22,8 @@ ContextIntake intake({
 );
 
 void main() {
+  _uploadTests();
+
   group('the pregnancy gate', () {
     test('yes blocks', () {
       expect(
@@ -197,6 +205,126 @@ void main() {
       await store.write(intake(pregnant: PregnancyAnswer.yes));
 
       expect(ContextIntakeSafety.allowsTrendGeneration(await store.read()), isFalse);
+    });
+  });
+}
+
+ApiClient _api(MockClient httpClient) => ApiClient(
+  baseUrl: 'http://test',
+  tokenStore: InMemoryTokenStore()
+    ..write(
+      const StoredSession(
+        accessToken: 'a',
+        refreshToken: 'r',
+        role: 'patient',
+        subject: 'someone@example.invalid',
+      ),
+    ),
+  httpClient: httpClient,
+  onSessionLost: () {},
+);
+
+void _uploadTests() {
+  group('the upload', () {
+    test('sends the flat wire shape the backend stores', () {
+      final payload = PatientContextSubmitter.payload(
+        ContextIntake(
+          lastRegimenChangeDate: DateTime.utc(2026, 6, 15),
+          medications: const [Medication(name: 'Amlodipine', dose: '5 mg')],
+          pregnant: PregnancyAnswer.preferNotToSay,
+          knownArrhythmia: true,
+          lastClinicBp: ClinicBloodPressure(
+            systolicMmhg: 148,
+            diastolicMmhg: 92,
+            takenOn: DateTime.utc(2026, 7, 1),
+          ),
+        ),
+      );
+
+      // Flat, not nested: the backend keeps the three clinic values in their own columns so a
+      // CHECK can hold them together.
+      expect(payload['last_clinic_systolic_mmhg'], 148);
+      expect(payload['last_clinic_diastolic_mmhg'], 92);
+      expect(payload['last_clinic_taken_on'], '2026-07-01T00:00:00.000Z');
+      expect(payload.containsKey('last_clinic_bp'), isFalse);
+      expect(payload['pregnant'], 'prefer_not_to_say');
+      expect(payload['known_arrhythmia'], true);
+      expect(payload['medications'], [
+        {'name': 'Amlodipine', 'dose': '5 mg'},
+      ]);
+    });
+
+    test('omits the clinic reading entirely when it was not given', () {
+      final payload = PatientContextSubmitter.payload(
+        const ContextIntake(pregnant: PregnancyAnswer.no, knownArrhythmia: false),
+      );
+
+      expect(payload['last_clinic_systolic_mmhg'], isNull);
+      expect(payload['last_clinic_taken_on'], isNull);
+      expect(payload['medications'], isEmpty);
+    });
+
+    test('drops blank medication rows the form leaves behind', () {
+      final payload = PatientContextSubmitter.payload(
+        const ContextIntake(
+          medications: [Medication(name: '', dose: ''), Medication(name: 'Losartan', dose: '50mg')],
+          pregnant: PregnancyAnswer.no,
+          knownArrhythmia: false,
+        ),
+      );
+
+      expect((payload['medications'] as List).length, 1);
+    });
+
+    test('posts to /v1/patient-context', () async {
+      String? path;
+      final ok = await PatientContextSubmitter(
+        api: _api(
+          MockClient((request) async {
+            path = request.url.path;
+            return http.Response(jsonEncode({'id': 'x'}), 201);
+          }),
+        ),
+      ).submit(const ContextIntake(pregnant: PregnancyAnswer.no, knownArrhythmia: false));
+
+      expect(ok, isTrue);
+      expect(path, '/v1/patient-context');
+    });
+
+    test('a failure is reported and never thrown', () async {
+      final submitter = PatientContextSubmitter(
+        api: _api(MockClient((_) async => http.Response('nope', 500))),
+      );
+
+      expect(
+        await submitter.submit(
+          const ContextIntake(pregnant: PregnancyAnswer.no, knownArrhythmia: false),
+        ),
+        isFalse,
+      );
+    });
+
+    test('a dead network does not throw either', () async {
+      final submitter = PatientContextSubmitter(
+        api: _api(MockClient((_) async => throw http.ClientException('offline'))),
+      );
+
+      expect(
+        await submitter.submit(
+          const ContextIntake(pregnant: PregnancyAnswer.yes, knownArrhythmia: false),
+        ),
+        isFalse,
+      );
+    });
+
+    test('the gate does not depend on the upload succeeding', () async {
+      // A patient who reported a contraindication is blocked whether or not the server heard.
+      const blocked = ContextIntake(pregnant: PregnancyAnswer.yes, knownArrhythmia: false);
+      await PatientContextSubmitter(
+        api: _api(MockClient((_) async => http.Response('nope', 500))),
+      ).submit(blocked);
+
+      expect(ContextIntakeSafety.allowsTrendGeneration(blocked), isFalse);
     });
   });
 }
