@@ -1183,3 +1183,41 @@ Note for anyone reproducing: `adb` is not on `PATH` on the development machine. 
 The Compose Postgres publishes on host port **5434**, not 5432 or 5433 — both were already taken
 by other Postgres instances on the development machine. Change it in `docker-compose.yml` and
 `backend/.env` together if that does not suit.
+
+## Context intake, and the pregnancy hard stop
+
+The B2C pivot removes the clinic. Nobody enrols the patient, nobody reviews their history, and
+nobody notices the method being applied to someone it was never validated on. The intake form is
+the only place that information can come from, so it is also the only place a contraindication can
+be caught.
+
+**Rules are pure Dart.** `ContextIntakeSafety.evaluate` is a function of the intake alone — no
+network, no clock. A contraindication that needed a server would fail open on a bad connection, and
+open is the expensive direction.
+
+**Stored locally, never sent.** There is no endpoint for this. `POST /v1/events` takes a bounded
+free-form payload, but medication names and a pregnancy answer are exactly the clinical content the
+logging deny-list exists to keep out of the system, and inventing an endpoint is not a routine
+decision. Secure storage on the handset, and the gate reads it from there.
+
+**Only `pregnant == yes` blocks.**
+
+- `prefer_not_to_say` does **not** block. Blocking a declined answer makes declining functionally
+  identical to saying yes and coerces a disclosure the patient chose not to make. It is stored as
+  what it is, three-valued, rather than collapsed to a boolean.
+- `known_arrhythmia` is recorded and shown but does not gate. It degrades beat detection rather
+  than invalidating the method, and the signal chain's own quality gate is where a capture too
+  irregular to use gets rejected.
+- **An unanswered intake does not block either.** The form is not a precondition for opening the
+  app. This is the weakest point in the layer: an unanswered pregnancy question is exactly the
+  ambiguity invariant 7 says to escalate on, and the honest reading is that the gate only protects
+  patients who answer. Revisit before this reaches anyone real.
+
+**The gate is applied twice.** The intake screen shows the hard stop dialog, and the home screen
+disables the spot-check button from the stored answer. A patient who backs out of the dialog lands
+on the home screen, and one enabled button there would be one tap from the flow the block exists to
+prevent.
+
+The block copy names the limitation and refers on. A test rejects "pre-eclampsia", "dangerous",
+"normal" and the rest — invariant 6 applies here as everywhere, and it caught a first draft of this
+message that said Tera could not tell "a normal change" from one that matters.

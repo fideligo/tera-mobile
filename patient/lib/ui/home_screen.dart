@@ -7,21 +7,50 @@ library;
 import 'package:flutter/material.dart';
 
 import '../auth/auth_controller.dart';
+import '../capture/context_intake.dart';
 import 'capture_screen.dart';
+import 'context_intake_screen.dart';
 import 'cuff_reading_screen.dart';
 import 'eligibility_screen.dart';
 import 'symptom_triage_screen.dart';
 import 'session_result_screen.dart';
 import 'tokens.dart';
 
-class HomeScreen extends StatelessWidget {
-  const HomeScreen({super.key, required this.auth});
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key, required this.auth, this.intakeStore});
 
   final AuthController auth;
+
+  /// Injectable so tests can drive the gate without secure storage.
+  final ContextIntakeStore? intakeStore;
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late final ContextIntakeStore _intakeStore;
+  ContextIntake? _intake;
+
+  AuthController get auth => widget.auth;
+
+  @override
+  void initState() {
+    super.initState();
+    _intakeStore = widget.intakeStore ?? SecureContextIntakeStore();
+    _loadIntake();
+  }
+
+  Future<void> _loadIntake() async {
+    final intake = await _intakeStore.read();
+    if (!mounted) return;
+    setState(() => _intake = intake);
+  }
 
   @override
   Widget build(BuildContext context) {
     final subject = auth.session?.subject ?? '';
+    final blocked = !ContextIntakeSafety.allowsTrendGeneration(_intake);
 
     return Scaffold(
       appBar: AppBar(
@@ -53,9 +82,46 @@ class HomeScreen extends StatelessWidget {
             style: TextStyle(color: TeraColors.ink, height: 1.5),
           ),
           const SizedBox(height: TeraSpacing.lg),
+
+          if (blocked) ...[
+            Container(
+              decoration: systemFlagDecoration(),
+              padding: const EdgeInsets.all(TeraSpacing.md),
+              child: const Text(
+                pregnancyBlockMessage,
+                style: TextStyle(color: TeraColors.ink, height: 1.5),
+              ),
+            ),
+            const SizedBox(height: TeraSpacing.md),
+          ],
+
           FilledButton(
-            onPressed: () => _startSpotCheck(context),
+            // The gate is applied here as well as inside the intake screen. A blocked patient who
+            // backs out of that dialog lands on this screen, and an enabled button would be one
+            // tap from the flow the block exists to prevent.
+            onPressed: blocked ? null : () => _startSpotCheck(context),
             child: const Text('Start a spot check'),
+          ),
+
+          const SizedBox(height: TeraSpacing.xl),
+          const Divider(),
+          const SizedBox(height: TeraSpacing.lg),
+
+          const Text(
+            'About you',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: TeraColors.ink),
+          ),
+          const SizedBox(height: TeraSpacing.sm),
+          Text(
+            _intake == null
+                ? 'Tera needs a few details before it can tell whether it is suitable for you.'
+                : 'Your medication, pregnancy and heart-rhythm answers. Kept on this phone.',
+            style: const TextStyle(color: TeraColors.ink, height: 1.5),
+          ),
+          const SizedBox(height: TeraSpacing.lg),
+          OutlinedButton(
+            onPressed: () => _openIntake(context),
+            child: Text(_intake == null ? 'Answer a few questions' : 'Review your answers'),
           ),
 
           const SizedBox(height: TeraSpacing.xl),
@@ -81,6 +147,25 @@ class HomeScreen extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  void _openIntake(BuildContext context) {
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute<void>(
+            builder: (_) => ContextIntakeScreen(
+              store: _intakeStore,
+              existing: _intake,
+              onSaved: (intake) {
+                setState(() => _intake = intake);
+                Navigator.of(context).pop();
+              },
+            ),
+          ),
+        )
+        // The blocked path pops without calling onSaved, so the answer is re-read on return
+        // rather than trusted to have arrived through the callback.
+        .then((_) => _loadIntake());
   }
 
   void _recordCuffReading(BuildContext context) {
