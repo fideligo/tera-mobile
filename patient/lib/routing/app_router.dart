@@ -229,7 +229,10 @@ class TeraRouter {
         (_) => BpInputScreen(flow: flow, session: session, payload: payload),
       ),
 
-      Routes.checkPrecondition => _page(settings, (_) => PrecheckScreen(session: session)),
+      Routes.checkPrecondition => _page(
+        settings,
+        (_) => PrecheckScreen(session: session, flow: flow, payload: payload),
+      ),
       Routes.checkWait => _page(
         settings,
         (context) => FlowStubScreen(
@@ -311,7 +314,9 @@ class TeraRouter {
       ),
       Routes.checkInsight => _page(
         settings,
-        (_) => InsightScreen(api: flow.api, sessionId: payload.submittedSessionId),
+        // The check session, not the capture: a BP-only check has the first and never the
+        // second, and the insight is defined over the check.
+        (_) => InsightScreen(api: flow.api, sessionId: payload.checkSessionId),
       ),
 
       // ------------------------------------------------------------------ history

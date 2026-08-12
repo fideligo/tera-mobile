@@ -1511,3 +1511,32 @@ to fail gracefully.
 copy on the handset would put a second, unreviewed voice in front of a patient, and it would drift
 from the server's the moment either changed. Codes come from the rule engine, sentences from
 `language.py`, layout from here.
+
+## The check session is opened at the start, and the event fallback is gone
+
+`POST /v1/check-sessions` is called before the first screen that collects anything, in **both**
+modes. That is what PRE-01 and CTX-01 attach to: a sensor capture does not exist until capture is
+over, and for a BP-only check it never exists at all.
+
+Consequences worth naming:
+
+- **CTX-01's episode-scoped event fallback is deleted.** There is always somewhere typed to put it
+  now, so the two modes file context the same way. The gap recorded in the previous entry is
+  closed.
+- **The insight is fetched against the check session, not the capture.** A BP-only check has the
+  first and never the second, which is why its insight screen used to say "did not produce a
+  result".
+
+**Opening throws; everything after it swallows.** `CheckSessionClient.open` is the one call in this
+flow that does not degrade quietly, because everything downstream attaches to the id it returns — a
+flow that continued without one would collect PRE-01 and CTX-01 into nothing, which is the exact
+failure this change exists to remove. `submitPreconditions` does swallow: the readiness decision has
+already been made locally and the flow has already branched on it, so losing the upload loses a
+record rather than a gate.
+
+**`is_ready` is not sent.** The server derives it from the five answers, so the handset cannot
+declare itself ready while reporting a confounder. Asserted.
+
+If opening fails — most often the contraindication gate now refusing at the door — the flow still
+runs and the answers are still collected locally. They simply have nothing to attach to, and
+processing reports that rather than pretending otherwise.

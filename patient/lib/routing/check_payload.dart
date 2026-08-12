@@ -18,6 +18,7 @@ class CheckPayload {
     this.capturedAt,
     this.cuffReadingSaved = false,
     this.submittedSessionId,
+    this.checkSessionId,
   });
 
   /// CTX-01. Collected on both paths, before the fork.
@@ -32,8 +33,12 @@ class CheckPayload {
   /// BP-only path: the cuff reading was confirmed and already filed by `CuffReadingScreen`.
   final bool cuffReadingSaved;
 
-  /// Set once the backend has stored the session. The insight is fetched against it.
+  /// Set once the backend has stored the sensor capture.
   final String? submittedSessionId;
+
+  /// The check session, opened at the start of the flow in both modes. PRE-01, CTX-01 and the
+  /// insight all attach to this rather than to a capture that may never exist.
+  final String? checkSessionId;
 
   CheckPayload copyWith({
     CurrentContext? context,
@@ -41,11 +46,13 @@ class CheckPayload {
     DateTime? capturedAt,
     bool? cuffReadingSaved,
     String? submittedSessionId,
+    String? checkSessionId,
   }) => CheckPayload(
     context: context ?? this.context,
     signal: signal ?? this.signal,
     capturedAt: capturedAt ?? this.capturedAt,
     cuffReadingSaved: cuffReadingSaved ?? this.cuffReadingSaved,
     submittedSessionId: submittedSessionId ?? this.submittedSessionId,
+    checkSessionId: checkSessionId ?? this.checkSessionId,
   );
 }

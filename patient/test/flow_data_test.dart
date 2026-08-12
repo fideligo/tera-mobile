@@ -12,6 +12,7 @@ import 'package:tera_patient/api/api_client.dart';
 import 'package:tera_patient/auth/auth_controller.dart';
 import 'package:tera_patient/auth/token_store.dart';
 import 'package:tera_patient/capture/current_context.dart';
+import 'package:tera_patient/capture/check_session_client.dart';
 import 'package:tera_patient/capture/current_context_submitter.dart';
 import 'package:tera_capture/tera_capture.dart';
 import 'package:tera_patient/capture/device_measurement.dart';
@@ -106,6 +107,7 @@ Future<void> _pumpProcessing(
 }
 
 void main() {
+  _checkSessionTests();
   group('CTX-01 data', () {
     test('every field the intervention matrix needs round-trips', () {
       const original = CurrentContext(
@@ -440,6 +442,125 @@ void main() {
       expect(saved.takesBpMedication, isTrue);
       expect(flow.state.onboardingComplete, isTrue);
       expect(flow.state.resumeRoute, Routes.home);
+    });
+  });
+}
+
+
+/// PRE-01 and the check session, which is what gives both modes somewhere to file to.
+void _checkSessionTests() {
+  group('the check session', () {
+    test('is opened for a sensor check', () async {
+      Map<String, dynamic>? body;
+      final id = await CheckSessionClient(
+        api: _api(
+          MockClient((request) async {
+            body = jsonDecode(request.body) as Map<String, dynamic>;
+            return http.Response(jsonEncode({'id': 'cs-1'}), 201);
+          }),
+        ),
+      ).open(episodeId: 'ep-1', mode: CheckMode.sensor);
+
+      expect(id, 'cs-1');
+      expect(body!['mode'], 'sensor');
+      expect(body!['episode_id'], 'ep-1');
+    });
+
+    test('is opened for a BP-only check too', () async {
+      Map<String, dynamic>? body;
+      await CheckSessionClient(
+        api: _api(
+          MockClient((request) async {
+            body = jsonDecode(request.body) as Map<String, dynamic>;
+            return http.Response(jsonEncode({'id': 'cs-2'}), 201);
+          }),
+        ),
+      ).open(episodeId: 'ep-1', mode: CheckMode.bpOnly);
+
+      // The whole point: a BP-only check has a session, so PRE-01 and CTX-01 have somewhere to go.
+      expect(body!['mode'], 'bp_only');
+    });
+
+    test('a failure to open throws rather than continuing silently', () async {
+      // Everything downstream attaches to this id. A flow that carried on without one would
+      // collect PRE-01 and CTX-01 into nothing.
+      expect(
+        () => CheckSessionClient(
+          api: _api(MockClient((_) async => http.Response('nope', 403))),
+        ).open(episodeId: 'ep-1', mode: CheckMode.sensor),
+        throwsA(isA<ApiException>()),
+      );
+    });
+  });
+
+  group('PRE-01 submission', () {
+    test('the five answers are posted against the check session', () async {
+      Map<String, dynamic>? body;
+      String? path;
+      final ok = await CheckSessionClient(
+        api: _api(
+          MockClient((request) async {
+            path = request.url.path;
+            body = jsonDecode(request.body) as Map<String, dynamic>;
+            return http.Response(jsonEncode({'id': 'p-1'}), 201);
+          }),
+        ),
+      ).submitPreconditions(
+        checkSessionId: 'cs-1',
+        answers: const PrecheckAnswers(
+          rested5Min: true,
+          recentActivity30Min: false,
+          recentCaffeine30Min: true,
+          recentNicotine30Min: false,
+          needsRestroom: false,
+        ),
+      );
+
+      expect(ok, isTrue);
+      expect(path, '/v1/check-sessions/cs-1/preconditions');
+      expect(body!['rested_5_min'], true);
+      expect(body!['recent_caffeine_30_min'], true);
+    });
+
+    test('is_ready is never sent — the server derives it', () async {
+      Map<String, dynamic>? body;
+      await CheckSessionClient(
+        api: _api(
+          MockClient((request) async {
+            body = jsonDecode(request.body) as Map<String, dynamic>;
+            return http.Response(jsonEncode({'id': 'p-1'}), 201);
+          }),
+        ),
+      ).submitPreconditions(
+        checkSessionId: 'cs-1',
+        answers: const PrecheckAnswers(
+          rested5Min: false,
+          recentActivity30Min: true,
+          recentCaffeine30Min: false,
+          recentNicotine30Min: false,
+          needsRestroom: false,
+        ),
+      );
+
+      // Otherwise a client could declare itself ready while reporting a confounder.
+      expect(body!.containsKey('is_ready'), isFalse);
+    });
+
+    test('a failure never throws — the flow has already branched locally', () async {
+      final ok = await CheckSessionClient(
+        api: _api(MockClient((_) async => http.Response('nope', 500))),
+      ).submitPreconditions(
+        checkSessionId: 'cs-1',
+        answers: const PrecheckAnswers(
+          rested5Min: true,
+          recentActivity30Min: false,
+          recentCaffeine30Min: false,
+          recentNicotine30Min: false,
+          needsRestroom: false,
+        ),
+      );
+
+      expect(ok, isFalse);
     });
   });
 }

@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 
 import '../auth/auth_controller.dart';
 import '../capture/context_intake.dart';
+import '../capture/check_session_client.dart';
 import '../capture/current_context.dart';
 import '../capture/current_context_submitter.dart';
 import '../api/api_client.dart';
@@ -181,9 +182,16 @@ class SafetyOnboardingScreen extends StatelessWidget {
 /// PRE-01. The five readiness questions, and the only screen that decides between the wait
 /// screen and the context screen.
 class PrecheckScreen extends StatefulWidget {
-  const PrecheckScreen({super.key, required this.session});
+  const PrecheckScreen({
+    super.key,
+    required this.session,
+    this.flow,
+    this.payload = const CheckPayload(),
+  });
 
   final CheckSession session;
+  final TeraFlow? flow;
+  final CheckPayload payload;
 
   @override
   State<PrecheckScreen> createState() => _PrecheckScreenState();
@@ -195,6 +203,34 @@ class _PrecheckScreenState extends State<PrecheckScreen> {
   bool _caffeine = false;
   bool _nicotine = false;
   bool _restroom = false;
+
+  Future<void> _next() async {
+    final answers = PrecheckAnswers(
+      rested5Min: _rested,
+      recentActivity30Min: _activity,
+      recentCaffeine30Min: _caffeine,
+      recentNicotine30Min: _nicotine,
+      needsRestroom: _restroom,
+    );
+
+    // Filed against the check session opened at the start of the flow. Best effort: the readiness
+    // decision has already been made locally and the flow branches on it either way, so losing
+    // this loses a record rather than a gate.
+    final flow = widget.flow;
+    final checkSessionId = widget.payload.checkSessionId;
+    if (flow != null && checkSessionId != null) {
+      await CheckSessionClient(
+        api: flow.api,
+      ).submitPreconditions(checkSessionId: checkSessionId, answers: answers);
+    }
+
+    if (!mounted) return;
+    TeraFlow.advance(
+      context,
+      CheckFlow.afterPrecheck(widget.session, answers),
+      payload: widget.payload,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -230,22 +266,7 @@ class _PrecheckScreenState extends State<PrecheckScreen> {
             title: const Text('Need the restroom'),
           ),
           const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: () => TeraFlow.advance(
-              context,
-              CheckFlow.afterPrecheck(
-                widget.session,
-                PrecheckAnswers(
-                  rested5Min: _rested,
-                  recentActivity30Min: _activity,
-                  recentCaffeine30Min: _caffeine,
-                  recentNicotine30Min: _nicotine,
-                  needsRestroom: _restroom,
-                ),
-              ),
-            ),
-            child: const Text('Next'),
-          ),
+          ElevatedButton(onPressed: _next, child: const Text('Next')),
         ],
       ),
     );
@@ -466,10 +487,13 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
     final signal = widget.payload.signal;
 
     // **BP-only never touches the hardware.** The confirmed reading is the measurement and
-    // `CuffReadingScreen` already filed it, so there is no session to submit and no device to
+    // `CuffReadingScreen` already filed it, so there is no capture to submit and no device to
     // measure. Returning here is what keeps a not-eligible handset off the camera path entirely.
+    //
+    // It still has a check session, so its context attaches to the same place a sensor check's
+    // does and its insight is fetched the same way.
     if (widget.session.mode == CheckMode.bpOnly || signal == null) {
-      await _fileContextForBpOnly();
+      await _fileContext();
       if (!mounted) return;
       TeraFlow.advance(
         context,
@@ -491,14 +515,7 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
         signal: signal,
       );
 
-      // CTX-01 attaches to the session, so it can only be filed now that one exists. Best effort:
-      // losing the context must not lose the reading.
-      final collected = widget.payload.context;
-      if (collected != null) {
-        await CurrentContextSubmitter(
-          api: widget.flow.api,
-        ).submitForSession(sessionId: outcome.sessionId, context: collected);
-      }
+      await _fileContext();
 
       if (!mounted) return;
       TeraFlow.advance(
@@ -531,19 +548,18 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
     }
   }
 
-  /// BP-only has no session to attach context to, so it falls back to the episode-scoped event.
-  /// Recorded as a gap in `docs/decisions.md`, not a design.
-  Future<void> _fileContextForBpOnly() async {
+  /// CTX-01 attaches to the check session, which exists in both modes. The episode-scoped event
+  /// fallback is gone: there is always somewhere typed to put it now.
+  ///
+  /// Best effort. Losing the context must not lose the reading.
+  Future<void> _fileContext() async {
     final collected = widget.payload.context;
-    if (collected == null) return;
-    try {
-      final resolved = await SessionContextResolver(api: widget.flow.api).resolveEpisode();
-      await CurrentContextSubmitter(
-        api: widget.flow.api,
-      ).submit(episodeId: resolved.episodeId, context: collected);
-    } on Object {
-      // Never blocks. See the submitter's docstring.
-    }
+    final checkSessionId = widget.payload.checkSessionId;
+    if (collected == null || checkSessionId == null) return;
+
+    await CurrentContextSubmitter(
+      api: widget.flow.api,
+    ).submitForSession(sessionId: checkSessionId, context: collected);
   }
 
   /// The device profile the session references.

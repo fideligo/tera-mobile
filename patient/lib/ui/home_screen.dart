@@ -7,7 +7,10 @@ library;
 import 'package:flutter/material.dart';
 
 import '../auth/auth_controller.dart';
+import '../capture/check_session_client.dart';
 import '../capture/context_intake.dart';
+import '../capture/session_context.dart';
+import '../routing/check_payload.dart';
 import '../routing/app_router.dart';
 import '../routing/routes.dart';
 import 'capture_screen.dart';
@@ -224,14 +227,35 @@ class _HomeScreenState extends State<HomeScreen> {
         builder: (_) => SymptomTriageScreen(
           api: auth.api,
           onDone: () => navigator.popUntil((route) => route.isFirst),
-          onProceed: () {
+          onProceed: () async {
             if (flow != null) {
               // Section 38: eligible + needs reference -> BPREF, otherwise PRECHECK; not
               // eligible -> PRECHECK in BP-only mode.
               final step = flow.startCheck();
+
+              // The check session is opened here, before the first screen that collects anything,
+              // so PRE-01 and CTX-01 have somewhere to go in both modes.
+              String? checkSessionId;
+              try {
+                final resolved = await SessionContextResolver(
+                  api: auth.api,
+                ).resolveEpisode();
+                checkSessionId = await CheckSessionClient(api: auth.api).open(
+                  episodeId: resolved.episodeId,
+                  mode: step.session.mode,
+                );
+              } on Object {
+                // Opening failed - most often the contraindication gate at the door, or no
+                // network. The flow still runs and the answers are still collected locally; they
+                // simply have nothing to attach to, which the processing screen reports.
+              }
+
               navigator.pushReplacementNamed(
                 step.route,
-                arguments: CheckArgs(step.session),
+                arguments: CheckArgs(
+                  step.session,
+                  CheckPayload(checkSessionId: checkSessionId),
+                ),
               );
               return;
             }
