@@ -1,133 +1,145 @@
-/// Sign-in.
+/// AUTH-02 — sign-in.
 ///
-/// Colours come entirely from [TeraColors]; nothing new is introduced. The failed-sign-in
-/// panel uses the system-flag treatment (ink on ink100, 12.19:1) rather than red — red is
-/// absent from the palette by design, and a rejected sign-in is a system state.
+/// Shares its chrome with [RegisterScreen] through `auth_scaffold.dart`; the two screens are the
+/// same page with different fields and must not drift into two designs.
+///
+/// Colours come entirely from [TeraColors]. The failed-sign-in panel uses the system-flag
+/// treatment (the plum rule on neutral100) rather than red — red is absent from the palette by
+/// design, and a rejected sign-in is a system state, not a physiological one.
+///
+/// **Signing in navigates.** It used to authenticate and then leave the patient on the sign-in
+/// screen, because nothing was listening for the transition: [AuthController] notifies on
+/// sign-*out* and the app returns to login, but the successful direction had no counterpart. The
+/// destination is not decided here — it comes from [TeraFlow.resumeRouteAfterAuth], which is
+/// AUTH-00's table: device check if this handset has never been probed, the unfinished onboarding
+/// step if setup is incomplete, otherwise Home.
 library;
 
 import 'package:flutter/material.dart';
 
-import '../auth/auth_controller.dart';
+import '../routing/app_router.dart';
+import '../routing/routes.dart';
+import 'auth_scaffold.dart';
 import 'tokens.dart';
 
 class SignInScreen extends StatefulWidget {
-  const SignInScreen({super.key, required this.auth});
+  const SignInScreen({super.key, required this.flow});
 
-  final AuthController auth;
+  final TeraFlow flow;
 
   @override
   State<SignInScreen> createState() => _SignInScreenState();
 }
 
 class _SignInScreenState extends State<SignInScreen> {
-  final _username = TextEditingController();
-  final _password = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+
   bool _busy = false;
+  bool _showPassword = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    // A session that ended elsewhere — an unrecoverable refresh, say — leaves its explanation on
+    // the controller. Showing it here is the only place the patient will ever see it.
+    _error = widget.flow.auth.error;
+  }
 
   @override
   void dispose() {
-    _username.dispose();
+    _email.dispose();
     _password.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
+    if (_busy) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
 
-    setState(() => _busy = true);
-    await widget.auth.signIn(username: _username.text.trim(), password: _password.text);
-    if (mounted) setState(() => _busy = false);
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+
+    final signedIn = await widget.flow.auth.signIn(
+      username: _email.text.trim(),
+      password: _password.text,
+    );
+    if (!mounted) return;
+
+    if (!signedIn) {
+      final message = widget.flow.auth.error ?? 'Sign-in failed. Please try again.';
+      setState(() {
+        _busy = false;
+        _error = message;
+      });
+      showAuthError(context, message);
+      return;
+    }
+
+    final next = await widget.flow.resumeRouteAfterAuth();
+    if (!mounted) return;
+
+    Navigator.of(context).pushNamedAndRemoveUntil(next, (route) => false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final error = widget.auth.error;
+    final error = _error;
 
-    return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(TeraSpacing.lg),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 420),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const Text(
-                      'Tera',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w600,
-                        color: TeraColors.ink,
-                      ),
-                    ),
-                    const SizedBox(height: TeraSpacing.xs),
-                    const Text(
-                      'Monitoring between clinic visits. Tera does not replace a cuff and '
-                      'does not diagnose.',
-                      style: TextStyle(
-                        color: TeraColors.neutral700,
-                        fontSize: TeraText.body,
-                        height: 1.45,
-                      ),
-                    ),
-                    const SizedBox(height: TeraSpacing.xl),
+    return Form(
+      key: _formKey,
+      child: AutofillGroup(
+        child: AuthScaffold(
+          title: 'Selamat datang',
+          subtitle: 'Sign in to continue your blood-pressure record.',
+          footer: AuthSwitchLink(
+            prompt: 'Belum punya akun?',
+            action: 'Register',
+            onPressed: _busy ? null : () => Navigator.of(context).pushNamed(Routes.register),
+          ),
+          children: [
+            AuthField(
+              controller: _email,
+              label: 'Email',
+              icon: Icons.mail_outline,
+              enabled: !_busy,
+              keyboardType: TextInputType.emailAddress,
+              autofillHints: const [AutofillHints.email, AutofillHints.username],
+              validator: AuthValidators.email,
+            ),
+            const SizedBox(height: TeraSpacing.md),
 
-                    TextFormField(
-                      controller: _username,
-                      decoration: const InputDecoration(labelText: 'Username'),
-                      keyboardType: TextInputType.emailAddress,
-                      autocorrect: false,
-                      textInputAction: TextInputAction.next,
-                      validator: (v) =>
-                          (v == null || v.trim().isEmpty) ? 'Enter your username.' : null,
-                    ),
-                    const SizedBox(height: TeraSpacing.md),
-                    TextFormField(
-                      controller: _password,
-                      decoration: const InputDecoration(labelText: 'Password'),
-                      obscureText: true,
-                      textInputAction: TextInputAction.done,
-                      onFieldSubmitted: (_) => _submit(),
-                      validator: (v) => (v == null || v.isEmpty) ? 'Enter your password.' : null,
-                    ),
-
-                    if (error != null) ...[
-                      const SizedBox(height: TeraSpacing.md),
-                      Container(
-                        decoration: systemFlagDecoration(),
-                        padding: const EdgeInsets.all(TeraSpacing.md),
-                        child: Text(
-                          error,
-                          style: const TextStyle(color: TeraColors.ink, height: 1.4),
-                        ),
-                      ),
-                    ],
-
-                    const SizedBox(height: TeraSpacing.lg),
-                    FilledButton(
-                      onPressed: _busy ? null : _submit,
-                      child: Text(_busy ? 'Signing in…' : 'Sign in'),
-                    ),
-                    const SizedBox(height: TeraSpacing.lg),
-                    const Divider(),
-                    const SizedBox(height: TeraSpacing.md),
-                    const Text(
-                      'Accounts are created by your clinic. There is no self-registration.',
-                      style: TextStyle(
-                        fontSize: TeraText.small,
-                        height: 1.5,
-                        color: TeraColors.neutral700,
-                      ),
-                    ),
-                  ],
-                ),
+            AuthField(
+              controller: _password,
+              label: 'Password',
+              icon: Icons.lock_outline,
+              enabled: !_busy,
+              obscureText: !_showPassword,
+              textInputAction: TextInputAction.done,
+              autofillHints: const [AutofillHints.password],
+              // Not the sign-up rules: an account created before the minimum changed still has
+              // to be able to get in.
+              validator: AuthValidators.existingPassword,
+              onSubmitted: (_) => _submit(),
+              suffix: PasswordVisibilityToggle(
+                visible: _showPassword,
+                onPressed: _busy ? null : () => setState(() => _showPassword = !_showPassword),
               ),
             ),
-          ),
+            const SizedBox(height: TeraSpacing.lg),
+
+            if (error != null) ...[
+              AuthErrorPanel(message: error),
+              const SizedBox(height: TeraSpacing.lg),
+            ],
+
+            AuthSubmitButton(label: 'Login', busy: _busy, onPressed: _submit),
+          ],
         ),
       ),
     );

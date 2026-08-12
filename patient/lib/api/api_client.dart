@@ -22,6 +22,20 @@ import 'package:http/http.dart' as http;
 
 import '../auth/token_store.dart';
 
+/// Mirrors `MIN_PASSWORD_LENGTH` in `backend/app/schemas/auth.py`.
+///
+/// Duplicated rather than fetched: the sign-up form has to say the rule before the request is
+/// made, and a client that guesses shorter turns a field error into a 422 the patient cannot act
+/// on. If the backend raises its minimum, this moves with it.
+const int minPasswordLength = 12;
+
+/// Mirrors `MAX_PASSWORD_BYTES` in `backend/app/security/passwords.py` — bcrypt's own limit, in
+/// **bytes**, so it is measured after UTF-8 encoding rather than in characters.
+const int maxPasswordBytes = 72;
+
+/// Mirrors the `min_length` on `RegisterPatientRequest.subject`.
+const int minSubjectLength = 3;
+
 class ApiException implements Exception {
   ApiException(this.message, {this.statusCode});
 
@@ -88,6 +102,57 @@ class ApiClient {
     await _tokens.write(session);
     return session;
   }
+
+  /// Self-registration: create the account, its patient record and its first episode.
+  ///
+  /// Unauthenticated, so it does not go through [_send] — there is no token to attach and a 401
+  /// here would have nothing to refresh.
+  ///
+  /// The endpoint returns tokens with the new account, so the patient is signed in by the same
+  /// round trip that created them rather than being handed back to a login form they have just
+  /// filled in.
+  ///
+  /// `subject` is the only identifier sent. **No name is transmitted**: the backend deliberately
+  /// stores a generated pseudonym and has nowhere to put a real one — see the endpoint docstring
+  /// in `backend/app/api/v1/auth.py`.
+  Future<StoredSession> registerPatient({
+    required String subject,
+    required String password,
+  }) async {
+    final response = await _http.post(
+      Uri.parse('$baseUrl/v1/auth/register-patient'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'subject': subject, 'password': password}),
+    );
+
+    if (response.statusCode != 201) {
+      throw ApiException(_registerMessageFor(response), statusCode: response.statusCode);
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final tokens = body['tokens'] as Map<String, dynamic>;
+    final session = StoredSession(
+      accessToken: tokens['access_token'] as String,
+      refreshToken: tokens['refresh_token'] as String,
+      role: tokens['role'] as String,
+      subject: subject,
+    );
+    await _tokens.write(session);
+    return session;
+  }
+
+  /// Sign-up failures, in the patient's terms.
+  ///
+  /// 422 is handled here rather than by [_messageFor] because FastAPI's validation `detail` is a
+  /// list of field objects, not a sentence — surfacing it raw would show a patient a JSON dump.
+  String _registerMessageFor(http.Response response) => switch (response.statusCode) {
+    409 => 'That email is already registered. Sign in instead.',
+    422 =>
+      'Check your details: a valid email, and a password of at least '
+          '$minPasswordLength characters.',
+    429 => 'Too many sign-up attempts from this connection. Try again later.',
+    _ => _messageFor(response),
+  };
 
   /// Revoke the refresh token, then clear local state regardless of the outcome.
   ///

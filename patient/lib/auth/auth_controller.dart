@@ -63,6 +63,31 @@ class AuthController extends ChangeNotifier {
     }
   }
 
+  /// Create an account and hold the session it returns.
+  ///
+  /// Registration signs the patient in, because the endpoint mints tokens with the account. The
+  /// alternative — bouncing them to the login form with the credentials they typed thirty seconds
+  /// ago — is a round trip that exists only to make the app feel like a clinic system.
+  Future<bool> register({required String subject, required String password}) async {
+    _error = null;
+    notifyListeners();
+
+    try {
+      _session = await _api.registerPatient(subject: subject, password: password);
+      _status = AuthStatus.signedIn;
+      notifyListeners();
+      return true;
+    } on ApiException catch (e) {
+      _error = e.message;
+      notifyListeners();
+      return false;
+    } on Object {
+      _error = 'Could not reach Tera. Check your connection and try again.';
+      notifyListeners();
+      return false;
+    }
+  }
+
   Future<void> signOut() async {
     await _api.signOut();
     _session = null;

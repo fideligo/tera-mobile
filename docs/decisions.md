@@ -1540,3 +1540,85 @@ declare itself ready while reporting a confounder. Asserted.
 If opening fails — most often the contraindication gate now refusing at the door — the flow still
 runs and the answers are still collected locally. They simply have nothing to attach to, and
 processing reports that rather than pretending otherwise.
+
+## The auth screens are built, and sign-in now navigates
+
+The sign-up route had been a `FlowStubScreen` reading "Self-registration posts to
+/v1/auth/register-patient" — a sentence describing a feature instead of the feature. It is now a
+real form, and the sign-in screen it pairs with was finished at the same time. The "bare-bones UI"
+convention is lifted for these two screens only: they are the first thing anyone sees.
+
+**Sign-in used to authenticate and then stay put.** `AuthController` notifies on sign-*out* and
+`main.dart` listens for it to unwind to login; the successful direction had no counterpart, so
+tapping Login stored tokens, set `signedIn`, and left the patient looking at the same form. Both
+screens now navigate, and neither decides where to: they call `TeraFlow.resumeRouteAfterAuth`,
+which reloads the stored flow state and returns `AppFlowState.resumeRoute` — AUTH-00's table, the
+same one the splash uses. Three callers, one routing table.
+
+**Sign-up signs the patient in.** `/v1/auth/register-patient` returns tokens with the account, and
+its own docstring says why: bouncing someone to a login form for credentials they typed thirty
+seconds ago is a round trip that exists only to make the app feel like a clinic system.
+
+### The name is collected and never transmitted
+
+The form asks for a name because a product that greets you by an email address is not a consumer
+product. The request body carries `subject` and `password` and nothing else, asserted in two tests
+— one at the client, one through the screen.
+
+There is nowhere to send it. The endpoint generates `TERA-<hex>` as the pseudonym and its docstring
+records the reason: BUILD_SPEC 4.1 has no name field, and deriving one from the sign-up details
+would put an identity into a clinical record sideways. So the name lives in `PhrProfile.displayName`
+on the handset, behind the same Keystore as the tokens, and `PhrSubmitter.patchFor` is a per-section
+allow-list that cannot carry it to `/v1/profile` by accident.
+
+It is used: Home greeted "Good Morning, Sir Arif" from a string literal, with a hardcoded 'A' in the
+avatar. Both now come from the profile, and the greeting follows the clock — a constant "Good
+Morning" is wrong for two thirds of the day, and the exhibition is in the afternoon.
+
+### A new account does not inherit the handset's setup
+
+`TeraFlow.beginNewAccount` resets the onboarding step and the BP reference and **keeps** the device
+eligibility. Onboarding answers belong to the account; the torch and the accelerometer belong to the
+phone. Without this, registering a second account on a handset whose first account had finished
+onboarding would land the new patient on Home, looking at a record built from someone else's
+answers.
+
+### The local writes cannot fail or stall the sign-up
+
+By the time they run, the account exists on the server. A Keystore write that throws or wedges must
+not leave a patient watching a spinner in front of an account that has already been created — there
+is no way on except killing the app, and the second attempt answers 409. So the pair is wrapped in
+one five-second budget and swallowed, with the flow-state write first because it is the one with
+routing consequences. The name is a greeting.
+
+### Validation duplicates the backend's bounds on purpose
+
+`minPasswordLength = 12` and `maxPasswordBytes = 72` mirror `MIN_PASSWORD_LENGTH` and bcrypt's
+limit. The form has to state the rule before the request is made, and a client that guesses shorter
+turns a field error into a 422 whose `detail` is a list of field objects — a JSON dump in front of a
+patient. 409, 422 and 429 each map to a sentence instead; 429 is reachable, at five sign-ups per
+address per hour.
+
+Sign-in validates presence only. An account created before a minimum changed still has to be able
+to get in.
+
+### Two colour notes
+
+The sign-in button carried a raw `0xFF001F3F` with a `// Navy blue` comment — a navy that was not a
+token and therefore not in the palette. The auth primary action is `TeraColors.ink`, Deep Space
+Blue, which is the palette's navy and measures 13.57:1 against paper. Failures use the system-flag
+treatment, because a refused request is something the *system* did; the snack bar is ink rather than
+plum, since a full-bleed plum bar reads as an alarm and this app does not raise those.
+
+**"Continue with Google" is gone.** It was an `onPressed: () {}` — there is no OAuth provider on the
+backend and no plan for one. A dead button on the first screen is worse than no button, and it is
+the kind of thing a judge taps first.
+
+### Testing note: the Keystore hangs, it does not throw
+
+Inside the fake-async zone a `testWidgets` body runs in, a real platform-channel call never gets an
+answer — the request goes to an engine that is not there and the `await` never completes. It does
+not throw, so no `catch` helps. `auth_flow_test.dart` installs an in-memory mock handler on
+`plugins.it_nomads.com/flutter_secure_storage` so the router's real `SecurePhrProfileStore` is what
+the tests exercise. Landing on DEV-01 also rules out `pumpAndSettle`: its probe indicator never
+stops spinning, so those tests pump a bounded number of frames instead.

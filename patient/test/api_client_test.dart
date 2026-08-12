@@ -211,6 +211,107 @@ void main() {
     });
   });
 
+  group('self-registration', () {
+    /// The endpoint returns tokens with the account, so sign-up signs the patient in.
+    test('the tokens it returns are stored under the new subject', () async {
+      final store = InMemoryTokenStore();
+      final client = ApiClient(
+        baseUrl: 'http://test',
+        tokenStore: store,
+        httpClient: MockClient((request) async {
+          expect(request.url.path, '/v1/auth/register-patient');
+          expect(request.headers['Content-Type'], contains('application/json'));
+          return _json({
+            'user': {'id': 'u-1'},
+            'patient_id': 'p-1',
+            'pseudonym': 'TERA-ABC123DEF456',
+            'episode_id': 'e-1',
+            'tokens': {
+              'access_token': 'a',
+              'refresh_token': 'r',
+              'token_type': 'bearer',
+              'expires_in': 900,
+              'role': 'patient',
+            },
+          }, 201);
+        }),
+      );
+
+      await client.registerPatient(subject: 'baru@test.invalid', password: 'kata-sandi-panjang');
+
+      final stored = await store.read();
+      expect(stored!.accessToken, 'a');
+      expect(stored.refreshToken, 'r');
+      expect(stored.role, 'patient');
+      expect(stored.subject, 'baru@test.invalid');
+    });
+
+    test('the body carries the subject and the password and nothing else', () async {
+      // The backend generates a pseudonym rather than storing a name. Anything else in this
+      // payload is an identity being written into a record designed not to hold one.
+      late String body;
+      final client = ApiClient(
+        baseUrl: 'http://test',
+        tokenStore: InMemoryTokenStore(),
+        httpClient: MockClient((request) async {
+          body = request.body;
+          return _json({
+            'tokens': {
+              'access_token': 'a',
+              'refresh_token': 'r',
+              'expires_in': 900,
+              'role': 'patient',
+            },
+          }, 201);
+        }),
+      );
+
+      await client.registerPatient(subject: 'baru@test.invalid', password: 'kata-sandi-panjang');
+
+      expect(
+        (jsonDecode(body) as Map<String, dynamic>).keys,
+        unorderedEquals(<String>['subject', 'password']),
+      );
+    });
+
+    /// Each of these is a sentence a patient can act on. 422 in particular: FastAPI's validation
+    /// `detail` is a list of field objects, and surfacing it raw shows a patient a JSON dump.
+    final refusals = {
+      409: 'That email is already registered. Sign in instead.',
+      422: 'Check your details: a valid email, and a password of at least '
+          '$minPasswordLength characters.',
+      429: 'Too many sign-up attempts from this connection. Try again later.',
+    };
+
+    for (final entry in refusals.entries) {
+      test('${entry.key} is reported in words', () async {
+        final store = InMemoryTokenStore();
+        final client = ApiClient(
+          baseUrl: 'http://test',
+          tokenStore: store,
+          httpClient: MockClient(
+            (_) async => _json({
+              'detail': [
+                {'loc': 'body', 'msg': 'raw'},
+              ],
+            }, entry.key),
+          ),
+        );
+
+        await expectLater(
+          client.registerPatient(subject: 'a@test.invalid', password: 'kata-sandi-panjang'),
+          throwsA(
+            isA<ApiException>()
+                .having((e) => e.message, 'message', entry.value)
+                .having((e) => e.statusCode, 'statusCode', entry.key),
+          ),
+        );
+        // A refused sign-up leaves no session behind.
+        expect(await store.read(), isNull);
+      });
+    }
+  });
+
   test('a request with no session fails immediately rather than calling the API', () async {
     var called = false;
     final client = ApiClient(

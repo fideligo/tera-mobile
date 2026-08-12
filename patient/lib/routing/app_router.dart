@@ -16,6 +16,7 @@ import '../capture/phr_profile.dart';
 import '../ui/home_screen.dart';
 import '../ui/insight_screen.dart';
 import '../ui/onboarding_screens.dart';
+import '../ui/register_screen.dart';
 import '../ui/sign_in_screen.dart';
 import 'app_flow_state.dart';
 import 'check_payload.dart';
@@ -58,6 +59,29 @@ class TeraFlow extends ChangeNotifier {
     _state = next;
     await _store.write(next);
     notifyListeners();
+  }
+
+  /// Where an authenticated user belongs right now — AUTH-00's table, re-read from storage.
+  ///
+  /// The table itself lives in [AppFlowState.resumeRoute] and nowhere else. Sign-in, sign-up and
+  /// the splash all ask this rather than each deciding for themselves, so "device check, then the
+  /// unfinished onboarding step, then home" has one definition.
+  Future<String> resumeRouteAfterAuth() async {
+    await load();
+    return _state.resumeRoute;
+  }
+
+  /// A newly registered account starts setup from the beginning.
+  ///
+  /// Onboarding and the BP reference belong to the *account*, so a second account created on this
+  /// handset must not inherit the first one's answers and land on Home with someone else's health
+  /// record behind it. Device eligibility belongs to the *handset* and is kept: the phone's torch
+  /// and accelerometer do not change because a different person signed up on it.
+  Future<void> beginNewAccount() async {
+    // Re-read first: sign-up can be the first screen this object has seen, and clearing state
+    // that was never loaded would throw away a device check the handset has already passed.
+    await load();
+    await _save(AppFlowState(deviceEligibility: _state.deviceEligibility));
   }
 
   Future<void> recordEligibility(DeviceEligibility eligibility) =>
@@ -151,16 +175,10 @@ class TeraRouter {
     return switch (name) {
       // ------------------------------------------------------------------- entry
       Routes.splash => _page(settings, (_) => SplashScreen(flow: flow)),
-      Routes.login => _page(settings, (_) => SignInScreen(auth: flow.auth)),
+      Routes.login => _page(settings, (_) => SignInScreen(flow: flow)),
       Routes.register => _page(
         settings,
-        (context) => FlowStubScreen(
-          specId: 'AUTH-01',
-          title: 'Register',
-          body: 'Self-registration posts to /v1/auth/register-patient.',
-          nextLabel: 'Back to login',
-          onNext: () => Navigator.of(context).pop(),
-        ),
+        (_) => RegisterScreen(flow: flow, profileStore: SecurePhrProfileStore()),
       ),
 
       // ------------------------------------------------------------ device check

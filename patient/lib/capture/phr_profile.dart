@@ -69,6 +69,7 @@ enum KnownCondition {
 @immutable
 class PhrProfile {
   const PhrProfile({
+    this.displayName,
     this.dateOfBirth,
     this.sexAtBirth,
     this.heightCm,
@@ -77,6 +78,16 @@ class PhrProfile {
     this.takesBpMedication,
     this.conditions = const {},
   });
+
+  /// What the patient asked to be called, collected at sign-up.
+  ///
+  /// **Handset only, and deliberately so.** `/v1/auth/register-patient` takes a login subject and
+  /// a password and nothing else; it generates a pseudonym rather than storing a name, and its
+  /// docstring says outright that deriving one from the sign-up details would put a name into the
+  /// clinical record sideways. So the name greets the patient on their own phone and never
+  /// travels: it lives here with the rest of the local PHR, behind the same Keystore as the
+  /// tokens.
+  final String? displayName;
 
   // ONB-01. DOB and sex are required by the spec; height and weight may be skipped.
   final DateTime? dateOfBirth;
@@ -107,6 +118,7 @@ class PhrProfile {
       !dob.isAfter(now ?? DateTime.now());
 
   PhrProfile copyWith({
+    String? displayName,
     DateTime? dateOfBirth,
     SexAtBirth? sexAtBirth,
     double? heightCm,
@@ -115,6 +127,7 @@ class PhrProfile {
     bool? takesBpMedication,
     Set<KnownCondition>? conditions,
   }) => PhrProfile(
+    displayName: displayName ?? this.displayName,
     dateOfBirth: dateOfBirth ?? this.dateOfBirth,
     sexAtBirth: sexAtBirth ?? this.sexAtBirth,
     heightCm: heightCm ?? this.heightCm,
@@ -125,6 +138,7 @@ class PhrProfile {
   );
 
   Map<String, dynamic> toJson() => {
+    'display_name': displayName,
     'date_of_birth': dateOfBirth?.toUtc().toIso8601String(),
     'sex_at_birth': sexAtBirth?.wireValue,
     'height_cm': heightCm,
@@ -135,6 +149,7 @@ class PhrProfile {
   };
 
   static PhrProfile fromJson(Map<String, dynamic> json) => PhrProfile(
+    displayName: json['display_name'] as String?,
     dateOfBirth: json['date_of_birth'] == null
         ? null
         : DateTime.parse(json['date_of_birth'] as String),
