@@ -95,8 +95,8 @@ class _SignInScreenState extends State<SignInScreen> {
       key: _formKey,
       child: AutofillGroup(
         child: AuthScaffold(
-          title: 'Selamat datang',
-          subtitle: 'Sign in to continue your blood-pressure record.',
+          title: 'Selamat Datang',
+          subtitle: 'Masuk untuk melanjutkan catatan tekanan darah Anda.',
           footer: AuthSwitchLink(
             prompt: 'Belum punya akun?',
             action: 'Register',
@@ -104,8 +104,10 @@ class _SignInScreenState extends State<SignInScreen> {
           ),
           children: [
             AuthField(
+              id: 'email',
               controller: _email,
               label: 'Email',
+              hint: 'cth: nama@email.com',
               icon: Icons.mail_outline,
               enabled: !_busy,
               keyboardType: TextInputType.emailAddress,
@@ -115,8 +117,10 @@ class _SignInScreenState extends State<SignInScreen> {
             const SizedBox(height: TeraSpacing.md),
 
             AuthField(
+              id: 'password',
               controller: _password,
-              label: 'Password',
+              label: 'Kata Sandi',
+              hint: 'Masukkan kata sandimu',
               icon: Icons.lock_outline,
               enabled: !_busy,
               obscureText: !_showPassword,

@@ -117,10 +117,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
       key: _formKey,
       child: AutofillGroup(
         child: AuthScaffold(
-          title: 'Buat akun',
+          title: 'Buat Akun',
           subtitle:
-              'Tera keeps your blood-pressure record on your phone and in your account. '
-              'A cuff reading stays the reference; Tera tracks what changes between them.',
+              'Tera menyimpan catatan tekanan darah Anda di ponsel dan di akun Anda. '
+              'Pengukuran dengan tensimeter tetap menjadi acuan; Tera mengikuti perubahan '
+              'di antaranya.',
           footer: AuthSwitchLink(
             prompt: 'Sudah punya akun?',
             action: 'Login',
@@ -139,9 +140,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
           children: [
             AuthField(
+              id: 'name',
               controller: _name,
-              label: 'Name',
-              hint: 'What should Tera call you?',
+              label: 'Nama',
+              hint: 'Tera sebaiknya memanggil Anda apa?',
               icon: Icons.person_outline,
               enabled: !_busy,
               keyboardType: TextInputType.name,
@@ -151,8 +153,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const SizedBox(height: TeraSpacing.md),
 
             AuthField(
+              id: 'email',
               controller: _email,
               label: 'Email',
+              hint: 'cth: nama@email.com',
               icon: Icons.mail_outline,
               enabled: !_busy,
               keyboardType: TextInputType.emailAddress,
@@ -162,10 +166,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
             const SizedBox(height: TeraSpacing.md),
 
             AuthField(
+              id: 'password',
               controller: _password,
-              label: 'Password',
+              label: 'Kata Sandi',
+              hint: 'Buat kata sandi',
               icon: Icons.lock_outline,
-              helper: 'At least $minPasswordLength characters.',
+              helper: 'Minimal $minPasswordLength karakter.',
               enabled: !_busy,
               obscureText: !_showPassword,
               textInputAction: TextInputAction.done,

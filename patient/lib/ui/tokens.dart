@@ -97,6 +97,31 @@ abstract final class TeraSpacing {
   static const md = 16.0;
   static const lg = 24.0;
   static const xl = 32.0;
+  static const xxl = 48.0;
+}
+
+/// Corner radii, from the hi-fi designs.
+///
+/// The first version of this file used square corners throughout — a deliberate choice at the
+/// time, made before there were designs to work from. The Figma frames for Login and the device
+/// check are unambiguously rounded, so the radii are tokens now rather than an argument. Squared
+/// corners survive nowhere except where a design shows them.
+abstract final class TeraRadius {
+  /// Inputs and small controls.
+  static const field = 10.0;
+
+  /// Primary buttons.
+  static const button = 12.0;
+
+  /// The panel a form sits on.
+  static const card = 20.0;
+
+  /// Pills, chips and progress tracks.
+  static const pill = 999.0;
+
+  static BorderRadius get fieldBorder => BorderRadius.circular(field);
+  static BorderRadius get buttonBorder => BorderRadius.circular(button);
+  static BorderRadius get cardBorder => BorderRadius.circular(card);
 }
 
 /// The app theme. One typeface, hierarchy by weight and size, generous whitespace, hairline
@@ -125,7 +150,7 @@ ThemeData buildTeraTheme() {
       style: FilledButton.styleFrom(
         backgroundColor: TeraColors.brand,
         foregroundColor: TeraColors.paper,
-        shape: const RoundedRectangleBorder(),
+        shape: RoundedRectangleBorder(borderRadius: TeraRadius.buttonBorder),
         padding: const EdgeInsets.symmetric(horizontal: TeraSpacing.lg, vertical: TeraSpacing.md),
         textStyle: const TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.w600),
         // 48dp minimum touch target; the persona is not a designer with a trackpad.
@@ -136,28 +161,28 @@ ThemeData buildTeraTheme() {
       style: OutlinedButton.styleFrom(
         foregroundColor: TeraColors.brand,
         side: const BorderSide(color: TeraColors.brand),
-        shape: const RoundedRectangleBorder(),
+        shape: RoundedRectangleBorder(borderRadius: TeraRadius.buttonBorder),
         padding: const EdgeInsets.symmetric(horizontal: TeraSpacing.md, vertical: 14),
         minimumSize: const Size.fromHeight(52),
         textStyle: const TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.w600),
       ),
     ),
-    inputDecorationTheme: const InputDecorationTheme(
+    inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: TeraColors.paper,
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.zero,
-        borderSide: BorderSide(color: TeraColors.neutral500),
+        borderRadius: TeraRadius.fieldBorder,
+        borderSide: const BorderSide(color: TeraColors.neutral500),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.zero,
-        borderSide: BorderSide(color: TeraColors.neutral500),
+        borderRadius: TeraRadius.fieldBorder,
+        borderSide: const BorderSide(color: TeraColors.neutral500),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.zero,
-        borderSide: BorderSide(color: TeraColors.brand, width: 2),
+        borderRadius: TeraRadius.fieldBorder,
+        borderSide: const BorderSide(color: TeraColors.brand, width: 2),
       ),
-      labelStyle: TextStyle(color: TeraColors.ink),
+      labelStyle: const TextStyle(color: TeraColors.ink),
     ),
     dividerTheme: const DividerThemeData(color: TeraColors.neutral200, thickness: 1, space: 1),
     // Base body size for anything that does not ask for a size of its own.

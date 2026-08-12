@@ -16,7 +16,7 @@ import 'package:tera_patient/routing/app_router.dart';
 import 'package:tera_patient/routing/check_session.dart';
 import 'package:tera_patient/routing/routes.dart';
 import 'package:tera_patient/capture/eligibility_check.dart';
-import 'package:tera_patient/ui/flow_screens.dart';
+import 'package:tera_patient/ui/device_check_screens.dart';
 import 'package:tera_patient/ui/flow_stub_screen.dart';
 
 TeraFlow _flow(AppFlowState state) {
@@ -297,7 +297,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           onGenerateRoute: router.onGenerateRoute,
-          home: DeviceCheckScreen(
+          home: DeviceCheckingScreen(
             flow: flow,
             probe: () async => const EligibilityResult(
               verdict: EligibilityVerdict.notQualified,

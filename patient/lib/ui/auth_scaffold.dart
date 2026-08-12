@@ -18,6 +18,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
+import 'form_kit.dart';
 import 'tokens.dart';
 
 /// The page: wordmark, heading, a bordered panel holding the form, and a footer link.
@@ -59,7 +60,18 @@ class AuthScaffold extends StatelessWidget {
                   const _Wordmark(),
                   const SizedBox(height: TeraSpacing.xl),
                   Container(
-                    decoration: panelDecoration(),
+                    // The Figma frame is a rounded card on a near-white page, lifted by a soft
+                    // shadow. Card and page differ by 1.06:1, so it needs *something* to separate
+                    // it — but not a shadow: a 24px-blur `BoxShadow` here segfaults the Flutter
+                    // rasterizer on the x86_64 emulator (SIGSEGV in the raster thread, native, no
+                    // Dart frame) the moment the keyboard animates over it. A hairline border
+                    // reads almost identically, matches every other panel in the app, and cannot
+                    // take the demo down.
+                    decoration: BoxDecoration(
+                      color: TeraColors.paper,
+                      borderRadius: TeraRadius.cardBorder,
+                      border: Border.all(color: TeraColors.neutral200),
+                    ),
                     padding: const EdgeInsets.all(TeraSpacing.lg),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -68,7 +80,7 @@ class AuthScaffold extends StatelessWidget {
                           title,
                           style: const TextStyle(
                             fontSize: TeraText.section,
-                            fontWeight: FontWeight.w600,
+                            fontWeight: FontWeight.w700,
                             color: TeraColors.ink,
                           ),
                         ),
@@ -126,9 +138,13 @@ class _Wordmark extends StatelessWidget {
 
 /// A form field, sized and spaced for the persona: body-size text, a 48dp-plus target, and a
 /// label that stays visible once the field has content.
+/// The key on an [AuthField]'s input, by id. Tests address fields through this.
+Key fieldKey(String id) => Key('tera.field.$id');
+
 class AuthField extends StatelessWidget {
   const AuthField({
     super.key,
+    required this.id,
     required this.controller,
     required this.label,
     required this.icon,
@@ -138,21 +154,37 @@ class AuthField extends StatelessWidget {
     this.keyboardType,
     this.obscureText = false,
     this.enabled = true,
+    this.required = true,
     this.textInputAction = TextInputAction.next,
     this.autofillHints,
     this.suffix,
     this.onSubmitted,
   });
 
+  /// A stable handle for this field, independent of the display copy.
+  ///
+  /// The visible label is the design's and is in Indonesian on these screens; a test that found
+  /// a field by reading its label would break the next time a word changed. This is what
+  /// [fieldKey] is built from.
+  final String id;
+
   final TextEditingController controller;
   final String label;
   final IconData icon;
   final String? Function(String?) validator;
+
+  /// Placeholder inside the field. The Figma frame uses these to show the shape of the answer
+  /// ("cth: nama@email.com"), which is worth more than repeating the label inside the box.
   final String? hint;
+
   final String? helper;
   final TextInputType? keyboardType;
   final bool obscureText;
   final bool enabled;
+
+  /// Drives the asterisk only. What is actually enforced is [validator].
+  final bool required;
+
   final TextInputAction textInputAction;
   final Iterable<String>? autofillHints;
 
@@ -162,39 +194,53 @@ class AuthField extends StatelessWidget {
   final void Function(String)? onSubmitted;
 
   @override
-  Widget build(BuildContext context) => TextFormField(
-    controller: controller,
-    enabled: enabled,
-    obscureText: obscureText,
-    keyboardType: keyboardType,
-    textInputAction: textInputAction,
-    autofillHints: autofillHints,
-    autocorrect: false,
-    // Nothing on an auth form should be capitalised for the user: an email must not be, and a
-    // password must be exactly what was typed.
-    enableSuggestions: false,
-    style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
-    decoration: InputDecoration(
-      labelText: label,
-      hintText: hint,
-      helperText: helper,
-      helperStyle: const TextStyle(fontSize: TeraText.micro, color: TeraColors.neutral700),
-      prefixIcon: Icon(icon, color: TeraColors.neutral500),
-      suffixIcon: suffix,
-      // The error rule matches the system-flag rule: this is the form refusing input, which is a
-      // system state like any other.
-      errorStyle: const TextStyle(fontSize: TeraText.micro, color: TeraColors.plum),
-      errorBorder: const OutlineInputBorder(
-        borderRadius: BorderRadius.zero,
-        borderSide: BorderSide(color: TeraColors.plum),
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      // Label above the box, as the design has it, rather than Material's floating label. On a
+      // filled field the floating variant collapses into the border at exactly the moment the
+      // patient is typing into it, and this form is read in poor light.
+      FieldLabel(label, required: required),
+      TextFormField(
+        key: fieldKey(id),
+        controller: controller,
+        enabled: enabled,
+        obscureText: obscureText,
+        keyboardType: keyboardType,
+        textInputAction: textInputAction,
+        autofillHints: autofillHints,
+        autocorrect: false,
+        // Nothing on an auth form should be capitalised for the user: an email must not be, and
+        // a password must be exactly what was typed.
+        enableSuggestions: false,
+        style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: const TextStyle(color: TeraColors.neutral500, fontSize: TeraText.body),
+          helperText: helper,
+          helperStyle: const TextStyle(fontSize: TeraText.micro, color: TeraColors.neutral700),
+          prefixIcon: Icon(icon, color: TeraColors.neutral500),
+          suffixIcon: suffix,
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: TeraSpacing.md,
+            vertical: TeraSpacing.md,
+          ),
+          // The error rule matches the system-flag rule: this is the form refusing input, which
+          // is a system state like any other.
+          errorStyle: const TextStyle(fontSize: TeraText.micro, color: TeraColors.plum),
+          errorBorder: OutlineInputBorder(
+            borderRadius: TeraRadius.fieldBorder,
+            borderSide: const BorderSide(color: TeraColors.plum),
+          ),
+          focusedErrorBorder: OutlineInputBorder(
+            borderRadius: TeraRadius.fieldBorder,
+            borderSide: const BorderSide(color: TeraColors.plum, width: 2),
+          ),
+        ),
+        validator: validator,
+        onFieldSubmitted: onSubmitted,
       ),
-      focusedErrorBorder: const OutlineInputBorder(
-        borderRadius: BorderRadius.zero,
-        borderSide: BorderSide(color: TeraColors.plum, width: 2),
-      ),
-    ),
-    validator: validator,
-    onFieldSubmitted: onSubmitted,
+    ],
   );
 }
 

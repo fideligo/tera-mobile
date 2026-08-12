@@ -13,6 +13,9 @@ library;
 import 'package:meta/meta.dart';
 import 'package:tera_capture/tera_capture.dart';
 
+import '../api/api_client.dart';
+import 'eligibility_check.dart';
+
 /// How long to sample the camera when measuring its sustained rate.
 ///
 /// Shorter than the profiler's warm run: this is registration, not qualification, and the number
@@ -72,6 +75,18 @@ class DeviceMeasurements {
     // Invariant 9. This is a real handset; nothing here is seeded.
     'synthetic': false,
   };
+
+  /// The body for `POST /v1/device/eligibility`.
+  ///
+  /// The same measurements as [toDeviceProfilePayload] **without `patient_id`**: that route takes
+  /// the patient from the token, because it is called by the patient's own handset and a body
+  /// that could name a patient would let one phone write a hardware verdict onto another account.
+  Map<String, dynamic> toEligibilityPayload() {
+    final payload = Map<String, dynamic>.from(toDeviceProfilePayload(''))
+      ..remove('patient_id')
+      ..remove('synthetic');
+    return payload;
+  }
 }
 
 /// Raised when the handset could not be measured. Carries a reason a patient can act on.
@@ -154,5 +169,51 @@ class DeviceMeasurer {
       cameraFps: cameraFps,
       clockOffsetSdMs: offsetStats.sdMillis,
     );
+  }
+}
+
+/// Files DEV-01's verdict with the backend (`POST /v1/device/eligibility`).
+///
+/// Separate from [DeviceMeasurer], which does the measuring, and from the session-context
+/// resolver, which registers a full device profile when a capture is submitted. This one exists
+/// so the *eligibility answer* survives a reinstall: section 6 runs the check once, before
+/// onboarding, and `GET /v1/device/current` is what stops the next install making the patient
+/// sit through it again.
+///
+/// **It never throws and never blocks.** The verdict is already on the handset by the time this
+/// runs and that copy is what the flow reads. A patient setting the app up on a train must still
+/// reach onboarding.
+class DeviceEligibilityReporter {
+  DeviceEligibilityReporter({required ApiClient api, DeviceMeasurer? measurer})
+    : _api = api,
+      _measurer = measurer ?? DeviceMeasurer();
+
+  final ApiClient _api;
+  final DeviceMeasurer _measurer;
+
+  /// Returns whether the verdict reached the server.
+  ///
+  /// The gate measures the accelerometer and reads the camera's capabilities; the route also
+  /// wants a sustained frame rate and a clock-offset spread, so [DeviceMeasurer] completes the
+  /// set — reusing the accelerometer figure the gate just measured rather than making the patient
+  /// sit through it twice.
+  ///
+  /// A probe that could not read the camera has nothing honest to file and files nothing.
+  /// Inventing zeroes would post a benchmark nobody measured, which invariant 9 names directly.
+  Future<bool> submit(EligibilityResult result) async {
+    final capabilities = result.capabilities;
+    final accelRateHz = result.achievedRateHz;
+    if (capabilities == null || accelRateHz == null) return false;
+
+    try {
+      final measurements = await _measurer.measure(
+        capabilities: capabilities,
+        accelRateHz: accelRateHz,
+      );
+      await _api.postJson('/v1/device/eligibility', measurements.toEligibilityPayload());
+      return true;
+    } on Object {
+      return false;
+    }
   }
 }

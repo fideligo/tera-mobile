@@ -70,6 +70,9 @@ enum KnownCondition {
 class PhrProfile {
   const PhrProfile({
     this.displayName,
+    this.postpartum,
+    this.postpartumDate,
+    this.rhythmAnswer,
     this.dateOfBirth,
     this.sexAtBirth,
     this.heightCm,
@@ -88,6 +91,21 @@ class PhrProfile {
   /// travels: it lives here with the rest of the local PHR, behind the same Keystore as the
   /// tokens.
   final String? displayName;
+
+  /// ONB-02's "recently gave birth", and the date.
+  ///
+  /// Handset-only. `PregnancyAnswer` on the wire is three-valued (`yes` / `no` /
+  /// `prefer_not_to_say`) and has nowhere to put a fourth state, so the answer is recorded here
+  /// rather than collapsed into one of the three and lost. Whether postpartum should close the
+  /// contraindication gate is an open clinical question — see `docs/decisions.md`.
+  final bool? postpartum;
+  final DateTime? postpartumDate;
+
+  /// ONB-02's rhythm question, as the patient answered it: `yes`, `no` or `notSure`.
+  ///
+  /// `known_arrhythmia` on the wire is a bool, and "not sure" is not an assertion of arrhythmia,
+  /// so it travels as false. The distinction is kept here.
+  final String? rhythmAnswer;
 
   // ONB-01. DOB and sex are required by the spec; height and weight may be skipped.
   final DateTime? dateOfBirth;
@@ -119,6 +137,9 @@ class PhrProfile {
 
   PhrProfile copyWith({
     String? displayName,
+    bool? postpartum,
+    DateTime? postpartumDate,
+    String? rhythmAnswer,
     DateTime? dateOfBirth,
     SexAtBirth? sexAtBirth,
     double? heightCm,
@@ -128,6 +149,9 @@ class PhrProfile {
     Set<KnownCondition>? conditions,
   }) => PhrProfile(
     displayName: displayName ?? this.displayName,
+    postpartum: postpartum ?? this.postpartum,
+    postpartumDate: postpartumDate ?? this.postpartumDate,
+    rhythmAnswer: rhythmAnswer ?? this.rhythmAnswer,
     dateOfBirth: dateOfBirth ?? this.dateOfBirth,
     sexAtBirth: sexAtBirth ?? this.sexAtBirth,
     heightCm: heightCm ?? this.heightCm,
@@ -139,6 +163,9 @@ class PhrProfile {
 
   Map<String, dynamic> toJson() => {
     'display_name': displayName,
+    'postpartum': postpartum,
+    'postpartum_date': postpartumDate?.toUtc().toIso8601String(),
+    'rhythm_answer': rhythmAnswer,
     'date_of_birth': dateOfBirth?.toUtc().toIso8601String(),
     'sex_at_birth': sexAtBirth?.wireValue,
     'height_cm': heightCm,
@@ -150,6 +177,11 @@ class PhrProfile {
 
   static PhrProfile fromJson(Map<String, dynamic> json) => PhrProfile(
     displayName: json['display_name'] as String?,
+    postpartum: json['postpartum'] as bool?,
+    postpartumDate: json['postpartum_date'] == null
+        ? null
+        : DateTime.parse(json['postpartum_date'] as String),
+    rhythmAnswer: json['rhythm_answer'] as String?,
     dateOfBirth: json['date_of_birth'] == null
         ? null
         : DateTime.parse(json['date_of_birth'] as String),

@@ -1622,3 +1622,129 @@ not throw, so no `catch` helps. `auth_flow_test.dart` installs an in-memory mock
 `plugins.it_nomads.com/flutter_secure_storage` so the router's real `SecurePhrProfileStore` is what
 the tests exercise. Landing on DEV-01 also rules out `pumpAndSettle`: its probe indicator never
 stops spinning, so those tests pump a bounded number of frames instead.
+
+## Auth, device check and PHR onboarding, built to the Figma frames
+
+Section 32's route tree was already implemented and is unchanged — `app_router_test.dart` has
+asserted every route in it resolves since the routing commit. What landed here is the screens.
+
+### The palette absorbed the designs rather than the reverse
+
+Two conflicts, both resolved toward the standing constraints in the working root's `CLAUDE.md`:
+
+- **The red asterisk.** Every frame marks required fields with red. Red is absent from the palette
+  by design and may not be added. Required markers use `TeraColors.plum`, which is reserved for
+  *system* state — and a form refusing to proceed without an answer is exactly that. It is never
+  used for anything physiological.
+- **Rounded corners.** `tokens.dart` had square corners everywhere, chosen before there were
+  designs. The Login and device-check frames are unambiguously rounded, so the radii are tokens
+  now (`TeraRadius`) rather than an argument, and the theme uses them.
+
+**"Continue with Google" stays deleted.** It is in the Figma frame and there is no OAuth provider
+on the backend, no plan for one, and no way to implement it. A button that does nothing is the
+placeholder the brief forbids, and it is the first thing a judge taps.
+
+### The device-check illustration is drawn, not shipped
+
+The three frames use a rendered 3D phone in concentric halos with sensor arcs. There is no asset.
+`_HaloPainter` draws the same composition — halos, phone body, camera reticle or tick, pulse trace,
+arcs that sweep outward while the probe runs — in palette colours at any screen size.
+
+DEV-03's "unavailable" glyph is **neutral400, not plum**. A phone without a torch is not an error
+and must not read as one: section 6 is explicit that the account is not blocked, and the screen
+says so under the button.
+
+`POST /v1/device/eligibility` is wired through `DeviceEligibilityReporter`, which completes the
+gate's measurements with `DeviceMeasurer` (camera frame rate and clock-offset spread) rather than
+sending zeroes for what the gate does not measure — invariant 9: never a benchmark figure nobody
+measured. The upload never blocks routing; the handset copy is what the flow reads.
+
+### Two ONB-02 answers the wire cannot carry, and where they went
+
+Section 7 lists **four** options for "which best describes you right now". `PregnancyAnswer` on the
+wire has three. Likewise the rhythm question is three-valued in the spec and a bool on the wire.
+
+- **"Recently gave birth"** is recorded on the handset with its date (`PhrProfile.postpartum`,
+  `postpartumDate`) and sent as `no`. **Not `yes`**: the gate's block message says the method is
+  unvalidated *in pregnancy*, which is not a true statement about someone postpartum, and the
+  contraindication gate is invariant-protected — widening it is a clinical decision, not a UI one.
+  **This is an open question for the clinical side**: should postpartum withhold trends? Today it
+  does not, matching the gate's existing scope. The answer is recorded either way, so deciding
+  later costs nothing.
+- **"Not sure"** about rhythm is recorded on the handset and sent as `known_arrhythmia: false`.
+  Arrhythmia does not gate anything — it degrades beat detection, and the signal chain's own
+  quality gate rejects a capture too irregular to use — so nothing downstream changes. Sending
+  `true` would assert a diagnosis the patient did not report.
+
+Both are one backend enum widening away from being sent faithfully. Neither loses data today.
+
+### ONB-03's two exclusivity rules
+
+"None of these" clears the list; "Not sure" is mutually exclusive with everything. Ticking a named
+condition **clears** the exclusive rows rather than being blocked by them — the first attempt
+disabled the list while an exclusive row was selected, which made the patient hunt for the row they
+had to untick first. A test covers each direction.
+
+An untouched condition list is **refused** rather than read as "none": "no conditions" and "not
+answered" are different statements, and invariant 7 says to ask rather than assume.
+
+### Onboarding advances before the upload, always
+
+`advanceOnboarding` writes the handset copy, moves the step, then fires the upload without
+awaiting it. A form that will not advance because a request failed strands a patient at step one of
+three with no way past it. Covered by a test that makes every request throw.
+
+### Testing notes worth keeping
+
+- **`find.text` does not match `Text.rich`.** The question headings carry the asterisk as a
+  `TextSpan`, so they need `findRichText: true` — and even then the plain text ends with " *", so
+  assertions use `textContaining` rather than an exact match.
+- **A busy button never settles.** `StepActions` swaps its label for a `CircularProgressIndicator`
+  while submitting, and `pumpAndSettle` on that times out. The onboarding tests pump a bounded
+  number of frames instead, the same way the auth tests do around DEV-01's probe.
+- **Fields are addressed by id, not label.** `AuthField` carries `fieldKey(id)`; the visible labels
+  are the design's and are in Indonesian, and a test that read them would break on a copy change.
+
+### Impeller crashes this emulator; the demo build needs Skia
+
+The app started dying with a SIGSEGV in the `1.raster` thread inside `libflutter.so` — native, no
+Dart frame, so the screen just goes white and nothing is caught. The line above it says what it
+actually is:
+
+```
+[impeller/core/allocator.cc] Requested texture size (1, 1) exceeds maximum supported size of (0, 0)
+[impeller/renderer/blit_pass.cc] Attempted to add a texture blit with no destination.
+```
+
+Impeller — Flutter's default Android renderer — cannot allocate textures on this emulator image,
+which reports a maximum texture size of zero. **`flutter run --no-enable-impeller` is the
+workaround**, and any emulator demo needs it. It is an environment fault, not a UI one: no widget
+in this change is unusual.
+
+The first guess was the Login card's 24px `BoxShadow`, on the theory that a blur was the new
+rendering primitive. Removing it did not help, and the entry that claimed it did was wrong. The
+shadow is still gone — a `neutral200` hairline reads almost identically, matches every other panel
+in the app, and is one less thing for a fragile rasterizer to do — but it was not the cause.
+
+**This has not been reproduced on real hardware**, and Impeller works on most physical devices.
+`HARDWARE_CHECKLIST.md` is where to confirm it before the exhibition.
+
+### The sign-out listener reacted to a value, not a transition
+
+Pressing Register created the account — 201, `patient_self_registered` in the logs — and then put
+the patient back on the Login screen. The account existed; the app acted as though nothing had
+happened.
+
+`AuthController.signIn` and `register` both `notifyListeners()` once at the *start*, to clear a
+stale error, while the status is still `signedOut`. `main.dart` listened for `signedOut` to send a
+lost session back to sign-in, and reacted to the value rather than the change — so the moment the
+button was pressed it ran `pushNamedAndRemoveUntil(login)` and popped the Register screen out from
+under the in-flight request. By the time the 201 came back, `mounted` was false and the navigation
+that should have gone to DEV-01 never ran.
+
+The listener now tracks the previous status and unwinds only on a genuine `signedIn → signedOut`
+transition. Two tests: one that the register press does not bounce, one that a revoked session
+still does.
+
+Worth noting how this hid: every widget test passed throughout, because they drive the screens
+directly and none of them wired up `main.dart`'s listener. The regression test now does.

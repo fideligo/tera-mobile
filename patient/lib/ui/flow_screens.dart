@@ -8,7 +8,6 @@ library;
 import 'package:flutter/material.dart';
 
 import '../auth/auth_controller.dart';
-import '../capture/context_intake.dart';
 import '../capture/check_session_client.dart';
 import '../capture/current_context.dart';
 import '../capture/current_context_submitter.dart';
@@ -18,13 +17,11 @@ import '../capture/eligibility_check.dart';
 import '../capture/session_context.dart';
 import '../capture/session_submitter.dart';
 import '../routing/check_payload.dart';
-import '../routing/app_flow_state.dart';
 import '../routing/app_router.dart';
 import '../routing/check_session.dart';
 import '../routing/routes.dart';
 import '../signal/signal_pipeline.dart';
 import 'capture_screen.dart';
-import 'context_intake_screen.dart';
 import 'cuff_reading_screen.dart';
 import 'flow_stub_screen.dart';
 
@@ -51,9 +48,12 @@ class _SplashScreenState extends State<SplashScreen> {
     if (!mounted) return;
 
     // Not authenticated wins over everything: there is no per-user state to resume without it.
+    // Past that, the destination is the same table the two auth screens use, asked in the same
+    // way — this screen does not get its own opinion about where setup resumes.
     final next = widget.flow.auth.status == AuthStatus.signedIn
-        ? widget.flow.state.resumeRoute
+        ? await widget.flow.resumeRouteAfterAuth()
         : Routes.login;
+    if (!mounted) return;
 
     Navigator.of(context).pushNamedAndRemoveUntil(next, (r) => false);
   }
@@ -66,116 +66,6 @@ class _SplashScreenState extends State<SplashScreen> {
         children: [Text('Tera'), SizedBox(height: 16), CircularProgressIndicator()],
       ),
     ),
-  );
-}
-
-/// DEV-01. Runs the real eligibility probe and records the verdict.
-class DeviceCheckScreen extends StatefulWidget {
-  const DeviceCheckScreen({super.key, required this.flow, this.probe});
-
-  final TeraFlow flow;
-
-  /// Injectable so a routing test does not have to reach for a real camera and accelerometer.
-  /// Null uses the real gate.
-  final Future<EligibilityResult> Function()? probe;
-
-  @override
-  State<DeviceCheckScreen> createState() => _DeviceCheckScreenState();
-}
-
-class _DeviceCheckScreenState extends State<DeviceCheckScreen> {
-  @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _check());
-  }
-
-  Future<void> _check() async {
-    // The existing gate: torch present, and a *measured* accelerometer rate at or above the
-    // minimum. `couldNotCheck` is treated as not eligible for routing, which is the conservative
-    // reading — the BP-only path still works and nothing is blocked.
-    final result = await (widget.probe?.call() ?? EligibilityChecker().check());
-    final eligibility = result.canProceed
-        ? DeviceEligibility.eligible
-        : DeviceEligibility.notEligible;
-
-    await widget.flow.recordEligibility(eligibility);
-    if (!mounted) return;
-
-    Navigator.of(context).pushReplacementNamed(
-      eligibility == DeviceEligibility.eligible
-          ? Routes.deviceEligible
-          : Routes.deviceNotEligible,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('DEV-01')),
-    body: const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text('Checking your phone sensors'),
-          SizedBox(height: 8),
-          Text('This takes about 10 seconds. No need to do anything.'),
-          SizedBox(height: 24),
-          CircularProgressIndicator(),
-        ],
-      ),
-    ),
-  );
-}
-
-/// DEV-02 and DEV-03. Both continue into PHR onboarding; neither blocks the account.
-class DeviceVerdictScreen extends StatelessWidget {
-  const DeviceVerdictScreen({
-    super.key,
-    required this.specId,
-    required this.title,
-    required this.body,
-    required this.cta,
-  });
-
-  final String specId;
-  final String title;
-  final String body;
-  final String cta;
-
-  @override
-  Widget build(BuildContext context) => FlowStubScreen(
-    specId: specId,
-    title: title,
-    body: body,
-    nextLabel: cta,
-    onNext: () => Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(Routes.onboardingAboutYou, (r) => false),
-  );
-}
-
-/// ONB-02 Measurement Safety.
-///
-/// **Not a stub.** This is the safety gate already built: the pregnancy hard stop and the rhythm
-/// question live in [ContextIntakeScreen], which also files the answers to `/v1/patient-context`.
-/// The spec's ONB-02 and our intake form ask the same questions for the same reason, so the route
-/// points at the real screen rather than duplicating it.
-class SafetyOnboardingScreen extends StatelessWidget {
-  const SafetyOnboardingScreen({super.key, required this.flow});
-
-  final TeraFlow flow;
-
-  @override
-  Widget build(BuildContext context) => ContextIntakeScreen(
-    store: SecureContextIntakeStore(),
-    api: flow.api,
-    onSaved: (_) async {
-      await flow.completeOnboardingStep(OnboardingStep.safety);
-      if (!context.mounted) return;
-      Navigator.of(
-        context,
-      ).pushNamedAndRemoveUntil(flow.state.onboardingStep.route, (r) => false);
-    },
   );
 }
 
@@ -198,19 +88,19 @@ class PrecheckScreen extends StatefulWidget {
 }
 
 class _PrecheckScreenState extends State<PrecheckScreen> {
-  bool _rested = true;
-  bool _activity = false;
-  bool _caffeine = false;
-  bool _nicotine = false;
-  bool _restroom = false;
+  bool? _rested;
+  bool? _activity;
+  bool? _caffeine;
+  bool? _nicotine;
+  bool? _restroom;
 
   Future<void> _next() async {
     final answers = PrecheckAnswers(
-      rested5Min: _rested,
-      recentActivity30Min: _activity,
-      recentCaffeine30Min: _caffeine,
-      recentNicotine30Min: _nicotine,
-      needsRestroom: _restroom,
+      rested5Min: _rested ?? true,
+      recentActivity30Min: _activity ?? false,
+      recentCaffeine30Min: _caffeine ?? false,
+      recentNicotine30Min: _nicotine ?? false,
+      needsRestroom: _restroom ?? false,
     );
 
     // Filed against the check session opened at the start of the flow. Best effort: the readiness
@@ -232,42 +122,75 @@ class _PrecheckScreenState extends State<PrecheckScreen> {
     );
   }
 
+  Widget _buildYesNoQuestion(String question, bool? value, ValueChanged<bool> onChanged) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16.0),
+      child: Column(
+        children: [
+          Text(question, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              TextButton(
+                onPressed: () => onChanged(true),
+                style: TextButton.styleFrom(
+                  foregroundColor: value == true ? Colors.black : Colors.grey,
+                  textStyle: TextStyle(fontWeight: value == true ? FontWeight.bold : FontWeight.normal),
+                ),
+                child: const Text('yes'),
+              ),
+              const SizedBox(width: 32),
+              TextButton(
+                onPressed: () => onChanged(false),
+                style: TextButton.styleFrom(
+                  foregroundColor: value == false ? Colors.black : Colors.grey,
+                  textStyle: TextStyle(fontWeight: value == false ? FontWeight.bold : FontWeight.normal),
+                ),
+                child: const Text('no'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('PRE-01')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const Text('Before your check'),
-          SwitchListTile(
-            value: _rested,
-            onChanged: (v) => setState(() => _rested = v),
-            title: const Text('Rested quietly for at least 5 minutes'),
-          ),
-          SwitchListTile(
-            value: _activity,
-            onChanged: (v) => setState(() => _activity = v),
-            title: const Text('Active in the last 30 minutes'),
-          ),
-          SwitchListTile(
-            value: _caffeine,
-            onChanged: (v) => setState(() => _caffeine = v),
-            title: const Text('Caffeine in the last 30 minutes'),
-          ),
-          SwitchListTile(
-            value: _nicotine,
-            onChanged: (v) => setState(() => _nicotine = v),
-            title: const Text('Nicotine in the last 30 minutes'),
-          ),
-          SwitchListTile(
-            value: _restroom,
-            onChanged: (v) => setState(() => _restroom = v),
-            title: const Text('Need the restroom'),
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(onPressed: _next, child: const Text('Next')),
-        ],
+      appBar: AppBar(title: const Text('PRE-01'), elevation: 0, backgroundColor: Colors.transparent, iconTheme: const IconThemeData(color: Colors.black)),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(24),
+          children: [
+            const Text(
+              'For a more comparable trend,\ncheck that you\'re in a resting\ncondition.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 32),
+            _buildYesNoQuestion('Have you rested quietly for at least 5 minutes?', _rested, (v) => setState(() => _rested = v)),
+            _buildYesNoQuestion('Have you exercised or been physically active in the last 30 minutes?', _activity, (v) => setState(() => _activity = v)),
+            _buildYesNoQuestion('Have you had coffee, tea, or another caffeinated drink in the last 30 minutes?', _caffeine, (v) => setState(() => _caffeine = v)),
+            _buildYesNoQuestion('Have you smoked or used nicotine in the last 30 minutes?', _nicotine, (v) => setState(() => _nicotine = v)),
+            _buildYesNoQuestion('Do you need to use the restroom?', _restroom, (v) => setState(() => _restroom = v)),
+            const SizedBox(height: 32),
+            Center(
+              child: TextButton(
+                onPressed: _next,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('next', style: TextStyle(fontSize: 16, color: Colors.black)),
+                    SizedBox(width: 4),
+                    Icon(Icons.arrow_forward, size: 16, color: Colors.black),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -298,7 +221,12 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
   bool _sleep = false;
   bool _stress = false;
   bool _unwell = false;
+  bool _recentExercise = false;
+  bool _moreCaffeine = false;
+  bool _nothingUnusual1 = true;
+
   final Set<ContextSymptom> _symptoms = {};
+  bool _otherSymptom = false;
   MedicationStatusToday _medication = MedicationStatusToday.notSure;
 
   void _next() {
@@ -310,9 +238,6 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
       medicationStatusToday: _medication,
     );
 
-    // Not filed here. `POST /v1/check-sessions/{id}/context` needs a session id, and the session
-    // does not exist until the check is submitted, so the context rides in the payload and
-    // processing files it once there is something to attach it to.
     TeraFlow.advance(
       context,
       CheckFlow.afterContext(widget.session),
@@ -320,57 +245,91 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
     );
   }
 
+  Widget _buildChip(String label, bool isSelected, ValueChanged<bool> onSelected) {
+    return FilterChip(
+      label: Text(label),
+      selected: isSelected,
+      onSelected: onSelected,
+      selectedColor: Colors.black26,
+      backgroundColor: Colors.grey.shade200,
+      shape: const StadiumBorder(),
+      showCheckmark: false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('CTX-01')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          const Text('Anything different today?'),
-          CheckboxListTile(
-            value: _sleep,
-            onChanged: (v) => setState(() => _sleep = v ?? false),
-            title: const Text('Slept less than usual'),
-          ),
-          CheckboxListTile(
-            value: _stress,
-            onChanged: (v) => setState(() => _stress = v ?? false),
-            title: const Text('More stressed than usual'),
-          ),
-          CheckboxListTile(
-            value: _unwell,
-            onChanged: (v) => setState(() => _unwell = v ?? false),
-            title: const Text('Feeling unwell'),
-          ),
-          const SizedBox(height: 8),
-          const Text('Any of these right now?'),
-          for (final symptom in ContextSymptom.values)
-            CheckboxListTile(
-              value: _symptoms.contains(symptom),
-              onChanged: (v) => setState(() {
-                if (v ?? false) {
-                  _symptoms.add(symptom);
-                } else {
-                  _symptoms.remove(symptom);
-                }
-              }),
-              title: Text(symptom.label),
+      appBar: AppBar(title: const Text('CTX-01'), elevation: 0, backgroundColor: Colors.transparent, iconTheme: const IconThemeData(color: Colors.black)),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(24),
+          children: [
+            const Text('Anything\ndifferent\ntoday?', style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, height: 1.1)),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildChip('Slept less than usual', _sleep, (v) => setState(() { _sleep = v; _nothingUnusual1 = false; })),
+                _buildChip('Higher stress', _stress, (v) => setState(() { _stress = v; _nothingUnusual1 = false; })),
+                _buildChip('Recent exercise', _recentExercise, (v) => setState(() { _recentExercise = v; _nothingUnusual1 = false; })),
+                _buildChip('More caffeine than usual', _moreCaffeine, (v) => setState(() { _moreCaffeine = v; _nothingUnusual1 = false; })),
+                _buildChip('Feeling unwell', _unwell, (v) => setState(() { _unwell = v; _nothingUnusual1 = false; })),
+                _buildChip('Nothing unusual', _nothingUnusual1, (v) {
+                  if (v) setState(() { _sleep = false; _stress = false; _unwell = false; _recentExercise = false; _moreCaffeine = false; _nothingUnusual1 = true; });
+                }),
+              ],
             ),
-          const SizedBox(height: 8),
-          const Text('Blood pressure medication today'),
-          DropdownButton<MedicationStatusToday>(
-            value: _medication,
-            isExpanded: true,
-            onChanged: (v) => setState(() => _medication = v ?? MedicationStatusToday.notSure),
-            items: [
-              for (final status in MedicationStatusToday.values)
-                DropdownMenuItem(value: status, child: Text(status.label)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(onPressed: _next, child: const Text('Next')),
-        ],
+            const SizedBox(height: 48),
+            const Text('How are you\nfeeling?', style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, height: 1.1)),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _buildChip('No symptoms', _symptoms.isEmpty && !_otherSymptom, (v) {
+                  if (v) setState(() { _symptoms.clear(); _otherSymptom = false; });
+                }),
+                for (final symptom in ContextSymptom.values)
+                  _buildChip(symptom.label, _symptoms.contains(symptom), (v) {
+                    setState(() {
+                      if (v) _symptoms.add(symptom);
+                      else _symptoms.remove(symptom);
+                    });
+                  }),
+                _buildChip('Other', _otherSymptom, (v) => setState(() => _otherSymptom = v)),
+              ],
+            ),
+            const SizedBox(height: 48),
+            const Text('additional\ncondition', style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, height: 1.1)),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final status in MedicationStatusToday.values)
+                  _buildChip(status.label, _medication == status, (v) {
+                    if (v) setState(() => _medication = status);
+                  }),
+              ],
+            ),
+            const SizedBox(height: 48),
+            Center(
+              child: TextButton(
+                onPressed: _next,
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text('next', style: TextStyle(fontSize: 16, color: Colors.black)),
+                    SizedBox(width: 4),
+                    Icon(Icons.arrow_forward, size: 16, color: Colors.black),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -411,7 +370,7 @@ class BpInputScreen extends StatelessWidget {
 
 /// CAP-01. Runs the real capture, then the real pipeline, and reports the gate's verdict to the
 /// state machine.
-class CaptureRouteScreen extends StatelessWidget {
+class CaptureRouteScreen extends StatefulWidget {
   const CaptureRouteScreen({
     super.key,
     required this.flow,
@@ -424,28 +383,179 @@ class CaptureRouteScreen extends StatelessWidget {
   final CheckPayload payload;
 
   @override
-  Widget build(BuildContext context) => CaptureScreen(
-    onComplete: (capture) async {
-      final result = await const TeraSignalPipeline().process(capture);
-      if (!context.mounted) return;
+  State<CaptureRouteScreen> createState() => _CaptureRouteScreenState();
+}
 
-      if (result.accepted) {
-        await flow.recordSuccessfulSensorCheck(DateTime.now());
+class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
+  bool _walkthroughDone = false;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_walkthroughDone) {
+      return ScgPpgWalkthroughScreen(onDone: () => setState(() => _walkthroughDone = true));
+    }
+    return CaptureScreen(
+      onComplete: (capture) async {
+        final result = await const TeraSignalPipeline().process(capture);
         if (!context.mounted) return;
-      }
 
-      TeraFlow.advance(
-        context,
-        CheckFlow.afterSensorCapture(
-          session,
-          result.accepted ? SignalQuality.accepted : SignalQuality.retryableReject,
+        if (result.accepted) {
+          await widget.flow.recordSuccessfulSensorCheck(DateTime.now());
+          if (!context.mounted) return;
+        }
+
+        TeraFlow.advance(
+          context,
+          CheckFlow.afterSensorCapture(
+            widget.session,
+            result.accepted ? SignalQuality.accepted : SignalQuality.retryableReject,
+          ),
+          // Carried whether accepted or not. A rejected session is still submitted and retained
+          // (invariant 3), so processing needs it either way.
+          payload: widget.payload.copyWith(signal: result, capturedAt: capture.startedAt),
+        );
+      },
+    );
+  }
+}
+
+class ScgPpgWalkthroughScreen extends StatefulWidget {
+  final VoidCallback onDone;
+  const ScgPpgWalkthroughScreen({super.key, required this.onDone});
+
+  @override
+  State<ScgPpgWalkthroughScreen> createState() => _ScgPpgWalkthroughScreenState();
+}
+
+class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
+  final PageController _pageController = PageController();
+  int _currentPage = 0;
+  bool _ready = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: SafeArea(
+        child: Column(
+          children: [
+            Expanded(
+              child: PageView(
+                controller: _pageController,
+                onPageChanged: (i) => setState(() => _currentPage = i),
+                children: [
+                  _buildPage(
+                    step: 'STEP 1: Sit comfortably',
+                    sub: 'Sit upright with your back supported\nand both feet flat on the floor.',
+                    icon: Icons.chair_alt,
+                  ),
+                  _buildPage(
+                    step: 'STEP 2: Place your phone on\nyour chest',
+                    sub: 'Hold your phone with one hand and\nplace it flat against the center of your\nchest.',
+                    icon: Icons.phone_android,
+                  ),
+                  _buildPage(
+                    step: 'STEP 3: Cover the rear camera',
+                    sub: 'With your other hand, gently place your\nindex finger over the rear camera and\nflash.',
+                    icon: Icons.camera_rear,
+                  ),
+                  _buildPage(
+                    step: 'STEP 4: Relax and stay still',
+                    sub: 'Keep your position and avoid moving\nor talking during the check.',
+                    icon: Icons.self_improvement,
+                  ),
+                ],
+              ),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(4, (index) => Container(
+                margin: const EdgeInsets.symmetric(horizontal: 4),
+                width: 24,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: _currentPage == index ? const Color(0xFF0F3057) : Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              )),
+            ),
+            const SizedBox(height: 32),
+            if (_currentPage == 3)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.blue.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.withOpacity(0.2)),
+                  ),
+                  child: CheckboxListTile(
+                    value: _ready,
+                    onChanged: (v) => setState(() => _ready = v ?? false),
+                    title: const Text("I'm ready"),
+                    controlAffinity: ListTileControlAffinity.leading,
+                  ),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0F3057),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () {
+                    if (_currentPage < 3) {
+                      _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
+                    } else if (_ready) {
+                      widget.onDone();
+                    }
+                  },
+                  child: Text(_currentPage < 3 ? 'Next' : 'Start Check'),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            TextButton.icon(
+              onPressed: () {
+                if (_currentPage > 0) {
+                  _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
+                } else {
+                  Navigator.of(context).pop();
+                }
+              },
+              icon: const Icon(Icons.chevron_left, color: Color(0xFF0F3057)),
+              label: const Text('Back', style: TextStyle(color: Color(0xFF0F3057))),
+            ),
+            const SizedBox(height: 16),
+          ],
         ),
-        // Carried whether accepted or not. A rejected session is still submitted and retained
-        // (invariant 3), so processing needs it either way.
-        payload: payload.copyWith(signal: result, capturedAt: capture.startedAt),
-      );
-    },
-  );
+      ),
+    );
+  }
+
+  Widget _buildPage({required String step, required String sub, required IconData icon}) {
+    return Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(step, textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F3057))),
+          const SizedBox(height: 16),
+          Text(sub, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, color: Colors.black87)),
+          const SizedBox(height: 64),
+          Icon(icon, size: 100, color: Colors.grey.shade400),
+          const SizedBox(height: 32),
+          if (icon == Icons.camera_rear || icon == Icons.chair_alt || icon == Icons.phone_android || icon == Icons.self_improvement)
+            const Icon(Icons.favorite, size: 32, color: Colors.deepOrange),
+        ],
+      ),
+    );
+  }
 }
 
 /// PROC-01. Submission happens here; the insight follows.

@@ -396,7 +396,9 @@ void main() {
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('needed to continue'), findsOneWidget);
+      // Both required answers are missing, so the refusal names both rather than saying
+      // "complete the form".
+      expect(find.textContaining('date of birth and sex assigned at birth'), findsOneWidget);
       expect((await store.read()).aboutYouComplete, isFalse);
       // The step is not advanced by a refused form.
       expect(flow.state.onboardingStep, OnboardingStep.aboutYou);
@@ -424,17 +426,21 @@ void main() {
         ),
       );
 
-      await tester.tap(find.text('Select').first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Yes, diagnosed').last);
+      await tester.tap(find.text('Yes, diagnosed'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Select').first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Yes').last);
+      // The medication question's "Yes". `.first` because ONB-03's condition list is below it
+      // and the finder must not reach past the question being answered.
+      await tester.tap(find.text('Yes').first);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Next'));
+      // Section 7: an unanswered condition list is ambiguous, so one of the two exclusive rows
+      // has to be chosen before the form will submit.
+      await tester.scrollUntilVisible(find.text('None of these'), 200);
+      await tester.tap(find.text('None of these'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Finish'));
       await tester.pumpAndSettle();
 
       final saved = await store.read();

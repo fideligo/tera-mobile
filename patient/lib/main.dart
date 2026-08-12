@@ -69,12 +69,28 @@ class _TeraPatientAppState extends State<TeraPatientApp> {
 
     // A session lost mid-flow unwinds to login. The splash re-runs AUTH-00 on the way back in, so
     // the resume point is recomputed rather than remembered from before the session died.
+    _lastStatus = _auth.status;
     _auth.addListener(_onAuthChanged);
     // The splash owns restore(); calling it here too would race it.
   }
 
+  /// The last status this listener saw, so it can tell a *transition* from a repeat.
+  ///
+  /// Load-bearing. [AuthController.signIn] and [AuthController.register] both notify once at the
+  /// start, to clear a stale error, while the status is still `signedOut` — and a listener that
+  /// reacted to the value rather than the change unwound the whole stack to Login at the moment
+  /// the patient pressed Register. The account was created, the response came back 201, and the
+  /// screen that was going to navigate had already been popped.
+  AuthStatus _lastStatus = AuthStatus.checking;
+
   void _onAuthChanged() {
+    final previous = _lastStatus;
+    _lastStatus = _auth.status;
+
+    // Only a session that *was* live and is now gone sends the app back to sign-in.
     if (_auth.status != AuthStatus.signedOut) return;
+    if (previous != AuthStatus.signedIn) return;
+
     _navigator.currentState?.pushNamedAndRemoveUntil(Routes.login, (r) => false);
   }
 

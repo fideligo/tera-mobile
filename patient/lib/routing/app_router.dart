@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
 import '../auth/auth_controller.dart';
+import '../ui/device_check_screens.dart';
 import '../ui/flow_screens.dart';
 import '../ui/flow_stub_screen.dart';
 import '../capture/phr_profile.dart';
@@ -17,6 +18,7 @@ import '../ui/home_screen.dart';
 import '../ui/insight_screen.dart';
 import '../ui/onboarding_screens.dart';
 import '../ui/register_screen.dart';
+import '../ui/safety_onboarding_screen.dart';
 import '../ui/sign_in_screen.dart';
 import 'app_flow_state.dart';
 import 'check_payload.dart';
@@ -182,11 +184,12 @@ class TeraRouter {
       ),
 
       // ------------------------------------------------------------ device check
-      Routes.deviceChecking => _page(settings, (_) => DeviceCheckScreen(flow: flow)),
+      Routes.deviceChecking => _page(settings, (_) => DeviceCheckingScreen(flow: flow)),
       Routes.deviceEligible => _page(
         settings,
         (_) => const DeviceVerdictScreen(
           specId: 'DEV-02',
+          eligible: true,
           title: 'Your phone is ready for Tera',
           body: 'Your device supports the camera and motion sensing needed for Tera checks.',
           cta: 'Continue',
@@ -196,11 +199,12 @@ class TeraRouter {
         settings,
         (_) => const DeviceVerdictScreen(
           specId: 'DEV-03',
+          eligible: false,
           title: 'You can still use Tera',
           body:
               'Sensor-based checks are not supported on this device, but you can still log and '
               'understand your blood-pressure readings.',
-          cta: 'Continue with BP checks',
+          cta: 'Continue with BP scan',
         ),
       ),
 
@@ -209,8 +213,6 @@ class TeraRouter {
         settings,
         (_) => AboutYouScreen(flow: flow, store: SecurePhrProfileStore()),
       ),
-      // ONB-02 is the safety gate already built: the pregnancy hard stop and the rhythm question
-      // live in ContextIntakeScreen, so the route points at the real screen.
       Routes.onboardingSafety => _page(settings, (_) => SafetyOnboardingScreen(flow: flow)),
       Routes.onboardingHealthContext => _page(
         settings,

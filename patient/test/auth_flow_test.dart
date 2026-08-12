@@ -25,6 +25,7 @@ import 'package:tera_patient/routing/app_flow_state.dart';
 import 'package:tera_patient/routing/app_router.dart';
 import 'package:tera_patient/routing/check_session.dart';
 import 'package:tera_patient/routing/routes.dart';
+import 'package:tera_patient/ui/auth_scaffold.dart';
 import 'package:tera_patient/ui/register_screen.dart';
 
 http.Response _json(Map<String, dynamic> body, [int status = 200]) =>
@@ -150,13 +151,10 @@ Future<void> _pumpFrames(WidgetTester tester, {int frames = 20}) async {
   }
 }
 
-Finder _field(String label) => find.ancestor(
-  of: find.text(label),
-  matching: find.byType(TextFormField),
-);
-
-Future<void> _fill(WidgetTester tester, String label, String value) async {
-  await tester.enterText(_field(label), value);
+/// Fields are addressed by their stable id, not by their visible label: the labels are the
+/// design's and are in Indonesian, and a test that read them would break on a copy change.
+Future<void> _fill(WidgetTester tester, String id, String value) async {
+  await tester.enterText(find.byKey(fieldKey(id)), value);
   await tester.pump();
 }
 
@@ -179,9 +177,9 @@ void main() {
         RegisterScreen(flow: harness.flow, profileStore: profiles),
       );
 
-      await _fill(tester, 'Name', 'Budi Santoso');
-      await _fill(tester, 'Email', 'baru@test.invalid');
-      await _fill(tester, 'Password', 'kata-sandi-panjang');
+      await _fill(tester, 'name', 'Budi Santoso');
+      await _fill(tester, 'email', 'baru@test.invalid');
+      await _fill(tester, 'password', 'kata-sandi-panjang');
       await tester.tap(find.text('Register'));
       await _pumpFrames(tester);
 
@@ -208,9 +206,9 @@ void main() {
         RegisterScreen(flow: harness.flow, profileStore: InMemoryPhrProfileStore()),
       );
 
-      await _fill(tester, 'Name', 'Budi Santoso');
-      await _fill(tester, 'Email', 'baru@test.invalid');
-      await _fill(tester, 'Password', 'kata-sandi-panjang');
+      await _fill(tester, 'name', 'Budi Santoso');
+      await _fill(tester, 'email', 'baru@test.invalid');
+      await _fill(tester, 'password', 'kata-sandi-panjang');
       await tester.tap(find.text('Register'));
       await _pumpFrames(tester);
 
@@ -229,9 +227,9 @@ void main() {
         RegisterScreen(flow: harness.flow, profileStore: profiles),
       );
 
-      await _fill(tester, 'Name', '  Budi Santoso  ');
-      await _fill(tester, 'Email', 'baru@test.invalid');
-      await _fill(tester, 'Password', 'kata-sandi-panjang');
+      await _fill(tester, 'name', '  Budi Santoso  ');
+      await _fill(tester, 'email', 'baru@test.invalid');
+      await _fill(tester, 'password', 'kata-sandi-panjang');
       await tester.tap(find.text('Register'));
       await _pumpFrames(tester);
 
@@ -275,9 +273,9 @@ void main() {
         RegisterScreen(flow: harness.flow, profileStore: InMemoryPhrProfileStore()),
       );
 
-      await _fill(tester, 'Name', 'Budi');
-      await _fill(tester, 'Email', 'budi.test.invalid');
-      await _fill(tester, 'Password', 'kata-sandi-panjang');
+      await _fill(tester, 'name', 'Budi');
+      await _fill(tester, 'email', 'budi.test.invalid');
+      await _fill(tester, 'password', 'kata-sandi-panjang');
       await tester.tap(find.text('Register'));
       await tester.pumpAndSettle();
 
@@ -300,9 +298,9 @@ void main() {
         RegisterScreen(flow: harness.flow, profileStore: InMemoryPhrProfileStore()),
       );
 
-      await _fill(tester, 'Name', 'Budi');
-      await _fill(tester, 'Email', 'budi@test.invalid');
-      await _fill(tester, 'Password', 'pendek');
+      await _fill(tester, 'name', 'Budi');
+      await _fill(tester, 'email', 'budi@test.invalid');
+      await _fill(tester, 'password', 'pendek');
       await tester.tap(find.text('Register'));
       await tester.pumpAndSettle();
 
@@ -323,9 +321,9 @@ void main() {
         RegisterScreen(flow: harness.flow, profileStore: InMemoryPhrProfileStore()),
       );
 
-      await _fill(tester, 'Name', 'Budi');
-      await _fill(tester, 'Email', 'sudah@test.invalid');
-      await _fill(tester, 'Password', 'kata-sandi-panjang');
+      await _fill(tester, 'name', 'Budi');
+      await _fill(tester, 'email', 'sudah@test.invalid');
+      await _fill(tester, 'password', 'kata-sandi-panjang');
       await tester.tap(find.text('Register'));
       await tester.pumpAndSettle();
 
@@ -346,9 +344,9 @@ void main() {
         RegisterScreen(flow: harness.flow, profileStore: InMemoryPhrProfileStore()),
       );
 
-      await _fill(tester, 'Name', 'Budi');
-      await _fill(tester, 'Email', 'budi@test.invalid');
-      await _fill(tester, 'Password', 'kata-sandi-panjang');
+      await _fill(tester, 'name', 'Budi');
+      await _fill(tester, 'email', 'budi@test.invalid');
+      await _fill(tester, 'password', 'kata-sandi-panjang');
       await tester.tap(find.text('Register'));
       await tester.pumpAndSettle();
 
@@ -361,9 +359,9 @@ void main() {
       final harness = _flow(respond: (_) async => _json(_registered(), 201));
       await _pump(tester, harness.flow, initialRoute: Routes.register);
 
-      await _fill(tester, 'Name', 'Budi');
-      await _fill(tester, 'Email', 'baru@test.invalid');
-      await _fill(tester, 'Password', 'kata-sandi-panjang');
+      await _fill(tester, 'name', 'Budi');
+      await _fill(tester, 'email', 'baru@test.invalid');
+      await _fill(tester, 'password', 'kata-sandi-panjang');
       await tester.tap(find.text('Register'));
       await _pumpFrames(tester);
 
@@ -387,9 +385,9 @@ void main() {
       );
       await _pump(tester, harness.flow, initialRoute: Routes.register);
 
-      await _fill(tester, 'Name', 'Budi');
-      await _fill(tester, 'Email', 'baru@test.invalid');
-      await _fill(tester, 'Password', 'kata-sandi-panjang');
+      await _fill(tester, 'name', 'Budi');
+      await _fill(tester, 'email', 'baru@test.invalid');
+      await _fill(tester, 'password', 'kata-sandi-panjang');
       await tester.tap(find.text('Register'));
       await tester.pumpAndSettle();
 
@@ -413,8 +411,8 @@ void main() {
       );
       await _pump(tester, harness.flow, initialRoute: Routes.login);
 
-      await _fill(tester, 'Email', 'lama@test.invalid');
-      await _fill(tester, 'Password', 'kata-sandi-panjang');
+      await _fill(tester, 'email', 'lama@test.invalid');
+      await _fill(tester, 'password', 'kata-sandi-panjang');
       await tester.tap(find.text('Login'));
       await tester.pumpAndSettle();
       return harness.flow;
@@ -432,7 +430,7 @@ void main() {
       expect(flow.auth.status, AuthStatus.signedIn);
       expect(find.text('Start Check-In'), findsOneWidget);
       // And the sign-in screen is gone from under it, not merely covered.
-      expect(find.text('Selamat datang'), findsNothing);
+      expect(find.text('Selamat Datang'), findsNothing);
     });
 
     testWidgets('an unfinished onboarding resumes at its own step', (tester) async {
@@ -453,13 +451,13 @@ void main() {
       final harness = _flow(respond: (_) async => _json({'detail': 'nope'}, 401));
       await _pump(tester, harness.flow, initialRoute: Routes.login);
 
-      await _fill(tester, 'Email', 'lama@test.invalid');
-      await _fill(tester, 'Password', 'salah-sekali-panjang');
+      await _fill(tester, 'email', 'lama@test.invalid');
+      await _fill(tester, 'password', 'salah-sekali-panjang');
       await tester.tap(find.text('Login'));
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Incorrect username or password.'), findsNWidgets(2));
-      expect(find.text('Selamat datang'), findsOneWidget);
+      expect(find.text('Selamat Datang'), findsOneWidget);
       expect(harness.flow.auth.status, isNot(AuthStatus.signedIn));
     });
 
@@ -499,13 +497,91 @@ void main() {
       );
       await _pump(tester, harness.flow, initialRoute: Routes.login);
 
-      await _fill(tester, 'Email', 'lama@test.invalid');
-      await _fill(tester, 'Password', 'pendek');
+      await _fill(tester, 'email', 'lama@test.invalid');
+      await _fill(tester, 'password', 'pendek');
       await tester.tap(find.text('Login'));
       await tester.pumpAndSettle();
 
       expect(requests, hasLength(1));
       expect(harness.flow.auth.status, AuthStatus.signedIn);
+    });
+  });
+
+  group('the sign-out listener reacts to a transition, not a value', () {
+    testWidgets('pressing Register does not unwind the stack to Login', (tester) async {
+      // `AuthController.register` notifies once at the start, to clear a stale error, while the
+      // status is still `signedOut`. `main.dart` listens for `signedOut` to send a lost session
+      // back to sign-in — and reacting to the value rather than the change popped the Register
+      // screen the instant the patient pressed the button. The account was created, the response
+      // came back 201, and the screen that was going to navigate no longer existed.
+      final harness = _flow(respond: (_) async => _json(_registered(), 201));
+
+      // The real listener, wired the way `main.dart` wires it.
+      final navigator = GlobalKey<NavigatorState>();
+      var lastStatus = harness.flow.auth.status;
+      harness.flow.auth.addListener(() {
+        final previous = lastStatus;
+        lastStatus = harness.flow.auth.status;
+        if (harness.flow.auth.status != AuthStatus.signedOut) return;
+        if (previous != AuthStatus.signedIn) return;
+        navigator.currentState?.pushNamedAndRemoveUntil(Routes.login, (r) => false);
+      });
+
+      _handsetSized(tester);
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigator,
+          onGenerateRoute: TeraRouter(harness.flow).onGenerateRoute,
+          initialRoute: Routes.login,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Register'));
+      await tester.pumpAndSettle();
+      expect(find.text('Buat Akun'), findsOneWidget);
+
+      await _fill(tester, 'name', 'Budi');
+      await _fill(tester, 'email', 'baru@test.invalid');
+      await _fill(tester, 'password', 'kata-sandi-panjang');
+      await tester.tap(find.text('Register'));
+      await _pumpFrames(tester);
+
+      // Signed in and moved on, rather than bounced back to the form it started from.
+      expect(harness.flow.auth.status, AuthStatus.signedIn);
+      expect(find.text('Selamat Datang'), findsNothing);
+      expect(find.text('Buat Akun'), findsNothing);
+    });
+
+    testWidgets('a genuinely lost session still returns to Login', (tester) async {
+      // The behaviour the listener exists for must survive the fix.
+      final harness = _flow(respond: (_) async => _json({'detail': 'revoked'}, 401));
+      await harness.tokens.write(
+        const StoredSession(
+          accessToken: 'a',
+          refreshToken: 'r',
+          role: 'patient',
+          subject: 'lama@test.invalid',
+        ),
+      );
+      await harness.flow.auth.restore();
+      expect(harness.flow.auth.status, AuthStatus.signedIn);
+
+      var unwound = false;
+      var lastStatus = harness.flow.auth.status;
+      harness.flow.auth.addListener(() {
+        final previous = lastStatus;
+        lastStatus = harness.flow.auth.status;
+        if (harness.flow.auth.status != AuthStatus.signedOut) return;
+        if (previous != AuthStatus.signedIn) return;
+        unwound = true;
+      });
+
+      await expectLater(
+        harness.flow.api.getJson('/v1/episodes'),
+        throwsA(isA<SessionExpiredException>()),
+      );
+      expect(unwound, isTrue);
     });
   });
 
@@ -516,20 +592,20 @@ void main() {
 
       await tester.tap(find.text('Register'));
       await tester.pumpAndSettle();
-      expect(find.text('Buat akun'), findsOneWidget);
+      expect(find.text('Buat Akun'), findsOneWidget);
       // The real form, not a placeholder.
       expect(find.byType(TextFormField), findsNWidgets(3));
 
       await tester.tap(find.text('Login'));
       await tester.pumpAndSettle();
-      expect(find.text('Selamat datang'), findsOneWidget);
+      expect(find.text('Selamat Datang'), findsOneWidget);
     });
 
     testWidgets('the password can be revealed on both screens', (tester) async {
       final harness = _flow(respond: (_) async => _json({}, 200));
       await _pump(tester, harness.flow, initialRoute: Routes.login);
 
-      await _fill(tester, 'Password', 'kata-sandi-panjang');
+      await _fill(tester, 'password', 'kata-sandi-panjang');
       expect(tester.widget<TextField>(find.byType(TextField).last).obscureText, isTrue);
 
       await tester.tap(find.byTooltip('Show password'));
