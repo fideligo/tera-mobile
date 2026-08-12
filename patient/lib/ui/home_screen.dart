@@ -530,35 +530,12 @@ class _HomeScreenState extends State<HomeScreen> {
               );
               return;
             }
-            navigator.pushReplacement(
-              MaterialPageRoute<void>(builder: (_) => _eligibilityOnwards(navigator)),
-            );
+            throw UnimplementedError('Legacy testing route is removed.');
           },
         ),
       ),
     );
   }
-
-Widget _eligibilityOnwards(NavigatorState navigator) => EligibilityScreen(
-    onProceed: (eligibility) => navigator.pushReplacement(
-      MaterialPageRoute<void>(
-        builder: (_) => CaptureScreen(
-          onComplete: (capture) => navigator.pushReplacement(
-            MaterialPageRoute<void>(
-              builder: (_) => SessionResultScreen(
-                api: auth.api,
-                capture: capture,
-                // The eligibility probe already measured this handset; carrying its result
-                // forward avoids repeating six seconds of measurement the patient watched.
-                eligibility: eligibility,
-                onDone: () => navigator.popUntil((route) => route.isFirst),
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  );
 }
 
 class _ChartPainter extends CustomPainter {
