@@ -9,7 +9,14 @@ import 'package:flutter/material.dart';
 
 import '../auth/auth_controller.dart';
 import '../capture/context_intake.dart';
+import '../capture/current_context.dart';
+import '../capture/current_context_submitter.dart';
+import '../api/api_client.dart';
+import '../capture/device_measurement.dart';
 import '../capture/eligibility_check.dart';
+import '../capture/session_context.dart';
+import '../capture/session_submitter.dart';
+import '../routing/check_payload.dart';
 import '../routing/app_flow_state.dart';
 import '../routing/app_router.dart';
 import '../routing/check_session.dart';
@@ -146,39 +153,6 @@ class DeviceVerdictScreen extends StatelessWidget {
   );
 }
 
-/// ONB-01 and ONB-03, until the real forms land. Advances the persisted onboarding step.
-class OnboardingStubScreen extends StatelessWidget {
-  const OnboardingStubScreen({
-    super.key,
-    required this.flow,
-    required this.step,
-    required this.specId,
-    required this.title,
-    required this.body,
-  });
-
-  final TeraFlow flow;
-  final OnboardingStep step;
-  final String specId;
-  final String title;
-  final String body;
-
-  @override
-  Widget build(BuildContext context) => FlowStubScreen(
-    specId: specId,
-    title: title,
-    body: body,
-    onNext: () async {
-      await flow.completeOnboardingStep(step);
-      if (!context.mounted) return;
-      final next = flow.state.onboardingComplete
-          ? Routes.home
-          : flow.state.onboardingStep.route;
-      Navigator.of(context).pushNamedAndRemoveUntil(next, (r) => false);
-    },
-  );
-}
-
 /// ONB-02 Measurement Safety.
 ///
 /// **Not a stub.** This is the safety gate already built: the pregnancy hard stop and the rhythm
@@ -278,28 +252,137 @@ class _PrecheckScreenState extends State<PrecheckScreen> {
   }
 }
 
-/// CTX-01. Forks sensor from BP-only.
-class CurrentContextScreen extends StatelessWidget {
-  const CurrentContextScreen({super.key, required this.session});
+/// CTX-01. Collects the context the intervention matrix reads, then forks sensor from BP-only.
+///
+/// Nothing here is interpreted on the handset. "Feeling unwell" does not downgrade a result and a
+/// missed dose produces no advice — invariant 6. The screen opens in the unremarkable state so an
+/// ordinary day is one tap, per the spec's UX rule.
+class CurrentContextScreen extends StatefulWidget {
+  const CurrentContextScreen({
+    super.key,
+    required this.flow,
+    required this.session,
+    this.payload = const CheckPayload(),
+  });
 
+  final TeraFlow flow;
   final CheckSession session;
+  final CheckPayload payload;
 
   @override
-  Widget build(BuildContext context) => FlowStubScreen(
-    specId: 'CTX-01',
-    title: 'Anything different today?',
-    body: 'Symptoms, how you feel, medication taken as usual.',
-    onNext: () => TeraFlow.advance(context, CheckFlow.afterContext(session)),
-  );
+  State<CurrentContextScreen> createState() => _CurrentContextScreenState();
+}
+
+class _CurrentContextScreenState extends State<CurrentContextScreen> {
+  bool _sleep = false;
+  bool _stress = false;
+  bool _unwell = false;
+  final Set<ContextSymptom> _symptoms = {};
+  MedicationStatusToday _medication = MedicationStatusToday.notSure;
+  bool _busy = false;
+
+  Future<void> _next() async {
+    setState(() => _busy = true);
+
+    final collected = CurrentContext(
+      sleepLessThanUsual: _sleep,
+      stressHigherThanUsual: _stress,
+      feelingUnwell: _unwell,
+      symptoms: _symptoms,
+      medicationStatusToday: _medication,
+    );
+
+    // Filed here rather than at submission, so it survives a capture that never completes.
+    // Best effort throughout: losing the context must not lose the reading.
+    try {
+      final resolved = await SessionContextResolver(api: widget.flow.api).resolveEpisode();
+      await CurrentContextSubmitter(
+        api: widget.flow.api,
+      ).submit(episodeId: resolved.episodeId, context: collected);
+    } on Object {
+      // Reported nowhere and blocking nothing. See the submitter's docstring.
+    }
+
+    if (!mounted) return;
+    TeraFlow.advance(
+      context,
+      CheckFlow.afterContext(widget.session),
+      payload: widget.payload.copyWith(context: collected),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('CTX-01')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          const Text('Anything different today?'),
+          CheckboxListTile(
+            value: _sleep,
+            onChanged: (v) => setState(() => _sleep = v ?? false),
+            title: const Text('Slept less than usual'),
+          ),
+          CheckboxListTile(
+            value: _stress,
+            onChanged: (v) => setState(() => _stress = v ?? false),
+            title: const Text('More stressed than usual'),
+          ),
+          CheckboxListTile(
+            value: _unwell,
+            onChanged: (v) => setState(() => _unwell = v ?? false),
+            title: const Text('Feeling unwell'),
+          ),
+          const SizedBox(height: 8),
+          const Text('Any of these right now?'),
+          for (final symptom in ContextSymptom.values)
+            CheckboxListTile(
+              value: _symptoms.contains(symptom),
+              onChanged: (v) => setState(() {
+                if (v ?? false) {
+                  _symptoms.add(symptom);
+                } else {
+                  _symptoms.remove(symptom);
+                }
+              }),
+              title: Text(symptom.label),
+            ),
+          const SizedBox(height: 8),
+          const Text('Blood pressure medication today'),
+          DropdownButton<MedicationStatusToday>(
+            value: _medication,
+            isExpanded: true,
+            onChanged: (v) => setState(() => _medication = v ?? MedicationStatusToday.notSure),
+            items: [
+              for (final status in MedicationStatusToday.values)
+                DropdownMenuItem(value: status, child: Text(status.label)),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(
+            onPressed: _busy ? null : _next,
+            child: Text(_busy ? 'Saving…' : 'Next'),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// BPREF-02 and BP-only input. Reuses the screen that already carries scan, manual entry and the
 /// explicit confirmation step.
 class BpInputScreen extends StatelessWidget {
-  const BpInputScreen({super.key, required this.flow, required this.session});
+  const BpInputScreen({
+    super.key,
+    required this.flow,
+    required this.session,
+    this.payload = const CheckPayload(),
+  });
 
   final TeraFlow flow;
   final CheckSession session;
+  final CheckPayload payload;
 
   @override
   Widget build(BuildContext context) => CuffReadingScreen(
@@ -323,10 +406,16 @@ class BpInputScreen extends StatelessWidget {
 /// CAP-01. Runs the real capture, then the real pipeline, and reports the gate's verdict to the
 /// state machine.
 class CaptureRouteScreen extends StatelessWidget {
-  const CaptureRouteScreen({super.key, required this.flow, required this.session});
+  const CaptureRouteScreen({
+    super.key,
+    required this.flow,
+    required this.session,
+    this.payload = const CheckPayload(),
+  });
 
   final TeraFlow flow;
   final CheckSession session;
+  final CheckPayload payload;
 
   @override
   Widget build(BuildContext context) => CaptureScreen(
@@ -345,6 +434,9 @@ class CaptureRouteScreen extends StatelessWidget {
           session,
           result.accepted ? SignalQuality.accepted : SignalQuality.retryableReject,
         ),
+        // Carried whether accepted or not. A rejected session is still submitted and retained
+        // (invariant 3), so processing needs it either way.
+        payload: payload.copyWith(signal: result, capturedAt: capture.startedAt),
       );
     },
   );
@@ -352,42 +444,151 @@ class CaptureRouteScreen extends StatelessWidget {
 
 /// PROC-01. Submission happens here; the insight follows.
 class ProcessingScreen extends StatefulWidget {
-  const ProcessingScreen({super.key, required this.flow, required this.session});
+  const ProcessingScreen({
+    super.key,
+    required this.flow,
+    required this.session,
+    this.payload = const CheckPayload(),
+    this.measurements,
+  });
 
   final TeraFlow flow;
   final CheckSession session;
+  final CheckPayload payload;
+
+  /// Injectable so a test can exercise the submission and its error handling without a camera.
+  /// Null measures the handset for real.
+  final Future<DeviceMeasurements> Function()? measurements;
 
   @override
   State<ProcessingScreen> createState() => _ProcessingScreenState();
 }
 
 class _ProcessingScreenState extends State<ProcessingScreen> {
+  String? _error;
+
+  /// Set when the backend refused because pregnancy is recorded. Its own state because it is not
+  /// a failure to retry — it is the contraindication gate doing its job.
+  bool _contraindicated = false;
+
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      // Submission is not wired here yet: SessionResultScreen still owns it, and moving it
-      // would mean re-plumbing the capture payload through the router in the same change.
-      await Future<void>.delayed(const Duration(milliseconds: 600));
+    WidgetsBinding.instance.addPostFrameCallback((_) => _run());
+  }
+
+  Future<void> _run() async {
+    final signal = widget.payload.signal;
+
+    // BP-only: the confirmed reading is the measurement and `CuffReadingScreen` already filed it.
+    // There is no session to submit, so processing is the handoff to the insight.
+    if (widget.session.mode == CheckMode.bpOnly || signal == null) {
       if (!mounted) return;
-      TeraFlow.advance(context, CheckFlow.afterProcessing(widget.session));
-    });
+      TeraFlow.advance(
+        context,
+        CheckFlow.afterProcessing(widget.session),
+        payload: widget.payload,
+      );
+      return;
+    }
+
+    try {
+      final resolved = await SessionContextResolver(
+        api: widget.flow.api,
+      ).resolve(await _measurements());
+
+      await SessionSubmitter(api: widget.flow.api).submit(
+        episodeId: resolved.episodeId,
+        deviceProfileId: resolved.deviceProfileId,
+        startedAt: widget.payload.capturedAt ?? DateTime.now(),
+        signal: signal,
+      );
+
+      if (!mounted) return;
+      TeraFlow.advance(
+        context,
+        CheckFlow.afterProcessing(widget.session),
+        payload: widget.payload,
+      );
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        // 403 is the server-side contraindication gate. It is not a network problem and retrying
+        // will not help, so it gets its own wording and no retry button.
+        _contraindicated = e.statusCode == 403;
+        _error = e.message;
+      });
+    } on Object catch (e) {
+      if (!mounted) return;
+      setState(() => _error = 'The check could not be sent. $e');
+    }
+  }
+
+  /// The device profile the session references.
+  ///
+  /// Only reached when the handset has not registered one before — the resolver caches the id
+  /// after the first submission — but it has to be available when it is.
+  Future<DeviceMeasurements> _measurements() async {
+    final provided = widget.measurements;
+    if (provided != null) return provided();
+
+    final eligibility = await EligibilityChecker().check();
+    final capabilities = eligibility.capabilities;
+    if (capabilities == null) {
+      // The probe could not read the camera, so there is nothing honest to register. Invariant 9:
+      // DeviceProfileCreate has no optional measurements, and a substituted figure would be one.
+      throw const DeviceMeasurementFailure(
+        'This phone could not be measured, so the check could not be filed.',
+      );
+    }
+    return DeviceMeasurer().measure(
+      capabilities: capabilities,
+      accelRateHz: eligibility.achievedRateHz ?? 0,
+    );
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('PROC-01')),
-    body: const Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Text('Putting your check into context'),
-          SizedBox(height: 24),
-          CircularProgressIndicator(),
-        ],
+  Widget build(BuildContext context) {
+    final error = _error;
+    return Scaffold(
+      appBar: AppBar(title: const Text('PROC-01')),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: error == null
+              ? const Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text('Putting your check into context'),
+                    SizedBox(height: 24),
+                    CircularProgressIndicator(),
+                  ],
+                )
+              : Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(_contraindicated ? 'Tera cannot produce a trend' : 'Could not send'),
+                    const SizedBox(height: 8),
+                    Text(error),
+                    const SizedBox(height: 24),
+                    if (!_contraindicated)
+                      ElevatedButton(
+                        onPressed: () {
+                          setState(() => _error = null);
+                          _run();
+                        },
+                        child: const Text('Try again'),
+                      ),
+                    TextButton(
+                      onPressed: () => TeraFlow.toHome(context),
+                      child: const Text('Back to home'),
+                    ),
+                  ],
+                ),
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class ProfileIndexScreen extends StatelessWidget {

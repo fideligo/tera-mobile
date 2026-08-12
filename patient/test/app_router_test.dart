@@ -57,11 +57,16 @@ Future<void> _pump(
   await tester.pumpAndSettle();
 }
 
-/// The spec id shown in the app bar of every stub, which is how a route is identified here.
+/// The spec id in the app bar, which is how a route is identified here.
+///
+/// Read from the AppBar rather than from [FlowStubScreen], because screens graduate from stub to
+/// real — CTX-01 and ONB-03 already have — and the identifier should survive that.
 String? _specId(WidgetTester tester) {
-  final finder = find.byType(FlowStubScreen);
-  if (finder.evaluate().isEmpty) return null;
-  return tester.widget<FlowStubScreen>(finder).specId;
+  final appBar = find.byType(AppBar);
+  if (appBar.evaluate().isEmpty) return null;
+  final title = find.descendant(of: appBar, matching: find.byType(Text));
+  if (title.evaluate().isEmpty) return null;
+  return tester.widget<Text>(title.first).data;
 }
 
 void main() {
@@ -207,9 +212,9 @@ void main() {
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
 
-      // The cuff screen, not a walkthrough step.
+      // The real cuff screen, not a walkthrough step and not a stub.
       expect(find.text('Record a cuff reading'), findsOneWidget);
-      expect(_specId(tester), isNull);
+      expect(_specId(tester), 'Cuff reading');
     });
   });
 

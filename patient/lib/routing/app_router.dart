@@ -12,9 +12,12 @@ import '../api/api_client.dart';
 import '../auth/auth_controller.dart';
 import '../ui/flow_screens.dart';
 import '../ui/flow_stub_screen.dart';
+import '../capture/phr_profile.dart';
 import '../ui/home_screen.dart';
+import '../ui/onboarding_screens.dart';
 import '../ui/sign_in_screen.dart';
 import 'app_flow_state.dart';
+import 'check_payload.dart';
 import 'check_session.dart';
 import 'routes.dart';
 
@@ -24,9 +27,13 @@ import 'routes.dart';
 /// what backing out should mean.
 @immutable
 class CheckArgs {
-  const CheckArgs(this.session);
+  const CheckArgs(this.session, [this.payload = const CheckPayload()]);
 
   final CheckSession session;
+
+  /// What the check has accumulated so far. Separate from [session] so the state machine stays
+  /// free of capture and API types.
+  final CheckPayload payload;
 }
 
 /// The app's setup state, shared by the splash, onboarding and the check flow.
@@ -82,13 +89,21 @@ class TeraFlow extends ChangeNotifier {
     now: now ?? DateTime.now(),
   );
 
-  /// Replace the current route with the step's, carrying the session forward.
-  static void advance(BuildContext context, CheckStep step) =>
-      Navigator.of(context).pushReplacementNamed(step.route, arguments: CheckArgs(step.session));
+  /// Replace the current route with the step's, carrying the session and its luggage forward.
+  static void advance(
+    BuildContext context,
+    CheckStep step, {
+    CheckPayload payload = const CheckPayload(),
+  }) => Navigator.of(
+    context,
+  ).pushReplacementNamed(step.route, arguments: CheckArgs(step.session, payload));
 
   /// Push rather than replace, for the first screen of a flow.
-  static void enter(BuildContext context, CheckStep step) =>
-      Navigator.of(context).pushNamed(step.route, arguments: CheckArgs(step.session));
+  static void enter(
+    BuildContext context,
+    CheckStep step, {
+    CheckPayload payload = const CheckPayload(),
+  }) => Navigator.of(context).pushNamed(step.route, arguments: CheckArgs(step.session, payload));
 
   static void toHome(BuildContext context) =>
       Navigator.of(context).pushNamedAndRemoveUntil(Routes.home, (r) => false);
@@ -107,9 +122,15 @@ class TeraRouter {
     return const CheckSession(mode: CheckMode.bpOnly, state: CheckState.created);
   }
 
+  static CheckPayload _payload(RouteSettings settings) {
+    final args = settings.arguments;
+    return args is CheckArgs ? args.payload : const CheckPayload();
+  }
+
   Route<dynamic>? onGenerateRoute(RouteSettings settings) {
     final name = settings.name ?? Routes.splash;
     final session = _session(settings);
+    final payload = _payload(settings);
 
     if (name.startsWith(Routes.historyDetailPrefix)) {
       final eventId = name.substring(Routes.historyDetailPrefix.length);
@@ -167,26 +188,14 @@ class TeraRouter {
       // -------------------------------------------------------------- onboarding
       Routes.onboardingAboutYou => _page(
         settings,
-        (_) => OnboardingStubScreen(
-          flow: flow,
-          step: OnboardingStep.aboutYou,
-          specId: 'ONB-01',
-          title: 'About you',
-          body: 'Date of birth, sex assigned at birth, height, weight.',
-        ),
+        (_) => AboutYouScreen(flow: flow, store: SecurePhrProfileStore()),
       ),
       // ONB-02 is the safety gate already built: the pregnancy hard stop and the rhythm question
       // live in ContextIntakeScreen, so the route points at the real screen.
       Routes.onboardingSafety => _page(settings, (_) => SafetyOnboardingScreen(flow: flow)),
       Routes.onboardingHealthContext => _page(
         settings,
-        (_) => OnboardingStubScreen(
-          flow: flow,
-          step: OnboardingStep.healthContext,
-          specId: 'ONB-03',
-          title: 'Health context',
-          body: 'Hypertension diagnosis, medication, other conditions.',
-        ),
+        (_) => HealthContextScreen(flow: flow, store: SecurePhrProfileStore()),
       ),
 
       // --------------------------------------------------------------------- home
@@ -203,7 +212,10 @@ class TeraRouter {
               'BP-related trend. Rest quietly for 5 minutes first.',
           onNext: () => Navigator.of(
             context,
-          ).pushReplacementNamed(Routes.checkBpInput, arguments: CheckArgs(session)),
+          ).pushReplacementNamed(
+            Routes.checkBpInput,
+            arguments: CheckArgs(session, payload),
+          ),
         ),
       ),
 
@@ -213,7 +225,7 @@ class TeraRouter {
       Routes.checkBpScan ||
       Routes.checkBpConfirm => _page(
         settings,
-        (_) => BpInputScreen(flow: flow, session: session),
+        (_) => BpInputScreen(flow: flow, session: session, payload: payload),
       ),
 
       Routes.checkPrecondition => _page(settings, (_) => PrecheckScreen(session: session)),
@@ -224,24 +236,41 @@ class TeraRouter {
           title: 'Take a few minutes',
           body: 'Rest quietly, then continue when you are ready.',
           nextLabel: 'I am ready',
-          onNext: () => TeraFlow.advance(context, CheckFlow.afterWait(session)),
+          onNext: () =>
+              TeraFlow.advance(context, CheckFlow.afterWait(session), payload: payload),
         ),
       ),
-      Routes.checkContext => _page(settings, (_) => CurrentContextScreen(session: session)),
+      Routes.checkContext => _page(
+        settings,
+        (_) => CurrentContextScreen(flow: flow, session: session, payload: payload),
+      ),
 
-      Routes.checkWalkthrough1 => _walkthrough(settings, session, 1, 'Sit comfortably'),
+      Routes.checkWalkthrough1 => _walkthrough(settings, session, payload, 1, 'Sit comfortably'),
       Routes.checkWalkthrough2 => _walkthrough(
         settings,
         session,
+        payload,
         2,
         'Place your phone on your chest',
       ),
-      Routes.checkWalkthrough3 => _walkthrough(settings, session, 3, 'Cover the rear camera'),
-      Routes.checkWalkthrough4 => _walkthrough(settings, session, 4, 'Relax and stay still'),
+      Routes.checkWalkthrough3 => _walkthrough(
+        settings,
+        session,
+        payload,
+        3,
+        'Cover the rear camera',
+      ),
+      Routes.checkWalkthrough4 => _walkthrough(
+        settings,
+        session,
+        payload,
+        4,
+        'Relax and stay still',
+      ),
 
       Routes.checkCapture => _page(
         settings,
-        (_) => CaptureRouteScreen(flow: flow, session: session),
+        (_) => CaptureRouteScreen(flow: flow, session: session, payload: payload),
       ),
       Routes.checkSignalAccepted => _page(
         settings,
@@ -259,7 +288,8 @@ class TeraRouter {
           title: 'Let us adjust your position',
           body: 'Attempt ${session.attemptCount} of $maxCaptureAttempts.',
           nextLabel: 'Try again',
-          onNext: () => TeraFlow.advance(context, CheckFlow.afterAdjust(session)),
+          onNext: () =>
+              TeraFlow.advance(context, CheckFlow.afterAdjust(session), payload: payload),
           secondaryLabel: 'Back to home',
           onSecondary: () => TeraFlow.toHome(context),
         ),
@@ -276,7 +306,7 @@ class TeraRouter {
       ),
       Routes.checkProcessing => _page(
         settings,
-        (_) => ProcessingScreen(flow: flow, session: session),
+        (_) => ProcessingScreen(flow: flow, session: session, payload: payload),
       ),
       Routes.checkInsight => _page(
         settings,
@@ -313,6 +343,7 @@ class TeraRouter {
   Route<dynamic> _walkthrough(
     RouteSettings settings,
     CheckSession session,
+    CheckPayload payload,
     int step,
     String title,
   ) => _page(
@@ -321,8 +352,11 @@ class TeraRouter {
       specId: 'WALK-0$step',
       title: 'Step $step: $title',
       nextLabel: step == Routes.walkthroughSteps.length ? 'Start check' : 'Next',
-      onNext: () =>
-          TeraFlow.advance(context, CheckFlow.afterWalkthroughStep(session, step)),
+      onNext: () => TeraFlow.advance(
+        context,
+        CheckFlow.afterWalkthroughStep(session, step),
+        payload: payload,
+      ),
     ),
   );
 

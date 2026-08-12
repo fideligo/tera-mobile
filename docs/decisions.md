@@ -1421,3 +1421,54 @@ inflate the count, and a rejected attempt always does.
 
 Stubs are deliberately ugly — Scaffold, title, one line, one button — and each names the spec
 section it stands for. A stub that looks finished gets left alone.
+
+## Session submission, CTX-01 and the PHR
+
+**The payload rides beside the session, not inside it.** `CheckPayload` carries the signal result,
+the capture time and the context through `CheckArgs`; `CheckSession` stays a pure state machine
+with no capture or API types in it. Previously nothing carried the pipeline output past the capture
+screen, so `ProcessingScreen` had nothing to submit and no session ever reached the API through the
+new flow.
+
+**A rejected session is carried too.** Invariant 3 keeps it, so processing needs it whether the
+gate passed or not.
+
+**BP-only submits nothing at processing.** The confirmed reading *is* the measurement and
+`CuffReadingScreen` already filed it; there is no second thing to send. Asserted by a test that
+counts zero requests.
+
+**403 is not an error to retry.** It is the server-side contraindication gate, so it gets its own
+wording and no retry button. Network failures and 5xx do get one. Both are asserted.
+
+### CTX-01 goes through `/v1/events`
+
+`POST /v1/sessions` sets `extra="forbid"`, so a context object cannot ride along without changing
+the schema invariant 2 is expressed in — not a place for a casual free-form addition.
+`/v1/events` already has the right shape: an episode, a time, and a payload bounded at 32 keys
+precisely so it cannot become a data channel. Five keys fit.
+
+The event type is `symptom`: the only contextual type the enum offers, with the medication answer
+carried as a field rather than as a second event. **It is filed even when nothing was reported** —
+"nothing different today" is an input to the intervention matrix, and a day with no context
+recorded is not the same fact as a day recorded as unremarkable.
+
+Filed at the context screen rather than at submission, so it survives a capture that never
+completes. Best effort throughout: losing the context must not lose the reading.
+
+**The contextual symptoms are deliberately not the red-flag list**, and a test asserts no overlap.
+Red flags terminate the session before capture, locally and offline. Anything appearing in both
+places would be a red flag arriving too late to act on.
+
+### The PHR is local, and derives nothing
+
+ONB-01 and ONB-03 are real forms now. `/v1/patient-context` already carries the ONB-02 answers but
+has no columns for date of birth, sex, height, weight or a hypertension flag, and adding them is a
+backend change rather than a routine one — so this half stays in secure storage on the handset.
+
+**No BMI is computed anywhere**, asserted. The spec forbids it directly and invariant 6 forbids the
+class of thing. Height and weight are stored and never combined. The bounds on them are sanity
+checks for a slipped decimal point, not clinical thresholds, and a value inside them is not a
+judgement about anybody.
+
+`DeviceMeasurements` is injectable on `ProcessingScreen` so the submission path and its error
+handling can be tested without a camera; everything downstream of that seam is the real path.
