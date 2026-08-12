@@ -39,11 +39,13 @@ class CuffReadingScreen extends StatefulWidget {
     super.key,
     required this.api,
     required this.onDone,
+    this.isReference = false,
     this.ocr = const MockCuffOcrExtractor(),
   });
 
   final ApiClient api;
   final VoidCallback onDone;
+  final bool isReference;
 
   /// Injectable so a test can drive the flow without waiting on the mock's delay.
   final CuffOcrExtractor ocr;
@@ -58,7 +60,7 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
   final _diastolic = TextEditingController();
   final _pulse = TextEditingController();
 
-  _Stage _stage = _Stage.choose;
+  late _Stage _stage = widget.isReference ? _Stage.choose : _Stage.enter;
   DraftCuffReading? _draft;
   bool _busy = false;
   String? _error;
@@ -255,12 +257,21 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
 
   List<Widget> _enterStage() => [
     const SizedBox(height: TeraSpacing.xl),
-    const Text(
-      'Enter the reading you just measured',
-      style: TextStyle(
+    Text(
+      widget.isReference ? 'Set your blood pressure reference' : 'Add your blood pressure reading',
+      style: const TextStyle(
         fontSize: TeraText.section,
         fontWeight: FontWeight.w700,
         color: TeraColors.ink,
+      ),
+      textAlign: TextAlign.center,
+    ),
+    const SizedBox(height: TeraSpacing.md),
+    const Text(
+      'Enter the reading you just measured',
+      style: TextStyle(
+        fontSize: TeraText.body,
+        color: TeraColors.neutral700,
       ),
       textAlign: TextAlign.center,
     ),
@@ -300,23 +311,26 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
       const SizedBox(height: TeraSpacing.md),
       _errorPanel(_error!),
     ],
-    const SizedBox(height: TeraSpacing.xl),
     OutlinedButton(
       style: OutlinedButton.styleFrom(
         foregroundColor: TeraColors.ink,
         side: const BorderSide(color: TeraColors.ink),
+        padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
       ),
       onPressed: _photograph,
-      child: const Text('Scan monitor instead'),
+      child: const Text('Scan monitor instead', style: TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold)),
     ),
     const SizedBox(height: TeraSpacing.md),
-    OutlinedButton(
-      style: OutlinedButton.styleFrom(
-        foregroundColor: TeraColors.ink,
-        side: const BorderSide(color: TeraColors.ink),
+    FilledButton(
+      style: FilledButton.styleFrom(
+        backgroundColor: TeraColors.ink,
+        foregroundColor: TeraColors.paper,
+        padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
       ),
       onPressed: _review,
-      child: const Text('save'),
+      child: const Text('Save', style: TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold)),
     ),
   ];
 
@@ -378,7 +392,7 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
     return [
       const SizedBox(height: TeraSpacing.xl),
       const Text(
-        'Enter the reading you just measured',
+        'Review your reading',
         style: TextStyle(
           fontSize: TeraText.section,
           fontWeight: FontWeight.w700,
@@ -416,28 +430,37 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
         style: OutlinedButton.styleFrom(
           foregroundColor: TeraColors.ink,
           side: const BorderSide(color: TeraColors.ink),
+          padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
         ),
         onPressed: _photograph,
-        child: const Text('Scan monitor instead'),
+        child: const Text('Scan monitor instead', style: TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold)),
       ),
       const SizedBox(height: TeraSpacing.md),
       OutlinedButton(
         style: OutlinedButton.styleFrom(
           foregroundColor: TeraColors.ink,
           side: const BorderSide(color: TeraColors.ink),
+          padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
         ),
         onPressed: _busy ? null : () => setState(() => _stage = _Stage.enter),
-        child: const Text('edit'),
+        child: const Text('Edit', style: TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold)),
       ),
-      const SizedBox(height: TeraSpacing.xl),
-      TextButton(
+      const SizedBox(height: TeraSpacing.md),
+      FilledButton(
+        style: FilledButton.styleFrom(
+          backgroundColor: TeraColors.ink,
+          foregroundColor: TeraColors.paper,
+          padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
+        ),
         onPressed: _busy ? null : _confirmAndSave,
         child: Row(
-          mainAxisSize: MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(_busy ? 'Saving...' : 'next ', style: const TextStyle(color: TeraColors.ink, fontSize: TeraText.body)),
-            if (!_busy) const Icon(Icons.arrow_forward, color: TeraColors.ink, size: 18),
+            Text(_busy ? 'Saving...' : 'Confirm ', style: const TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold)),
+            if (!_busy) const Icon(Icons.check, size: 20),
           ],
         ),
       ),

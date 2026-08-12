@@ -93,8 +93,10 @@ class _PrecheckScreenState extends State<PrecheckScreen> {
   bool? _caffeine;
   bool? _nicotine;
   bool? _restroom;
+  bool _busy = false;
 
   Future<void> _next() async {
+    setState(() => _busy = true);
     final answers = PrecheckAnswers(
       rested5Min: _rested ?? true,
       recentActivity30Min: _activity ?? false,
@@ -103,15 +105,17 @@ class _PrecheckScreenState extends State<PrecheckScreen> {
       needsRestroom: _restroom ?? false,
     );
 
-    // Filed against the check session opened at the start of the flow. Best effort: the readiness
-    // decision has already been made locally and the flow branches on it either way, so losing
-    // this loses a record rather than a gate.
+    // Filed against the check session opened at the start of the flow.
     final flow = widget.flow;
     final checkSessionId = widget.payload.checkSessionId;
     if (flow != null && checkSessionId != null) {
-      await CheckSessionClient(
-        api: flow.api,
-      ).submitPreconditions(checkSessionId: checkSessionId, answers: answers);
+      try {
+        await CheckSessionClient(
+          api: flow.api,
+        ).submitPreconditions(checkSessionId: checkSessionId, answers: answers);
+      } on Object {
+        // Continue even if network fails, as the gate is local.
+      }
     }
 
     if (!mounted) return;
@@ -124,30 +128,36 @@ class _PrecheckScreenState extends State<PrecheckScreen> {
 
   Widget _buildYesNoQuestion(String question, bool? value, ValueChanged<bool> onChanged) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16.0),
+      padding: const EdgeInsets.only(bottom: TeraSpacing.lg),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(question, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
-          const SizedBox(height: 12),
+          Text(
+            question,
+            style: const TextStyle(
+              fontSize: TeraText.body,
+              fontWeight: FontWeight.w600,
+              color: TeraColors.ink,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: TeraSpacing.sm),
           Row(
-            mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              TextButton(
-                onPressed: () => onChanged(true),
-                style: TextButton.styleFrom(
-                  foregroundColor: value == true ? Colors.black : Colors.grey,
-                  textStyle: TextStyle(fontWeight: value == true ? FontWeight.bold : FontWeight.normal),
+              Expanded(
+                child: _buildToggle(
+                  label: 'Yes',
+                  isSelected: value == true,
+                  onTap: () => onChanged(true),
                 ),
-                child: const Text('yes'),
               ),
-              const SizedBox(width: 32),
-              TextButton(
-                onPressed: () => onChanged(false),
-                style: TextButton.styleFrom(
-                  foregroundColor: value == false ? Colors.black : Colors.grey,
-                  textStyle: TextStyle(fontWeight: value == false ? FontWeight.bold : FontWeight.normal),
+              const SizedBox(width: TeraSpacing.sm),
+              Expanded(
+                child: _buildToggle(
+                  label: 'No',
+                  isSelected: value == false,
+                  onTap: () => onChanged(false),
                 ),
-                child: const Text('no'),
               ),
             ],
           ),
@@ -156,36 +166,88 @@ class _PrecheckScreenState extends State<PrecheckScreen> {
     );
   }
 
+  Widget _buildToggle({required String label, required bool isSelected, required VoidCallback onTap}) {
+    return Material(
+      color: isSelected ? TeraColors.brand : TeraColors.paper,
+      borderRadius: BorderRadius.circular(TeraRadius.button),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(TeraRadius.button),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: isSelected ? TeraColors.brand : TeraColors.neutral300,
+              width: 1.5,
+            ),
+            borderRadius: BorderRadius.circular(TeraRadius.button),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: TeraText.body,
+              fontWeight: FontWeight.w600,
+              color: isSelected ? TeraColors.paper : TeraColors.ink,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('PRE-01'), elevation: 0, backgroundColor: Colors.transparent, iconTheme: const IconThemeData(color: Colors.black)),
+      backgroundColor: TeraColors.paper,
+      appBar: AppBar(
+        title: const Text('Before your check', style: TextStyle(color: TeraColors.ink, fontSize: TeraText.section, fontWeight: FontWeight.bold)),
+        backgroundColor: TeraColors.paper,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: TeraColors.ink),
+      ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(24),
+        child: Column(
           children: [
-            const Text(
-              'For a more comparable trend,\ncheck that you\'re in a resting\ncondition.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(TeraSpacing.lg),
+                children: [
+                  const Text(
+                    'For a more comparable trend, check that you\'re in a resting condition.',
+                    style: TextStyle(fontSize: TeraText.body, color: TeraColors.neutral700, height: 1.4),
+                  ),
+                  const SizedBox(height: TeraSpacing.xl),
+                  _buildYesNoQuestion('Have you rested quietly for at least 5 minutes?', _rested, (v) => setState(() => _rested = v)),
+                  _buildYesNoQuestion('Have you exercised or been physically active in the last 30 minutes?', _activity, (v) => setState(() => _activity = v)),
+                  _buildYesNoQuestion('Have you had coffee, tea, or another caffeinated drink in the last 30 minutes?', _caffeine, (v) => setState(() => _caffeine = v)),
+                  _buildYesNoQuestion('Have you smoked or used nicotine in the last 30 minutes?', _nicotine, (v) => setState(() => _nicotine = v)),
+                  _buildYesNoQuestion('Do you need to use the restroom?', _restroom, (v) => setState(() => _restroom = v)),
+                ],
+              ),
             ),
-            const SizedBox(height: 32),
-            _buildYesNoQuestion('Have you rested quietly for at least 5 minutes?', _rested, (v) => setState(() => _rested = v)),
-            _buildYesNoQuestion('Have you exercised or been physically active in the last 30 minutes?', _activity, (v) => setState(() => _activity = v)),
-            _buildYesNoQuestion('Have you had coffee, tea, or another caffeinated drink in the last 30 minutes?', _caffeine, (v) => setState(() => _caffeine = v)),
-            _buildYesNoQuestion('Have you smoked or used nicotine in the last 30 minutes?', _nicotine, (v) => setState(() => _nicotine = v)),
-            _buildYesNoQuestion('Do you need to use the restroom?', _restroom, (v) => setState(() => _restroom = v)),
-            const SizedBox(height: 32),
-            Center(
-              child: TextButton(
-                onPressed: _next,
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('next', style: TextStyle(fontSize: 16, color: Colors.black)),
-                    SizedBox(width: 4),
-                    Icon(Icons.arrow_forward, size: 16, color: Colors.black),
-                  ],
+            Padding(
+              padding: const EdgeInsets.all(TeraSpacing.lg),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _busy ? null : _next,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: TeraColors.ink,
+                    foregroundColor: TeraColors.paper,
+                    padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(_busy ? 'Saving...' : 'Next', style: const TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold)),
+                      if (!_busy) ...[
+                        const SizedBox(width: TeraSpacing.sm),
+                        const Icon(Icons.arrow_forward, size: 20),
+                      ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -228,8 +290,11 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
   final Set<ContextSymptom> _symptoms = {};
   bool _otherSymptom = false;
   MedicationStatusToday _medication = MedicationStatusToday.notSure;
+  
+  bool _busy = false;
 
-  void _next() {
+  Future<void> _next() async {
+    setState(() => _busy = true);
     final collected = CurrentContext(
       sleepLessThanUsual: _sleep,
       stressHigherThanUsual: _stress,
@@ -237,7 +302,17 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
       symptoms: _symptoms,
       medicationStatusToday: _medication,
     );
+    
+    final checkSessionId = widget.payload.checkSessionId;
+    if (checkSessionId != null) {
+      try {
+        await CurrentContextSubmitter(api: widget.flow.api).submit(checkSessionId: checkSessionId, context: collected);
+      } on Object {
+        // Fallback local if network fails.
+      }
+    }
 
+    if (!mounted) return;
     TeraFlow.advance(
       context,
       CheckFlow.afterContext(widget.session),
@@ -247,84 +322,128 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
 
   Widget _buildChip(String label, bool isSelected, ValueChanged<bool> onSelected) {
     return FilterChip(
-      label: Text(label),
+      label: Text(
+        label,
+        style: TextStyle(
+          fontSize: TeraText.body,
+          fontWeight: FontWeight.w500,
+          color: isSelected ? TeraColors.brand : TeraColors.ink,
+        ),
+      ),
       selected: isSelected,
       onSelected: onSelected,
-      selectedColor: Colors.black26,
-      backgroundColor: Colors.grey.shade200,
-      shape: const StadiumBorder(),
+      selectedColor: TeraColors.brand.withValues(alpha: 0.1),
+      backgroundColor: TeraColors.paper,
+      shape: StadiumBorder(side: BorderSide(color: isSelected ? TeraColors.brand : TeraColors.neutral300, width: 1.5)),
       showCheckmark: false,
+      padding: const EdgeInsets.symmetric(horizontal: TeraSpacing.sm, vertical: TeraSpacing.sm),
+    );
+  }
+  
+  Widget _buildSection(String title, Widget content) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontSize: TeraText.section, fontWeight: FontWeight.bold, color: TeraColors.ink, height: 1.2),
+        ),
+        const SizedBox(height: TeraSpacing.md),
+        content,
+      ],
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('CTX-01'), elevation: 0, backgroundColor: Colors.transparent, iconTheme: const IconThemeData(color: Colors.black)),
+      backgroundColor: TeraColors.paper,
+      appBar: AppBar(
+        title: const Text('About this check', style: TextStyle(color: TeraColors.ink, fontSize: TeraText.section, fontWeight: FontWeight.bold)),
+        backgroundColor: TeraColors.paper,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: TeraColors.ink),
+      ),
       body: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(24),
+        child: Column(
           children: [
-            const Text('Anything\ndifferent\ntoday?', style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, height: 1.1)),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildChip('Slept less than usual', _sleep, (v) => setState(() { _sleep = v; _nothingUnusual1 = false; })),
-                _buildChip('Higher stress', _stress, (v) => setState(() { _stress = v; _nothingUnusual1 = false; })),
-                _buildChip('Recent exercise', _recentExercise, (v) => setState(() { _recentExercise = v; _nothingUnusual1 = false; })),
-                _buildChip('More caffeine than usual', _moreCaffeine, (v) => setState(() { _moreCaffeine = v; _nothingUnusual1 = false; })),
-                _buildChip('Feeling unwell', _unwell, (v) => setState(() { _unwell = v; _nothingUnusual1 = false; })),
-                _buildChip('Nothing unusual', _nothingUnusual1, (v) {
-                  if (v) setState(() { _sleep = false; _stress = false; _unwell = false; _recentExercise = false; _moreCaffeine = false; _nothingUnusual1 = true; });
-                }),
-              ],
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(TeraSpacing.lg),
+                children: [
+                  const Text(
+                    'A few quick details help Tera put your result into context.',
+                    style: TextStyle(fontSize: TeraText.body, color: TeraColors.neutral700, height: 1.4),
+                  ),
+                  const SizedBox(height: TeraSpacing.xl),
+                  _buildSection('Anything different today?', Wrap(
+                    spacing: TeraSpacing.sm,
+                    runSpacing: TeraSpacing.sm,
+                    children: [
+                      _buildChip('Slept less than usual', _sleep, (v) => setState(() { _sleep = v; _nothingUnusual1 = false; })),
+                      _buildChip('Higher stress', _stress, (v) => setState(() { _stress = v; _nothingUnusual1 = false; })),
+                      _buildChip('Recent exercise', _recentExercise, (v) => setState(() { _recentExercise = v; _nothingUnusual1 = false; })),
+                      _buildChip('More caffeine than usual', _moreCaffeine, (v) => setState(() { _moreCaffeine = v; _nothingUnusual1 = false; })),
+                      _buildChip('Feeling unwell', _unwell, (v) => setState(() { _unwell = v; _nothingUnusual1 = false; })),
+                      _buildChip('Nothing unusual', _nothingUnusual1, (v) {
+                        if (v) setState(() { _sleep = false; _stress = false; _unwell = false; _recentExercise = false; _moreCaffeine = false; _nothingUnusual1 = true; });
+                      }),
+                    ],
+                  )),
+                  const SizedBox(height: TeraSpacing.xl),
+                  _buildSection('How are you feeling?', Wrap(
+                    spacing: TeraSpacing.sm,
+                    runSpacing: TeraSpacing.sm,
+                    children: [
+                      _buildChip('No symptoms', _symptoms.isEmpty && !_otherSymptom, (v) {
+                        if (v) setState(() { _symptoms.clear(); _otherSymptom = false; });
+                      }),
+                      for (final symptom in ContextSymptom.values)
+                        _buildChip(symptom.label, _symptoms.contains(symptom), (v) {
+                          setState(() {
+                            if (v) _symptoms.add(symptom);
+                            else _symptoms.remove(symptom);
+                          });
+                        }),
+                      _buildChip('Other', _otherSymptom, (v) => setState(() => _otherSymptom = v)),
+                    ],
+                  )),
+                  const SizedBox(height: TeraSpacing.xl),
+                  _buildSection('Did you take your blood pressure medication as usual today?', Wrap(
+                    spacing: TeraSpacing.sm,
+                    runSpacing: TeraSpacing.sm,
+                    children: [
+                      for (final status in MedicationStatusToday.values)
+                        _buildChip(status.label, _medication == status, (v) {
+                          if (v) setState(() => _medication = status);
+                        }),
+                    ],
+                  )),
+                ],
+              ),
             ),
-            const SizedBox(height: 48),
-            const Text('How are you\nfeeling?', style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, height: 1.1)),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _buildChip('No symptoms', _symptoms.isEmpty && !_otherSymptom, (v) {
-                  if (v) setState(() { _symptoms.clear(); _otherSymptom = false; });
-                }),
-                for (final symptom in ContextSymptom.values)
-                  _buildChip(symptom.label, _symptoms.contains(symptom), (v) {
-                    setState(() {
-                      if (v) _symptoms.add(symptom);
-                      else _symptoms.remove(symptom);
-                    });
-                  }),
-                _buildChip('Other', _otherSymptom, (v) => setState(() => _otherSymptom = v)),
-              ],
-            ),
-            const SizedBox(height: 48),
-            const Text('additional\ncondition', style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, height: 1.1)),
-            const SizedBox(height: 16),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final status in MedicationStatusToday.values)
-                  _buildChip(status.label, _medication == status, (v) {
-                    if (v) setState(() => _medication = status);
-                  }),
-              ],
-            ),
-            const SizedBox(height: 48),
-            Center(
-              child: TextButton(
-                onPressed: _next,
-                child: const Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text('next', style: TextStyle(fontSize: 16, color: Colors.black)),
-                    SizedBox(width: 4),
-                    Icon(Icons.arrow_forward, size: 16, color: Colors.black),
-                  ],
+            Padding(
+              padding: const EdgeInsets.all(TeraSpacing.lg),
+              child: SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _busy ? null : _next,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: TeraColors.ink,
+                    foregroundColor: TeraColors.paper,
+                    padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(_busy ? 'Saving...' : 'Next', style: const TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold)),
+                      if (!_busy) ...[
+                        const SizedBox(width: TeraSpacing.sm),
+                        const Icon(Icons.arrow_forward, size: 20),
+                      ],
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -430,128 +549,191 @@ class ScgPpgWalkthroughScreen extends StatefulWidget {
 class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
-  bool _ready = false;
+  
+  // Track confirmation for each page
+  final List<bool> _confirmed = [false, false, false, false];
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: TeraColors.paper,
+      appBar: AppBar(
+        title: const Text('Setup', style: TextStyle(color: TeraColors.ink, fontSize: TeraText.section, fontWeight: FontWeight.bold)),
+        backgroundColor: TeraColors.paper,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: TeraColors.ink),
+        leading: _currentPage > 0 ? IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+          },
+        ) : null,
+      ),
       body: SafeArea(
         child: Column(
           children: [
+            // Progress dots
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: List.generate(4, (index) => Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 4),
+                  width: _currentPage == index ? 24 : 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    color: _currentPage == index ? TeraColors.brand : TeraColors.neutral300,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                )),
+              ),
+            ),
             Expanded(
               child: PageView(
                 controller: _pageController,
+                physics: const NeverScrollableScrollPhysics(), // Disable swipe to force confirmation
                 onPageChanged: (i) => setState(() => _currentPage = i),
                 children: [
                   _buildPage(
                     step: 'STEP 1: Sit comfortably',
-                    sub: 'Sit upright with your back supported\nand both feet flat on the floor.',
+                    sub: 'Sit upright with your back supported and both feet flat on the floor.',
                     icon: Icons.chair_alt,
+                    confirmText: 'I\'m seated correctly',
+                    pageIndex: 0,
                   ),
                   _buildPage(
-                    step: 'STEP 2: Place your phone on\nyour chest',
-                    sub: 'Hold your phone with one hand and\nplace it flat against the center of your\nchest.',
+                    step: 'STEP 2: Place your phone on your chest',
+                    sub: 'Hold your phone with one hand and place it flat against the center of your chest.',
                     icon: Icons.phone_android,
+                    confirmText: 'My phone is in position',
+                    pageIndex: 1,
                   ),
                   _buildPage(
                     step: 'STEP 3: Cover the rear camera',
-                    sub: 'With your other hand, gently place your\nindex finger over the rear camera and\nflash.',
+                    sub: 'With your other hand, gently place your index finger over the rear camera and flash.',
                     icon: Icons.camera_rear,
+                    confirmText: 'My finger is in position',
+                    pageIndex: 2,
                   ),
                   _buildPage(
                     step: 'STEP 4: Relax and stay still',
-                    sub: 'Keep your position and avoid moving\nor talking during the check.',
+                    sub: 'Keep your position and avoid moving or talking during the check.',
                     icon: Icons.self_improvement,
+                    confirmText: 'I\'m ready',
+                    pageIndex: 3,
                   ),
                 ],
               ),
             ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: List.generate(4, (index) => Container(
-                margin: const EdgeInsets.symmetric(horizontal: 4),
-                width: 24,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: _currentPage == index ? const Color(0xFF0F3057) : Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              )),
-            ),
-            const SizedBox(height: 32),
-            if (_currentPage == 3)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 8.0),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.blue.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: Colors.blue.withOpacity(0.2)),
-                  ),
-                  child: CheckboxListTile(
-                    value: _ready,
-                    onChanged: (v) => setState(() => _ready = v ?? false),
-                    title: const Text("I'm ready"),
-                    controlAffinity: ListTileControlAffinity.leading,
-                  ),
-                ),
-              ),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              padding: const EdgeInsets.all(TeraSpacing.lg),
               child: SizedBox(
                 width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0F3057),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                  onPressed: () {
+                child: FilledButton(
+                  onPressed: _confirmed[_currentPage] ? () {
                     if (_currentPage < 3) {
-                      _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
-                    } else if (_ready) {
+                      _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
+                    } else {
                       widget.onDone();
                     }
-                  },
-                  child: Text(_currentPage < 3 ? 'Next' : 'Start Check'),
+                  } : null,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: TeraColors.ink,
+                    foregroundColor: TeraColors.paper,
+                    disabledBackgroundColor: TeraColors.neutral300,
+                    disabledForegroundColor: TeraColors.neutral500,
+                    padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
+                  ),
+                  child: Text(
+                    _currentPage < 3 ? 'Next' : 'Start Check',
+                    style: const TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold),
+                  ),
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-            TextButton.icon(
-              onPressed: () {
-                if (_currentPage > 0) {
-                  _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeIn);
-                } else {
-                  Navigator.of(context).pop();
-                }
-              },
-              icon: const Icon(Icons.chevron_left, color: Color(0xFF0F3057)),
-              label: const Text('Back', style: TextStyle(color: Color(0xFF0F3057))),
-            ),
-            const SizedBox(height: 16),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildPage({required String step, required String sub, required IconData icon}) {
+  Widget _buildPage({
+    required String step,
+    required String sub,
+    required IconData icon,
+    required String confirmText,
+    required int pageIndex,
+  }) {
     return Padding(
-      padding: const EdgeInsets.all(24.0),
+      padding: const EdgeInsets.symmetric(horizontal: TeraSpacing.xl, vertical: TeraSpacing.lg),
       child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisAlignment: MainAxisAlignment.start,
         children: [
-          Text(step, textAlign: TextAlign.center, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F3057))),
-          const SizedBox(height: 16),
-          Text(sub, textAlign: TextAlign.center, style: const TextStyle(fontSize: 16, color: Colors.black87)),
-          const SizedBox(height: 64),
-          Icon(icon, size: 100, color: Colors.grey.shade400),
-          const SizedBox(height: 32),
-          if (icon == Icons.camera_rear || icon == Icons.chair_alt || icon == Icons.phone_android || icon == Icons.self_improvement)
-            const Icon(Icons.favorite, size: 32, color: Colors.deepOrange),
+          const SizedBox(height: TeraSpacing.xl),
+          Container(
+            padding: const EdgeInsets.all(TeraSpacing.xxl),
+            decoration: BoxDecoration(
+              color: TeraColors.brand.withValues(alpha: 0.05),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 80, color: TeraColors.brand),
+          ),
+          const SizedBox(height: TeraSpacing.xxl),
+          Text(
+            step,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: TeraText.section, fontWeight: FontWeight.bold, color: TeraColors.ink),
+          ),
+          const SizedBox(height: TeraSpacing.md),
+          Text(
+            sub,
+            textAlign: TextAlign.center,
+            style: const TextStyle(fontSize: TeraText.body, color: TeraColors.neutral700, height: 1.4),
+          ),
+          const Spacer(),
+          // Confirmation Toggle
+          Material(
+            color: _confirmed[pageIndex] ? TeraColors.brand.withValues(alpha: 0.1) : TeraColors.paper,
+            borderRadius: BorderRadius.circular(TeraRadius.button),
+            child: InkWell(
+              onTap: () {
+                setState(() {
+                  _confirmed[pageIndex] = !_confirmed[pageIndex];
+                });
+              },
+              borderRadius: BorderRadius.circular(TeraRadius.button),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md, horizontal: TeraSpacing.md),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: _confirmed[pageIndex] ? TeraColors.brand : TeraColors.neutral300,
+                    width: 1.5,
+                  ),
+                  borderRadius: BorderRadius.circular(TeraRadius.button),
+                ),
+                child: Row(
+                  children: [
+                    Icon(
+                      _confirmed[pageIndex] ? Icons.check_circle : Icons.radio_button_unchecked,
+                      color: _confirmed[pageIndex] ? TeraColors.brand : TeraColors.neutral500,
+                    ),
+                    const SizedBox(width: TeraSpacing.md),
+                    Expanded(
+                      child: Text(
+                        confirmText,
+                        style: TextStyle(
+                          fontSize: TeraText.body,
+                          fontWeight: FontWeight.w600,
+                          color: _confirmed[pageIndex] ? TeraColors.brand : TeraColors.ink,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -742,28 +924,215 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
 class ProfileIndexScreen extends StatelessWidget {
   const ProfileIndexScreen({super.key});
 
-  static const _entries = <(String, String)>[
-    ('Personal', Routes.profilePersonal),
-    ('Conditions', Routes.profileConditions),
-    ('Medications', Routes.profileMedications),
-    ('Lifestyle', Routes.profileLifestyle),
-    ('Family history', Routes.profileFamilyHistory),
-    ('BP reference', Routes.profileBpReference),
-    ('Device', Routes.profileDevice),
-    ('Privacy', Routes.profilePrivacy),
+  static const _entries = <(String, String, IconData)>[
+    ('Personal Details', Routes.profilePersonal, Icons.person_outline),
+    ('Health Conditions', Routes.profileConditions, Icons.favorite_border),
+    ('Medications', Routes.profileMedications, Icons.medication_outlined),
+    ('Lifestyle & Risk Factors', Routes.profileLifestyle, Icons.directions_walk),
+    ('Family History', Routes.profileFamilyHistory, Icons.family_restroom),
+    ('BP Reference & Monitoring', Routes.profileBpReference, Icons.monitor_heart_outlined),
+    ('Device Eligibility', Routes.profileDevice, Icons.smartphone),
+    ('Data & Privacy', Routes.profilePrivacy, Icons.privacy_tip_outlined),
   ];
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Profile')),
-    body: ListView(
-      children: [
-        for (final (label, route) in _entries)
-          ListTile(
-            title: Text(label),
-            onTap: () => Navigator.of(context).pushNamed(route),
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
+      appBar: AppBar(
+        title: const Text('Profile', style: TextStyle(color: Color(0xFF1E293B), fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Color(0xFF1E293B)),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // Header
+          Row(
+            children: [
+              const CircleAvatar(radius: 32, backgroundColor: Color(0xFF0F172A), child: Text('T', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold))),
+              const SizedBox(width: 16),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: const [
+                  Text('Tera User', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                  SizedBox(height: 4),
+                  Text('user@example.com', style: TextStyle(fontSize: 14, color: Color(0xFF64748B))),
+                ],
+              ),
+            ],
           ),
-      ],
-    ),
-  );
+          const SizedBox(height: 32),
+          // Completion
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: const [
+                    Text('Health Profile', style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
+                    SizedBox(height: 4),
+                    Text('65% complete', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                  ],
+                ),
+                FilledButton(
+                  onPressed: () {},
+                  style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2563EB), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
+                  child: const Text('Complete', style: TextStyle(fontWeight: FontWeight.w600)),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 32),
+          const Text('Settings', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
+            child: Column(
+              children: _entries.map((entry) => Column(
+                children: [
+                  ListTile(
+                    leading: Icon(entry.$3, color: const Color(0xFF64748B)),
+                    title: Text(entry.$1, style: const TextStyle(color: Color(0xFF334155), fontWeight: FontWeight.w500)),
+                    trailing: const Icon(Icons.chevron_right, color: Color(0xFFCBD5E1)),
+                    onTap: () => Navigator.of(context).pushNamed(entry.$2),
+                  ),
+                  if (entry != _entries.last) const Divider(height: 1, indent: 56),
+                ],
+              )).toList(),
+            ),
+          ),
+          const SizedBox(height: 24),
+          TextButton(
+            onPressed: () {},
+            child: const Text('Log Out', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
+          ),
+          const SizedBox(height: 48),
+        ],
+      ),
+    );
+  }
+}
+
+class HistoryScreen extends StatelessWidget {
+  const HistoryScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
+      appBar: AppBar(
+        title: const Text('History', style: TextStyle(color: Color(0xFF1E293B), fontWeight: FontWeight.bold)),
+        backgroundColor: Colors.white,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Color(0xFF1E293B)),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // Filters
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                _buildFilterChip('7D', true),
+                const SizedBox(width: 8),
+                _buildFilterChip('30D', false),
+                const SizedBox(width: 8),
+                _buildFilterChip('3M', false),
+                const SizedBox(width: 8),
+                _buildFilterChip('All', false),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          // Trend View
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFE2E8F0))),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('BP-Related Pattern', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                const SizedBox(height: 24),
+                // Mock chart
+                SizedBox(
+                  height: 120,
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: const [
+                        Icon(Icons.show_chart, color: Color(0xFFCBD5E1), size: 48),
+                        SizedBox(height: 8),
+                        Text('Trend visualization', style: TextStyle(color: Color(0xFF94A3B8))),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text('Timeline', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+          const SizedBox(height: 12),
+          _buildActivityTimelineItem('Aug 12 · 09:20', 'Persistent BP-related change', 'Phone check · Good signal'),
+          _buildActivityTimelineItem('Aug 11 · 08:50', 'BP-related change', 'Phone check · Good signal'),
+          _buildActivityTimelineItem('Aug 10 · 09:05', '138 / 86 mmHg', 'Confirmed BP · Manual input'),
+          _buildActivityTimelineItem('Aug 9 · 08:45', 'Within recent pattern', 'Phone check'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFilterChip(String label, bool isSelected) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: isSelected ? const Color(0xFF0F172A) : Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: isSelected ? const Color(0xFF0F172A) : const Color(0xFFE2E8F0)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: isSelected ? Colors.white : const Color(0xFF64748B),
+          fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActivityTimelineItem(String time, String title, String subtitle) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            margin: const EdgeInsets.only(top: 4),
+            width: 12,
+            height: 12,
+            decoration: const BoxDecoration(color: Color(0xFF2563EB), shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(time, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                const SizedBox(height: 4),
+                Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
+                const SizedBox(height: 2),
+                Text(subtitle, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

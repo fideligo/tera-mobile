@@ -240,7 +240,7 @@ abstract final class CheckFlow {
     final attempted = session.copyWith(attemptCount: session.attemptCount + 1);
 
     if (quality == SignalQuality.accepted) {
-      return CheckStep(attempted.copyWith(state: CheckState.processing), Routes.checkProcessing);
+      return CheckStep(attempted.copyWith(state: CheckState.processing), Routes.checkSignalAccepted);
     }
     if (attempted.attemptCount < maxCaptureAttempts) {
       return CheckStep(attempted.copyWith(state: CheckState.capture), Routes.checkSignalAdjust);
@@ -250,6 +250,9 @@ abstract final class CheckFlow {
       Routes.checkSignalRepeatedFailure,
     );
   }
+
+  static CheckStep afterSignalAccepted(CheckSession session) =>
+      CheckStep(session.copyWith(state: CheckState.processing), Routes.checkProcessing);
 
   /// SIG-02's "Try again": back to capture, with the attempt count preserved.
   static CheckStep afterAdjust(CheckSession session) =>

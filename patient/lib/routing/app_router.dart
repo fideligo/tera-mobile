@@ -20,6 +20,7 @@ import '../ui/onboarding_screens.dart';
 import '../ui/register_screen.dart';
 import '../ui/safety_onboarding_screen.dart';
 import '../ui/sign_in_screen.dart';
+import '../ui/signal_quality_screens.dart';
 import 'app_flow_state.dart';
 import 'check_payload.dart';
 import 'check_session.dart';
@@ -299,34 +300,23 @@ class TeraRouter {
       ),
       Routes.checkSignalAccepted => _page(
         settings,
-        (context) => FlowStubScreen(
-          specId: 'SIG-01',
-          title: 'Session accepted',
-          body: 'Signal quality was good.',
-          onNext: () => TeraFlow.advance(context, CheckFlow.afterProcessing(session)),
+        (context) => SignalAcceptedScreen(
+          onNext: () => TeraFlow.advance(context, CheckFlow.afterSignalAccepted(session)),
         ),
       ),
       Routes.checkSignalAdjust => _page(
         settings,
-        (context) => FlowStubScreen(
-          specId: 'SIG-02',
-          title: 'Let us adjust your position',
-          body: 'Attempt ${session.attemptCount} of $maxCaptureAttempts.',
-          nextLabel: 'Try again',
-          onNext: () =>
-              TeraFlow.advance(context, CheckFlow.afterAdjust(session), payload: payload),
-          secondaryLabel: 'Back to home',
-          onSecondary: () => TeraFlow.toHome(context),
+        (context) => SignalAdjustScreen(
+          attemptCount: session.attemptCount,
+          maxAttempts: maxCaptureAttempts,
+          onRetry: () => TeraFlow.advance(context, CheckFlow.afterAdjust(session), payload: payload),
+          onCancel: () => TeraFlow.toHome(context),
         ),
       ),
       Routes.checkSignalRepeatedFailure => _page(
         settings,
-        (context) => FlowStubScreen(
-          specId: 'SIG-03',
-          title: '$maxCaptureAttempts unsuccessful attempts',
-          body: 'A few sessions have not come through clearly.',
-          nextLabel: 'Back to home',
-          onNext: () => TeraFlow.toHome(context),
+        (context) => SignalRepeatedFailureScreen(
+          onDone: () => TeraFlow.toHome(context),
         ),
       ),
       Routes.checkProcessing => _page(
@@ -343,7 +333,7 @@ class TeraRouter {
       // ------------------------------------------------------------------ history
       Routes.history => _page(
         settings,
-        (_) => const FlowStubScreen(specId: 'HIST-01', title: 'History', onNext: null),
+        (_) => const HistoryScreen(),
       ),
 
       // ------------------------------------------------------------------ profile

@@ -368,55 +368,109 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  const Text(
-                    'disini ada card2 buat riwayat cek PTT nya dia',
-                    style: TextStyle(color: TeraColors.ink, fontSize: 14),
-                  ),
+                  _buildRecentActivityList(),
                   const SizedBox(height: 48),
                 ],
               ),
             ),
-            Container(
-              padding: const EdgeInsets.only(top: 16, bottom: 24),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  TextButton(
-                    onPressed: () {},
-                    child: const Text(
-                      'home',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pushNamed(Routes.history),
-                    child: const Text(
-                      'history',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.of(context).pushNamed(Routes.profile),
-                    child: const Text(
-                      'profile',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
-                      ),
-                    ),
-                  ),
+            _buildBottomNav(context),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecentActivityList() {
+    return Column(
+      children: [
+        _buildActivityItem('Aug 12 · 09:20', 'Persistent BP-related change', 'Phone check · Good signal'),
+        const SizedBox(height: 12),
+        _buildActivityItem('Aug 11 · 08:50', 'BP-related change', 'Phone check · Good signal'),
+        const SizedBox(height: 12),
+        _buildActivityItem('Aug 10 · 09:05', '138 / 86 mmHg', 'Confirmed BP · Manual input'),
+      ],
+    );
+  }
+
+  Widget _buildActivityItem(String time, String title, String subtitle) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: TeraColors.paper,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: TeraColors.neutral200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: TeraColors.brand.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(Icons.favorite_border, color: TeraColors.brand, size: 20),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(time, style: const TextStyle(fontSize: 12, color: TeraColors.neutral500)),
+                const SizedBox(height: 4),
+                Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: TeraColors.ink)),
+                const SizedBox(height: 4),
+                Text(subtitle, style: const TextStyle(fontSize: 13, color: TeraColors.neutral600)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBottomNav(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.only(top: 16, bottom: 24),
+      decoration: BoxDecoration(
+        color: TeraColors.paper,
+        border: Border(top: BorderSide(color: TeraColors.neutral200)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+        children: [
+          _buildNavItem(context, Icons.home, 'Home', true, () {}),
+          _buildNavItem(context, Icons.history, 'History', false, () => Navigator.of(context).pushNamed(Routes.history)),
+          _buildNavItem(context, Icons.person_outline, 'Profile', false, () => Navigator.of(context).pushNamed(Routes.profile)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavItem(BuildContext context, IconData icon, String label, bool isActive, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: isActive ? TeraColors.brand : TeraColors.neutral500),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+              color: isActive ? TeraColors.brand : TeraColors.neutral500,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
                 ],
               ),
             ),
+
           ],
         ),
       ),
