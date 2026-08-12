@@ -63,7 +63,7 @@ class AppFlowState {
   /// AUTH-00's routing table, for an authenticated user. The unauthenticated branch is the
   /// caller's, because this object knows nothing about tokens.
   String get resumeRoute {
-    if (!deviceChecked) return Routes.deviceChecking;
+    if (!deviceChecked) return Routes.devicePermission;
     if (!onboardingComplete) return onboardingStep.route;
     return Routes.home;
   }

@@ -1,52 +1,37 @@
-/// AUTH-02 — sign-in.
+/// AUTH-01 — Login screen (PM spec section 5).
 ///
-/// Shares its chrome with [RegisterScreen] through `auth_scaffold.dart`; the two screens are the
-/// same page with different fields and must not drift into two designs.
+/// Matches the Figma `Login.png` design:
 ///
-/// Colours come entirely from [TeraColors]. The failed-sign-in panel uses the system-flag
-/// treatment (the plum rule on neutral100) rather than red — red is absent from the palette by
-/// design, and a rejected sign-in is a system state, not a physiological one.
+///   - "Selamat Datang" centered title
+///   - Form card on neutral page ground with Email + Kata Sandi fields
+///   - Navy "Login" primary button
+///   - "Atau lanjut dengan" divider + Google outlined button
+///   - "Belum punya akun? Register" footer
 ///
-/// **Signing in navigates.** It used to authenticate and then leave the patient on the sign-in
-/// screen, because nothing was listening for the transition: [AuthController] notifies on
-/// sign-*out* and the app returns to login, but the successful direction had no counterpart. The
-/// destination is not decided here — it comes from [TeraFlow.resumeRouteAfterAuth], which is
-/// AUTH-00's table: device check if this handset has never been probed, the unfinished onboarding
-/// step if setup is incomplete, otherwise Home.
+/// Wired directly to [AuthController.signIn] — no stubs.
 library;
 
 import 'package:flutter/material.dart';
 
-import '../routing/app_router.dart';
+import '../auth/auth_controller.dart';
 import '../routing/routes.dart';
-import 'auth_scaffold.dart';
 import 'tokens.dart';
 
 class SignInScreen extends StatefulWidget {
-  const SignInScreen({super.key, required this.flow});
+  const SignInScreen({super.key, required this.auth});
 
-  final TeraFlow flow;
+  final AuthController auth;
 
   @override
   State<SignInScreen> createState() => _SignInScreenState();
 }
 
 class _SignInScreenState extends State<SignInScreen> {
-  final _formKey = GlobalKey<FormState>();
   final _email = TextEditingController();
   final _password = TextEditingController();
-
+  final _formKey = GlobalKey<FormState>();
   bool _busy = false;
-  bool _showPassword = false;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    // A session that ended elsewhere — an unrecoverable refresh, say — leaves its explanation on
-    // the controller. Showing it here is the only place the patient will ever see it.
-    _error = widget.flow.auth.error;
-  }
+  bool _obscure = true;
 
   @override
   void dispose() {
@@ -56,94 +41,290 @@ class _SignInScreenState extends State<SignInScreen> {
   }
 
   Future<void> _submit() async {
-    if (_busy) return;
     if (!(_formKey.currentState?.validate() ?? false)) return;
+    setState(() => _busy = true);
 
-    FocusScope.of(context).unfocus();
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-
-    final signedIn = await widget.flow.auth.signIn(
+    final success = await widget.auth.signIn(
       username: _email.text.trim(),
       password: _password.text,
     );
-    if (!mounted) return;
 
-    if (!signedIn) {
-      final message = widget.flow.auth.error ?? 'Sign-in failed. Please try again.';
-      setState(() {
-        _busy = false;
-        _error = message;
-      });
-      showAuthError(context, message);
-      return;
+    if (mounted) {
+      setState(() => _busy = false);
+      if (success) {
+        Navigator.of(context).pushNamedAndRemoveUntil(Routes.splash, (r) => false);
+      }
     }
-
-    final next = await widget.flow.resumeRouteAfterAuth();
-    if (!mounted) return;
-
-    Navigator.of(context).pushNamedAndRemoveUntil(next, (route) => false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final error = _error;
+    final error = widget.auth.error;
 
-    return Form(
-      key: _formKey,
-      child: AutofillGroup(
-        child: AuthScaffold(
-          title: 'Selamat Datang',
-          subtitle: 'Masuk untuk melanjutkan catatan tekanan darah Anda.',
-          footer: AuthSwitchLink(
-            prompt: 'Belum punya akun?',
-            action: 'Register',
-            onPressed: _busy ? null : () => Navigator.of(context).pushNamed(Routes.register),
-          ),
-          children: [
-            AuthField(
-              id: 'email',
-              controller: _email,
-              label: 'Email',
-              hint: 'cth: nama@email.com',
-              icon: Icons.mail_outline,
-              enabled: !_busy,
-              keyboardType: TextInputType.emailAddress,
-              autofillHints: const [AutofillHints.email, AutofillHints.username],
-              validator: AuthValidators.email,
-            ),
-            const SizedBox(height: TeraSpacing.md),
+    return Scaffold(
+      backgroundColor: TeraColors.page,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: TeraSpacing.lg),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: TeraSpacing.xxl),
 
-            AuthField(
-              id: 'password',
-              controller: _password,
-              label: 'Kata Sandi',
-              hint: 'Masukkan kata sandimu',
-              icon: Icons.lock_outline,
-              enabled: !_busy,
-              obscureText: !_showPassword,
-              textInputAction: TextInputAction.done,
-              autofillHints: const [AutofillHints.password],
-              // Not the sign-up rules: an account created before the minimum changed still has
-              // to be able to get in.
-              validator: AuthValidators.existingPassword,
-              onSubmitted: (_) => _submit(),
-              suffix: PasswordVisibilityToggle(
-                visible: _showPassword,
-                onPressed: _busy ? null : () => setState(() => _showPassword = !_showPassword),
+                  // ── Title ──
+                  const Text(
+                    'Selamat Datang',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0D2B45),
+                      letterSpacing: -0.3,
+                    ),
+                  ),
+                  const SizedBox(height: TeraSpacing.sm),
+                  const Text(
+                    'Pantau tekanan darahmu dengan mudah',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: TeraText.body,
+                      color: TeraColors.neutral700,
+                      height: 1.45,
+                    ),
+                  ),
+                  const SizedBox(height: TeraSpacing.xxl),
+
+                  // ── Form card ──
+                  Container(
+                    padding: const EdgeInsets.all(TeraSpacing.lg),
+                    decoration: BoxDecoration(
+                      color: TeraColors.paper,
+                      borderRadius: BorderRadius.circular(TeraRadius.card),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.04),
+                          blurRadius: 12,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+                    ),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Email label
+                          RichText(
+                            text: const TextSpan(
+                              text: 'Email ',
+                              style: TextStyle(
+                                fontSize: TeraText.body,
+                                fontWeight: FontWeight.w600,
+                                color: TeraColors.ink,
+                              ),
+                              children: [
+                                TextSpan(
+                                  text: '*',
+                                  style: TextStyle(color: Color(0xFFD32F2F)),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: TeraSpacing.sm),
+                          TextFormField(
+                            controller: _email,
+                            keyboardType: TextInputType.emailAddress,
+                            autocorrect: false,
+                            textInputAction: TextInputAction.next,
+                            style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
+                            decoration: const InputDecoration(
+                              hintText: 'cth: nama@email.com',
+                              hintStyle: TextStyle(color: TeraColors.neutral500),
+                              contentPadding: EdgeInsets.symmetric(
+                                horizontal: TeraSpacing.md,
+                                vertical: 14,
+                              ),
+                            ),
+                            validator: (v) =>
+                                (v == null || v.trim().isEmpty) ? 'Masukkan email kamu.' : null,
+                          ),
+                          const SizedBox(height: TeraSpacing.lg),
+
+                          // Password label
+                          RichText(
+                            text: const TextSpan(
+                              text: 'Kata Sandi ',
+                              style: TextStyle(
+                                fontSize: TeraText.body,
+                                fontWeight: FontWeight.w600,
+                                color: TeraColors.ink,
+                              ),
+                              children: [
+                                TextSpan(
+                                  text: '*',
+                                  style: TextStyle(color: Color(0xFFD32F2F)),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: TeraSpacing.sm),
+                          TextFormField(
+                            controller: _password,
+                            obscureText: _obscure,
+                            textInputAction: TextInputAction.done,
+                            onFieldSubmitted: (_) => _submit(),
+                            style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
+                            decoration: InputDecoration(
+                              hintText: 'Masukkan kata sandimu',
+                              hintStyle: const TextStyle(color: TeraColors.neutral500),
+                              contentPadding: const EdgeInsets.symmetric(
+                                horizontal: TeraSpacing.md,
+                                vertical: 14,
+                              ),
+                              suffixIcon: IconButton(
+                                icon: Icon(
+                                  _obscure
+                                      ? Icons.visibility_off_outlined
+                                      : Icons.visibility_outlined,
+                                  color: TeraColors.neutral500,
+                                ),
+                                onPressed: () => setState(() => _obscure = !_obscure),
+                              ),
+                            ),
+                            validator: (v) =>
+                                (v == null || v.isEmpty) ? 'Masukkan kata sandi.' : null,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // ── Error ──
+                  if (error != null) ...[
+                    const SizedBox(height: TeraSpacing.md),
+                    Container(
+                      decoration: systemFlagDecoration(),
+                      padding: const EdgeInsets.all(TeraSpacing.md),
+                      child: Text(
+                        error,
+                        style: const TextStyle(color: TeraColors.ink, height: 1.4),
+                      ),
+                    ),
+                  ],
+
+                  const SizedBox(height: TeraSpacing.lg),
+
+                  // ── Login button ──
+                  SizedBox(
+                    height: 52,
+                    child: FilledButton(
+                      onPressed: _busy ? null : _submit,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFF0D2B45),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(TeraRadius.button),
+                        ),
+                        textStyle: const TextStyle(
+                          fontSize: TeraText.body,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      child: _busy
+                          ? const SizedBox(
+                              width: 22,
+                              height: 22,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text('Login'),
+                    ),
+                  ),
+                  const SizedBox(height: TeraSpacing.lg),
+
+                  // ── Divider ──
+                  Row(
+                    children: [
+                      Expanded(child: Divider(color: TeraColors.neutral300)),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: TeraSpacing.md),
+                        child: Text(
+                          'Atau lanjut dengan',
+                          style: TextStyle(
+                            fontSize: TeraText.small,
+                            color: TeraColors.neutral700,
+                          ),
+                        ),
+                      ),
+                      Expanded(child: Divider(color: TeraColors.neutral300)),
+                    ],
+                  ),
+                  const SizedBox(height: TeraSpacing.lg),
+
+                  // ── Google button ──
+                  SizedBox(
+                    height: 52,
+                    child: OutlinedButton.icon(
+                      onPressed: _busy ? null : () {},
+                      icon: const Text(
+                        'G',
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF4285F4),
+                        ),
+                      ),
+                      label: const Text('Google'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: TeraColors.ink,
+                        side: const BorderSide(color: TeraColors.neutral300),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(TeraRadius.button),
+                        ),
+                        textStyle: const TextStyle(
+                          fontSize: TeraText.body,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: TeraSpacing.lg),
+
+                  // ── Register footer ──
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text(
+                        'Belum punya akun? ',
+                        style: TextStyle(
+                          fontSize: TeraText.small,
+                          color: TeraColors.neutral700,
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => Navigator.of(context).pushNamed(Routes.register),
+                        child: const Text(
+                          'Register',
+                          style: TextStyle(
+                            fontSize: TeraText.small,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF0D2B45),
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: TeraSpacing.xl),
+                ],
               ),
             ),
-            const SizedBox(height: TeraSpacing.lg),
-
-            if (error != null) ...[
-              AuthErrorPanel(message: error),
-              const SizedBox(height: TeraSpacing.lg),
-            ],
-
-            AuthSubmitButton(label: 'Login', busy: _busy, onPressed: _submit),
-          ],
+          ),
         ),
       ),
     );

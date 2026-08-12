@@ -177,13 +177,14 @@ class TeraRouter {
     return switch (name) {
       // ------------------------------------------------------------------- entry
       Routes.splash => _page(settings, (_) => SplashScreen(flow: flow)),
-      Routes.login => _page(settings, (_) => SignInScreen(flow: flow)),
+      Routes.login => _page(settings, (_) => SignInScreen(auth: flow.auth)),
       Routes.register => _page(
         settings,
-        (_) => RegisterScreen(flow: flow, profileStore: SecurePhrProfileStore()),
+        (_) => RegisterScreen(auth: flow.auth),
       ),
 
       // ------------------------------------------------------------ device check
+      Routes.devicePermission => _page(settings, (_) => const DevicePermissionScreen()),
       Routes.deviceChecking => _page(settings, (_) => DeviceCheckingScreen(flow: flow)),
       Routes.deviceEligible => _page(
         settings,

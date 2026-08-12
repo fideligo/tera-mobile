@@ -39,6 +39,147 @@ import '../routing/app_router.dart';
 import '../routing/routes.dart';
 import 'tokens.dart';
 
+/// DEV-00 — "First, let's check your phone".
+///
+/// Shown once before the probe runs. Explains what Tera needs and why, with an expandable
+/// "why does Tera need this?" section. The "check my phone" button starts the probe.
+class DevicePermissionScreen extends StatelessWidget {
+  const DevicePermissionScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: TeraColors.paper,
+    body: SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: TeraSpacing.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Spacer(flex: 3),
+            const Text(
+              "First, let's check\nyour phone",
+              style: TextStyle(
+                fontSize: TeraText.display,
+                fontWeight: FontWeight.w700,
+                color: TeraColors.ink,
+                height: 1.2,
+              ),
+            ),
+            const SizedBox(height: TeraSpacing.lg),
+            const Text(
+              'Tera uses your phone\'s camera and motion sensors to capture '
+              'cardiovascular signals.\n'
+              'We\'ll run a quick compatibility check before your first measurement.',
+              style: TextStyle(
+                fontSize: TeraText.body,
+                color: TeraColors.neutral700,
+                height: 1.5,
+              ),
+            ),
+            const Spacer(flex: 2),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => Navigator.of(context).pushReplacementNamed(
+                  Routes.deviceChecking,
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: TeraColors.paper,
+                  foregroundColor: TeraColors.ink,
+                  side: const BorderSide(color: TeraColors.ink, width: 1.5),
+                ),
+                child: const Text('check my phone'),
+              ),
+            ),
+            const SizedBox(height: TeraSpacing.md),
+            const _WhyDoesTeraNeedThis(),
+            const SizedBox(height: TeraSpacing.xxl),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+/// An expandable explanation for why Tera needs camera + sensors.
+class _WhyDoesTeraNeedThis extends StatefulWidget {
+  const _WhyDoesTeraNeedThis();
+
+  @override
+  State<_WhyDoesTeraNeedThis> createState() => _WhyDoesTeraNeedThisState();
+}
+
+class _WhyDoesTeraNeedThisState extends State<_WhyDoesTeraNeedThis> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      InkWell(
+        borderRadius: BorderRadius.circular(TeraRadius.button),
+        onTap: () => setState(() => _expanded = !_expanded),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: TeraSpacing.md,
+            vertical: 14,
+          ),
+          decoration: BoxDecoration(
+            border: Border.all(color: TeraColors.ink, width: 1.5),
+            borderRadius: BorderRadius.circular(TeraRadius.button),
+          ),
+          child: Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'why does tera need this?',
+                  style: TextStyle(
+                    fontSize: TeraText.body,
+                    fontWeight: FontWeight.w600,
+                    color: TeraColors.ink,
+                  ),
+                ),
+              ),
+              AnimatedRotation(
+                duration: const Duration(milliseconds: 200),
+                turns: _expanded ? 0.5 : 0,
+                child: const Icon(
+                  Icons.expand_more,
+                  color: TeraColors.ink,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      AnimatedCrossFade(
+        firstChild: const SizedBox.shrink(),
+        secondChild: const Padding(
+          padding: EdgeInsets.only(
+            top: TeraSpacing.md,
+            left: TeraSpacing.md,
+            right: TeraSpacing.md,
+          ),
+          child: Text(
+            'Tera captures seismocardiography (SCG) signals from your phone\'s '
+            'accelerometer and photoplethysmography (PPG) from the camera. '
+            'These require a minimum sensor sample rate and torch availability. '
+            'The check measures what your phone can actually deliver — not just '
+            'what the spec sheet says.',
+            style: TextStyle(
+              fontSize: TeraText.small,
+              color: TeraColors.neutral700,
+              height: 1.5,
+            ),
+          ),
+        ),
+        crossFadeState: _expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+        duration: const Duration(milliseconds: 200),
+      ),
+    ],
+  );
+}
+
 /// DEV-01 — "Checking your phone's sensors".
 class DeviceCheckingScreen extends StatefulWidget {
   const DeviceCheckingScreen({super.key, required this.flow, this.probe});

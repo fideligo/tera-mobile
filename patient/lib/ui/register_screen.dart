@@ -1,37 +1,11 @@
-/// AUTH-01 — self-registration.
-///
-/// Three fields, and only two of them leave the handset. `POST /v1/auth/register-patient` takes a
-/// login subject and a password; it creates the account, the patient record and the first
-/// monitoring episode in one transaction, and it returns tokens, so signing up signs you in.
-///
-/// **The name is not sent.** The backend generates a pseudonym on purpose and has nowhere to put
-/// a real name — putting one there would write an identity into a clinical record that is
-/// designed not to hold one. So the name is stored on the handset with the rest of the local PHR
-/// and is used to greet the patient on their own phone. See [PhrProfile.displayName].
-///
-/// On success the patient lands wherever AUTH-00 says a signed-in account with no setup behind it
-/// belongs — the device check, in practice. The route is not hard-coded here: it comes from
-/// [TeraFlow.beginNewAccount] and [AppFlowState.resumeRoute], so this screen cannot disagree with
-/// the splash about where a new account starts.
-library;
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-
-import '../api/api_client.dart';
-import '../capture/phr_profile.dart';
-import '../routing/app_router.dart';
+import '../auth/auth_controller.dart';
 import '../routing/routes.dart';
-import 'auth_scaffold.dart';
 import 'tokens.dart';
 
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({super.key, required this.flow, required this.profileStore});
-
-  final TeraFlow flow;
-
-  /// Injectable, so a widget test does not need a real Keystore. Holds the display name.
-  final PhrProfileStore profileStore;
+  const RegisterScreen({super.key, required this.auth});
+  final AuthController auth;
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -39,159 +13,262 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _name = TextEditingController();
-  final _email = TextEditingController();
-  final _password = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
 
-  bool _busy = false;
-  bool _showPassword = false;
-  String? _error;
+  bool _obscurePassword = true;
+  bool _obscureConfirmPassword = true;
+  bool _isBusy = false;
+  String? _errorMessage;
 
   @override
   void dispose() {
-    _name.dispose();
-    _email.dispose();
-    _password.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    if (_busy) return;
-    // Validate before the request, so a short password is a field error under the field rather
-    // than a 422 that comes back a second later with nothing pointing at the cause.
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+  Future<void> _register() async {
+    if (!_formKey.currentState!.validate()) return;
 
-    FocusScope.of(context).unfocus();
     setState(() {
-      _busy = true;
-      _error = null;
+      _isBusy = true;
+      _errorMessage = null;
     });
 
-    final created = await widget.flow.auth.register(
-      subject: _email.text.trim(),
-      password: _password.text,
+    final success = await widget.auth.register(
+      subject: _emailController.text.trim(),
+      password: _passwordController.text,
     );
+
     if (!mounted) return;
+    setState(() => _isBusy = false);
 
-    if (!created) {
-      final message = widget.flow.auth.error ?? 'Sign-up failed. Please try again.';
-      setState(() {
-        _busy = false;
-        _error = message;
-      });
-      showAuthError(context, message);
-      return;
+    if (success) {
+      Navigator.of(context).pushNamedAndRemoveUntil(Routes.splash, (r) => false);
+    } else {
+      setState(() => _errorMessage = widget.auth.error);
     }
-
-    // Signed in. What follows is local: a setup state belonging to this account rather than to
-    // whoever used the handset before it, and the name to greet them by.
-    //
-    // Neither may fail the sign-up, and neither may stall it. The account exists on the server by
-    // now, so a Keystore that throws or wedges must not leave the patient watching a spinner in
-    // front of an account that has already been created — there would be no way on except killing
-    // the app, and the second attempt would answer 409. So: bounded, and swallowed.
-    //
-    // The flow state goes first because it is the one with consequences. The name is a greeting.
-    try {
-      await Future(() async {
-        await widget.flow.beginNewAccount();
-        await widget.profileStore.write(PhrProfile(displayName: _name.text.trim()));
-      }).timeout(const Duration(seconds: 5));
-    } on Object {
-      // Nothing useful to say: the next screen is the same either way, and onboarding recomputes
-      // its position from whatever did reach disk.
-    }
-    if (!mounted) return;
-
-    TextInput.finishAutofillContext();
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(widget.flow.state.resumeRoute, (route) => false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final error = _error;
-
-    return Form(
-      key: _formKey,
-      child: AutofillGroup(
-        child: AuthScaffold(
-          title: 'Buat Akun',
-          subtitle:
-              'Tera menyimpan catatan tekanan darah Anda di ponsel dan di akun Anda. '
-              'Pengukuran dengan tensimeter tetap menjadi acuan; Tera mengikuti perubahan '
-              'di antaranya.',
-          footer: AuthSwitchLink(
-            prompt: 'Sudah punya akun?',
-            action: 'Login',
-            // Pop rather than push: this screen is reached from sign-in, so going back is going
-            // back. Pushing would stack a second sign-in behind it.
-            onPressed: _busy
-                ? null
-                : () {
-                    final navigator = Navigator.of(context);
-                    if (navigator.canPop()) {
-                      navigator.pop();
-                    } else {
-                      navigator.pushNamedAndRemoveUntil(Routes.login, (route) => false);
-                    }
-                  },
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(TeraSpacing.lg),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: TeraSpacing.xxl),
+                const Text(
+                  'Buat Akun Baru',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: TeraColors.ink,
+                  ),
+                ),
+                const SizedBox(height: TeraSpacing.sm),
+                const Text(
+                  'Daftar untuk mulai memantau tekanan darahmu',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: TeraText.body,
+                    color: TeraColors.neutral700,
+                  ),
+                ),
+                const SizedBox(height: TeraSpacing.xl),
+                if (_errorMessage != null) ...[
+                  Container(
+                    padding: const EdgeInsets.all(TeraSpacing.md),
+                    decoration: systemFlagDecoration(),
+                    child: Text(
+                      _errorMessage!,
+                      style: const TextStyle(
+                        color: TeraColors.ink,
+                        fontSize: TeraText.body,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: TeraSpacing.md),
+                ],
+                Container(
+                  decoration: BoxDecoration(
+                    color: TeraColors.page,
+                    borderRadius: BorderRadius.circular(TeraRadius.card),
+                  ),
+                  padding: const EdgeInsets.all(TeraSpacing.lg),
+                  child: Form(
+                    key: _formKey,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        TextFormField(
+                          controller: _emailController,
+                          keyboardType: TextInputType.emailAddress,
+                          decoration: InputDecoration(
+                            labelText: 'Email',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(TeraRadius.field),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: TeraSpacing.md,
+                              vertical: TeraSpacing.md,
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Email tidak boleh kosong';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: TeraSpacing.md),
+                        TextFormField(
+                          controller: _passwordController,
+                          obscureText: _obscurePassword,
+                          decoration: InputDecoration(
+                            labelText: 'Kata Sandi',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(TeraRadius.field),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: TeraSpacing.md,
+                              vertical: TeraSpacing.md,
+                            ),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscurePassword
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                                color: TeraColors.neutral500,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _obscurePassword = !_obscurePassword;
+                                });
+                              },
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Kata Sandi tidak boleh kosong';
+                            }
+                            if (value.length < 8) {
+                              return 'Kata sandi minimal 8 karakter';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: TeraSpacing.md),
+                        TextFormField(
+                          controller: _confirmPasswordController,
+                          obscureText: _obscureConfirmPassword,
+                          decoration: InputDecoration(
+                            labelText: 'Konfirmasi Kata Sandi',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(TeraRadius.field),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: TeraSpacing.md,
+                              vertical: TeraSpacing.md,
+                            ),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _obscureConfirmPassword
+                                    ? Icons.visibility_off
+                                    : Icons.visibility,
+                                color: TeraColors.neutral500,
+                              ),
+                              onPressed: () {
+                                setState(() {
+                                  _obscureConfirmPassword = !_obscureConfirmPassword;
+                                });
+                              },
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.isEmpty) {
+                              return 'Konfirmasi Kata Sandi tidak boleh kosong';
+                            }
+                            if (value != _passwordController.text) {
+                              return 'Kata sandi tidak cocok';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: TeraSpacing.xl),
+                        ElevatedButton(
+                          onPressed: _isBusy ? null : _register,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF001F3F),
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(TeraRadius.button),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: _isBusy
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text(
+                                  'Register',
+                                  style: TextStyle(
+                                    fontSize: TeraText.body,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: TeraSpacing.lg),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      'Sudah punya akun?',
+                      style: TextStyle(
+                        color: TeraColors.neutral700,
+                        fontSize: TeraText.small,
+                      ),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                      },
+                      child: const Text(
+                        'Login',
+                        style: TextStyle(
+                          color: Color(0xFF001F3F),
+                          fontWeight: FontWeight.bold,
+                          fontSize: TeraText.small,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: TeraSpacing.xxl),
+              ],
+            ),
           ),
-          children: [
-            AuthField(
-              id: 'name',
-              controller: _name,
-              label: 'Nama',
-              hint: 'Tera sebaiknya memanggil Anda apa?',
-              icon: Icons.person_outline,
-              enabled: !_busy,
-              keyboardType: TextInputType.name,
-              autofillHints: const [AutofillHints.name],
-              validator: AuthValidators.name,
-            ),
-            const SizedBox(height: TeraSpacing.md),
-
-            AuthField(
-              id: 'email',
-              controller: _email,
-              label: 'Email',
-              hint: 'cth: nama@email.com',
-              icon: Icons.mail_outline,
-              enabled: !_busy,
-              keyboardType: TextInputType.emailAddress,
-              autofillHints: const [AutofillHints.email, AutofillHints.username],
-              validator: AuthValidators.email,
-            ),
-            const SizedBox(height: TeraSpacing.md),
-
-            AuthField(
-              id: 'password',
-              controller: _password,
-              label: 'Kata Sandi',
-              hint: 'Buat kata sandi',
-              icon: Icons.lock_outline,
-              helper: 'Minimal $minPasswordLength karakter.',
-              enabled: !_busy,
-              obscureText: !_showPassword,
-              textInputAction: TextInputAction.done,
-              autofillHints: const [AutofillHints.newPassword],
-              validator: AuthValidators.newPassword,
-              onSubmitted: (_) => _submit(),
-              suffix: PasswordVisibilityToggle(
-                visible: _showPassword,
-                onPressed: _busy ? null : () => setState(() => _showPassword = !_showPassword),
-              ),
-            ),
-            const SizedBox(height: TeraSpacing.lg),
-
-            if (error != null) ...[
-              AuthErrorPanel(message: error),
-              const SizedBox(height: TeraSpacing.lg),
-            ],
-
-            AuthSubmitButton(label: 'Register', busy: _busy, onPressed: _submit),
-          ],
         ),
       ),
     );

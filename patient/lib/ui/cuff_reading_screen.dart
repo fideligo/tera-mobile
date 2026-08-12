@@ -32,7 +32,7 @@ import '../capture/cuff_reading.dart';
 import '../capture/session_context.dart';
 import 'tokens.dart';
 
-enum _Stage { choose, reading, suggestion, enter, confirm, saved }
+enum _Stage { choose, reading, enter, confirm, saved }
 
 class CuffReadingScreen extends StatefulWidget {
   const CuffReadingScreen({
@@ -60,7 +60,6 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
 
   _Stage _stage = _Stage.choose;
   DraftCuffReading? _draft;
-  CuffOcrReading? _suggestion;
   bool _busy = false;
   String? _error;
 
@@ -82,46 +81,29 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
     final reading = await widget.ocr.extract();
     if (!mounted) return;
 
-    setState(() {
-      _suggestion = reading;
-      // A suggestion, not a draft. It becomes a draft only when a person accepts or edits it.
-      _stage = _Stage.suggestion;
-    });
-  }
-
-  /// "Correct, save" — the explicit confirmation for the OCR route.
-  Future<void> _acceptSuggestion() async {
-    final suggestion = _suggestion;
-    if (suggestion == null) return;
+    _systolic.text = '${reading.systolicMmhg}';
+    _diastolic.text = '${reading.diastolicMmhg}';
+    _pulse.text = reading.pulseBpm?.toString() ?? '';
 
     final draft = DraftCuffReading(
-      systolicMmhg: suggestion.systolicMmhg,
-      diastolicMmhg: suggestion.diastolicMmhg,
-      pulseBpm: suggestion.pulseBpm,
+      systolicMmhg: reading.systolicMmhg,
+      diastolicMmhg: reading.diastolicMmhg,
+      pulseBpm: reading.pulseBpm,
     );
 
     final violations = draft.validate();
     if (violations.isNotEmpty) {
-      // An implausible suggestion is never savable, however confident the extractor was. Drop the
-      // patient into the form with it pre-filled rather than into a dead end.
-      setState(() => _error = violations.first.message);
-      _editSuggestion();
+      setState(() {
+        _error = violations.first.message;
+        _stage = _Stage.enter;
+      });
       return;
     }
 
-    setState(() => _draft = draft);
-    await _confirmAndSave();
-  }
-
-  /// "Edit" — the same numbers, in the form, for a person to correct.
-  void _editSuggestion() {
-    final suggestion = _suggestion;
-    if (suggestion != null) {
-      _systolic.text = '${suggestion.systolicMmhg}';
-      _diastolic.text = '${suggestion.diastolicMmhg}';
-      _pulse.text = suggestion.pulseBpm?.toString() ?? '';
-    }
-    setState(() => _stage = _Stage.enter);
+    setState(() {
+      _draft = draft;
+      _stage = _Stage.confirm;
+    });
   }
 
   void _review() {
@@ -195,9 +177,8 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
           children: switch (_stage) {
             _Stage.choose => _chooseStage(),
             _Stage.reading => _readingStage(),
-            _Stage.suggestion => _suggestionStage(),
             _Stage.enter => _enterStage(),
-            _Stage.confirm => _confirmStage(),
+            _Stage.confirm => _confirmStage(context),
             _Stage.saved => _savedStage(),
           },
         ),
@@ -208,32 +189,48 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
   // ----------------------------------------------------------------- choose ----
 
   List<Widget> _chooseStage() => [
+    const SizedBox(height: TeraSpacing.xl),
     const Text(
-      'Record a cuff reading',
+      'Set your blood pressure preferences',
       style: TextStyle(
         fontSize: TeraText.section,
-        fontWeight: FontWeight.w600,
+        fontWeight: FontWeight.w700,
         color: TeraColors.ink,
       ),
+      textAlign: TextAlign.center,
+    ),
+    const SizedBox(height: TeraSpacing.lg),
+    const Text(
+      'Tera uses a recent blood pressure\nreading as a personal reference\nfor your BP-related trend.',
+      style: TextStyle(color: TeraColors.ink, height: 1.5, fontSize: TeraText.body),
+      textAlign: TextAlign.center,
+    ),
+    const SizedBox(height: TeraSpacing.xl),
+    const Text(
+      'Small checklist\nBefore measuring:',
+      style: TextStyle(color: TeraColors.ink, height: 1.5, fontSize: TeraText.body),
+      textAlign: TextAlign.center,
     ),
     const SizedBox(height: TeraSpacing.sm),
     const Text(
-      'These are blood-pressure measurements — the only kind Tera records. Photograph the display '
-      'and check what Tera reads, or type the numbers in yourself.',
-      style: TextStyle(color: TeraColors.ink, height: 1.5),
+      '✓ Rest quietly for at least 5 minutes\n'
+      '✓ Avoid exercise for the past 30 minutes\n'
+      '✓ Avoid caffeine for the past 30 minutes\n'
+      '✓ Avoid smoking or nicotine for the past\n30 minutes\n'
+      '✓ Sit with your back supported and feet\nflat',
+      style: TextStyle(color: TeraColors.ink, height: 1.5, fontSize: TeraText.body),
+      textAlign: TextAlign.center,
     ),
-    const SizedBox(height: TeraSpacing.lg),
-    FilledButton(onPressed: _photograph, child: const Text('Photograph tensimeter')),
-    const SizedBox(height: TeraSpacing.md),
-    OutlinedButton(
+    const SizedBox(height: TeraSpacing.xl),
+    TextButton(
       onPressed: () => setState(() => _stage = _Stage.enter),
-      child: const Text('Type the numbers in'),
-    ),
-    const SizedBox(height: TeraSpacing.lg),
-    const Text(
-      'Whichever you choose, Tera shows you the numbers and waits for you to confirm them before '
-      'saving anything.',
-      style: TextStyle(fontSize: TeraText.small, height: 1.5, color: TeraColors.neutral700),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text('next ', style: TextStyle(color: TeraColors.ink, fontSize: TeraText.body)),
+          Icon(Icons.arrow_forward, color: TeraColors.ink, size: 18),
+        ],
+      ),
     ),
   ];
 
@@ -250,152 +247,48 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
         fontWeight: FontWeight.w600,
         color: TeraColors.ink,
       ),
+      textAlign: TextAlign.center,
     ),
   ];
-
-  // ------------------------------------------------------------- suggestion ----
-
-  List<Widget> _suggestionStage() {
-    final suggestion = _suggestion!;
-    return [
-      const Text(
-        'Check what Tera read',
-        style: TextStyle(
-          fontSize: TeraText.section,
-          fontWeight: FontWeight.w600,
-          color: TeraColors.ink,
-        ),
-      ),
-      const SizedBox(height: TeraSpacing.sm),
-      const Text(
-        'Compare these against the display on your cuff. If they do not match exactly, choose Edit '
-        'and correct them.',
-        style: TextStyle(color: TeraColors.ink, height: 1.5),
-      ),
-
-      if (suggestion.simulated) ...[
-        const SizedBox(height: TeraSpacing.md),
-        Container(
-          decoration: systemFlagDecoration(),
-          padding: const EdgeInsets.all(TeraSpacing.md),
-          child: const Text(
-            simulatedOcrNotice,
-            style: TextStyle(color: TeraColors.ink, height: 1.4),
-          ),
-        ),
-      ],
-
-      const SizedBox(height: TeraSpacing.lg),
-      Container(
-        decoration: panelDecoration(),
-        padding: const EdgeInsets.all(TeraSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'We read',
-              style: TextStyle(fontSize: TeraText.small, color: TeraColors.neutral700),
-            ),
-            const SizedBox(height: TeraSpacing.xs),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Text(
-                  '${suggestion.systolicMmhg} / ${suggestion.diastolicMmhg}',
-                  style: const TextStyle(
-                    fontSize: TeraText.display,
-                    fontWeight: FontWeight.w700,
-                    color: TeraColors.ink,
-                  ),
-                ),
-                const SizedBox(width: TeraSpacing.sm),
-                const Text(
-                  'mmHg',
-                  style: TextStyle(fontSize: TeraText.body, color: TeraColors.neutral700),
-                ),
-              ],
-            ),
-            if (suggestion.pulseBpm != null) ...[
-              const SizedBox(height: TeraSpacing.sm),
-              Text(
-                'Pulse ${suggestion.pulseBpm} bpm',
-                style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
-              ),
-            ],
-            const SizedBox(height: TeraSpacing.md),
-            Text(
-              // Reported, never acted on. There is no confidence at which this screen is skipped.
-              'Tera is ${(suggestion.confidence * 100).round()}% sure it read this correctly. '
-              'That is not a check on whether the numbers are right — only you can do that.',
-              style: const TextStyle(
-                fontSize: TeraText.small,
-                height: 1.5,
-                color: TeraColors.neutral700,
-              ),
-            ),
-          ],
-        ),
-      ),
-
-      if (_error != null) ...[
-        const SizedBox(height: TeraSpacing.md),
-        _errorPanel(_error!),
-      ],
-
-      const SizedBox(height: TeraSpacing.lg),
-      FilledButton(
-        onPressed: _busy ? null : _acceptSuggestion,
-        child: Text(_busy ? 'Saving…' : 'Correct, save'),
-      ),
-      const SizedBox(height: TeraSpacing.md),
-      OutlinedButton(
-        onPressed: _busy ? null : _editSuggestion,
-        child: const Text('Edit'),
-      ),
-    ];
-  }
 
   // ------------------------------------------------------------------ enter ----
 
   List<Widget> _enterStage() => [
+    const SizedBox(height: TeraSpacing.xl),
     const Text(
-      'Type in your cuff reading',
+      'Enter the reading you just measured',
       style: TextStyle(
         fontSize: TeraText.section,
-        fontWeight: FontWeight.w600,
+        fontWeight: FontWeight.w700,
         color: TeraColors.ink,
       ),
+      textAlign: TextAlign.center,
     ),
-    const SizedBox(height: TeraSpacing.sm),
-    const Text(
-      'Use the numbers shown on your upper-arm cuff. These are a blood-pressure measurement — '
-      'the only kind Tera records.',
-      style: TextStyle(color: TeraColors.ink, height: 1.5),
-    ),
-    const SizedBox(height: TeraSpacing.lg),
+    const SizedBox(height: TeraSpacing.xl),
     Form(
       key: _formKey,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _numberField(
+          _horizontalNumberField(
             controller: _systolic,
-            label: 'Top number (systolic), mmHg',
+            label: 'systolic',
+            unit: 'mmHg',
             min: systolicMinMmhg,
             max: systolicMaxMmhg,
           ),
-          const SizedBox(height: TeraSpacing.md),
-          _numberField(
+          const SizedBox(height: TeraSpacing.sm),
+          _horizontalNumberField(
             controller: _diastolic,
-            label: 'Bottom number (diastolic), mmHg',
+            label: 'diastolic',
+            unit: 'mmHg',
             min: diastolicMinMmhg,
             max: diastolicMaxMmhg,
           ),
-          const SizedBox(height: TeraSpacing.md),
-          _numberField(
+          const SizedBox(height: TeraSpacing.sm),
+          _horizontalNumberField(
             controller: _pulse,
-            label: 'Pulse, beats per minute (optional)',
+            label: 'pulse',
+            unit: 'bpm',
             min: pulseMinBpm,
             max: pulseMaxBpm,
             optional: true,
@@ -407,109 +300,179 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
       const SizedBox(height: TeraSpacing.md),
       _errorPanel(_error!),
     ],
-    const SizedBox(height: TeraSpacing.lg),
-    FilledButton(onPressed: _review, child: const Text('Review')),
+    const SizedBox(height: TeraSpacing.xl),
+    OutlinedButton(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: TeraColors.ink,
+        side: const BorderSide(color: TeraColors.ink),
+      ),
+      onPressed: _photograph,
+      child: const Text('Scan monitor instead'),
+    ),
     const SizedBox(height: TeraSpacing.md),
-    const Text(
-      'Tera does not read your cuff from a photograph. Typing the numbers in is the only way, so '
-      'what is recorded is what you saw.',
-      style: TextStyle(fontSize: TeraText.small, height: 1.5, color: TeraColors.neutral700),
+    OutlinedButton(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: TeraColors.ink,
+        side: const BorderSide(color: TeraColors.ink),
+      ),
+      onPressed: _review,
+      child: const Text('save'),
     ),
   ];
 
-  Widget _numberField({
+  Widget _horizontalNumberField({
     required TextEditingController controller,
     required String label,
+    required String unit,
     required int min,
     required int max,
     bool optional = false,
-  }) => TextFormField(
-    controller: controller,
-    decoration: InputDecoration(labelText: label),
-    keyboardType: TextInputType.number,
-    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-    textInputAction: TextInputAction.next,
-    validator: (v) {
-      final text = (v ?? '').trim();
-      if (text.isEmpty) return optional ? null : 'Enter this number.';
-      final value = int.tryParse(text);
-      if (value == null) return 'Digits only.';
-      if (value < min || value > max) return 'Must be between $min and $max.';
-      return null;
-    },
-  );
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Expanded(
+          flex: 2,
+          child: Text(label, textAlign: TextAlign.right, style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink)),
+        ),
+        const SizedBox(width: TeraSpacing.md),
+        Expanded(
+          flex: 3,
+          child: TextFormField(
+            controller: controller,
+            textAlign: TextAlign.center,
+            decoration: const InputDecoration(
+              filled: true,
+              fillColor: TeraColors.neutral200,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              contentPadding: EdgeInsets.symmetric(vertical: 14),
+            ),
+            style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            textInputAction: TextInputAction.next,
+            validator: (v) {
+              final text = (v ?? '').trim();
+              if (text.isEmpty) return optional ? null : 'Req';
+              final value = int.tryParse(text);
+              if (value == null) return 'Inv';
+              if (value < min || value > max) return 'Out';
+              return null;
+            },
+          ),
+        ),
+        const SizedBox(width: TeraSpacing.md),
+        Expanded(
+          flex: 2,
+          child: Text(unit, textAlign: TextAlign.left, style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink)),
+        ),
+      ],
+    );
+  }
 
   // ---------------------------------------------------------------- confirm ----
 
-  List<Widget> _confirmStage() {
-    final draft = _draft!;
+  List<Widget> _confirmStage(BuildContext context) {
     return [
+      const SizedBox(height: TeraSpacing.xl),
       const Text(
-        'Is this what your cuff showed?',
+        'Enter the reading you just measured',
         style: TextStyle(
           fontSize: TeraText.section,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.w700,
           color: TeraColors.ink,
         ),
+        textAlign: TextAlign.center,
       ),
+      const SizedBox(height: TeraSpacing.xl),
+      _horizontalNumberBox(label: 'systolic', value: _systolic.text, unit: 'mmHg'),
       const SizedBox(height: TeraSpacing.sm),
-      const Text(
-        'Check the numbers against the display before saving. A saved reading becomes the '
-        'reference your spot checks are compared against, and it cannot be edited afterwards — a '
-        'correction is recorded as a new reading.',
-        style: TextStyle(color: TeraColors.ink, height: 1.5),
-      ),
-      const SizedBox(height: TeraSpacing.lg),
-      Container(
-        decoration: panelDecoration(),
-        padding: const EdgeInsets.all(TeraSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Text(
-                  '${draft.systolicMmhg}/${draft.diastolicMmhg}',
-                  style: const TextStyle(
-                    fontSize: TeraText.display,
-                    fontWeight: FontWeight.w700,
-                    color: TeraColors.ink,
-                  ),
-                ),
-                const SizedBox(width: TeraSpacing.sm),
-                const Text(
-                  'mmHg',
-                  style: TextStyle(fontSize: TeraText.body, color: TeraColors.neutral700),
-                ),
-              ],
+      _horizontalNumberBox(label: 'diastolic', value: _diastolic.text, unit: 'mmHg'),
+      const SizedBox(height: TeraSpacing.sm),
+      _horizontalNumberBox(label: 'pulse', value: _pulse.text, unit: 'bpm'),
+      const SizedBox(height: TeraSpacing.md),
+      Row(
+        children: [
+          Expanded(flex: 2, child: Container()),
+          const SizedBox(width: TeraSpacing.md),
+          Expanded(
+            flex: 5,
+            child: Text(
+              'Measured\nJust now · ${TimeOfDay.now().format(context)}',
+              textAlign: TextAlign.left,
+              style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
             ),
-            if (draft.pulseBpm != null) ...[
-              const SizedBox(height: TeraSpacing.sm),
-              Text(
-                'Pulse ${draft.pulseBpm} bpm',
-                style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
-              ),
-            ],
-          ],
-        ),
+          ),
+        ],
       ),
       if (_error != null) ...[
         const SizedBox(height: TeraSpacing.md),
         _errorPanel(_error!),
       ],
-      const SizedBox(height: TeraSpacing.lg),
-      FilledButton(
-        onPressed: _busy ? null : _confirmAndSave,
-        child: Text(_busy ? 'Saving…' : 'Confirm and save'),
+      const SizedBox(height: TeraSpacing.xl),
+      OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: TeraColors.ink,
+          side: const BorderSide(color: TeraColors.ink),
+        ),
+        onPressed: _photograph,
+        child: const Text('Scan monitor instead'),
       ),
       const SizedBox(height: TeraSpacing.md),
       OutlinedButton(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: TeraColors.ink,
+          side: const BorderSide(color: TeraColors.ink),
+        ),
         onPressed: _busy ? null : () => setState(() => _stage = _Stage.enter),
-        child: const Text('Go back and change'),
+        child: const Text('edit'),
+      ),
+      const SizedBox(height: TeraSpacing.xl),
+      TextButton(
+        onPressed: _busy ? null : _confirmAndSave,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(_busy ? 'Saving...' : 'next ', style: const TextStyle(color: TeraColors.ink, fontSize: TeraText.body)),
+            if (!_busy) const Icon(Icons.arrow_forward, color: TeraColors.ink, size: 18),
+          ],
+        ),
       ),
     ];
+  }
+
+  Widget _horizontalNumberBox({
+    required String label,
+    required String value,
+    required String unit,
+  }) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Expanded(
+          flex: 2,
+          child: Text(label, textAlign: TextAlign.right, style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink)),
+        ),
+        const SizedBox(width: TeraSpacing.md),
+        Expanded(
+          flex: 3,
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            color: TeraColors.neutral200,
+            alignment: Alignment.center,
+            child: Text(value, style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink)),
+          ),
+        ),
+        const SizedBox(width: TeraSpacing.md),
+        Expanded(
+          flex: 2,
+          child: Text(unit, textAlign: TextAlign.left, style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink)),
+        ),
+      ],
+    );
   }
 
   // ------------------------------------------------------------------ saved ----

@@ -15,6 +15,7 @@ abstract final class Routes {
   static const register = '/auth/register';
 
   // device-check/
+  static const devicePermission = '/device-check/permission';
   static const deviceChecking = '/device-check/checking';
   static const deviceEligible = '/device-check/eligible';
   static const deviceNotEligible = '/device-check/not-eligible';
