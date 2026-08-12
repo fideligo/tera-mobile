@@ -1377,3 +1377,47 @@ a two-tree forest small enough to verify by reading it, because the real one is 
 **Not yet wired into the capture flow.** The chain produces SCG beat times and the model consumes
 them, but nothing calls it: with the model off by default and no asset bundled, wiring it would add
 a branch that is dead in every build we ship this week.
+
+## The master flow: routes from the PM spec, decisions in one pure file
+
+Section 32's route tree is reproduced verbatim rather than renamed to Dart taste. It is the
+contract between design, the backend spec and this app, and a route that reads differently here is
+a route somebody has to translate in their head every time.
+
+**The state machine is pure and lives away from the widgets.** `routing/check_session.dart` holds
+sections 31 and 38 as functions of their inputs, with `now` passed in. These are product rules with
+a written specification; spread across four `Navigator.push` call sites they could not be read
+against that specification or tested without pumping a UI. Every transition returns state *and*
+route together, so a caller cannot advance the machine without navigating or navigate without
+advancing it.
+
+**The seven-day gap is tested at its boundary**, not near it: 6d23h does not trigger a refresh,
+exactly 7d does, because the rule is `>=`. It is a prototype product rule, not a clinical
+calibration expiry, and the constant's name and comment say so. The copy follows the spec's
+instruction: "your BP reference needs a refresh", never "your calibration expired".
+
+**A not-eligible device is never asked for a BP reference.** It has no sensor trend to reference
+against, so the number would have no consumer. Asserted across all three reference states.
+
+**An unchecked device is treated as not eligible.** The BP-only path works everywhere and blocks
+nobody; assuming eligibility would walk a patient into a capture their phone cannot perform. The
+same reasoning makes `couldNotCheck` route to DEV-03 — "we could not tell" is not "your phone
+works".
+
+**Invariant 8 stays in front of `startCheck`.** The spec's state machine begins at the BP reference
+or the pre-check. Red-flag triage is a navigation step before it rather than a state inside it, so
+the machine still matches the spec exactly while a patient reporting chest pain is not walked
+through a reference flow first.
+
+**ONB-02 is not a stub.** The spec's Measurement Safety screen asks the pregnancy and rhythm
+questions, which is what `ContextIntakeScreen` already does — including the hard stop and the
+`/v1/patient-context` upload. The route points at the real screen. Likewise `check/bp-input`,
+`bp-scan` and `bp-confirm` all resolve to `CuffReadingScreen`, which already carries scan, manual
+entry and the explicit confirmation step; three routes onto one screen beats three copies of a
+confirmation gate.
+
+**Capture attempts are counted on the way out of the gate.** A retry that never reaches it cannot
+inflate the count, and a rejected attempt always does.
+
+Stubs are deliberately ugly — Scaffold, title, one line, one button — and each names the spec
+section it stands for. A stub that looks finished gets left alone.

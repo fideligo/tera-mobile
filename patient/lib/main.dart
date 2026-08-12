@@ -19,8 +19,8 @@ import 'package:flutter/material.dart';
 import 'api/api_client.dart';
 import 'auth/auth_controller.dart';
 import 'auth/token_store.dart';
-import 'ui/home_screen.dart';
-import 'ui/sign_in_screen.dart';
+import 'routing/app_router.dart';
+import 'routing/routes.dart';
 import 'ui/tokens.dart';
 
 /// The backend, overridable at build time so a demo can point at a laptop on the venue
@@ -47,6 +47,9 @@ class _TeraPatientAppState extends State<TeraPatientApp> {
   late final TokenStore _tokenStore;
   late final ApiClient _api;
   late final AuthController _auth;
+  late final TeraFlow _flow;
+  late final TeraRouter _router;
+  final _navigator = GlobalKey<NavigatorState>();
 
   @override
   void initState() {
@@ -61,11 +64,23 @@ class _TeraPatientAppState extends State<TeraPatientApp> {
         onSessionLost: () => _auth.onSessionLost(),
       ),
     );
-    _auth.restore();
+    _flow = TeraFlow(auth: _auth, api: _api);
+    _router = TeraRouter(_flow);
+
+    // A session lost mid-flow unwinds to login. The splash re-runs AUTH-00 on the way back in, so
+    // the resume point is recomputed rather than remembered from before the session died.
+    _auth.addListener(_onAuthChanged);
+    // The splash owns restore(); calling it here too would race it.
+  }
+
+  void _onAuthChanged() {
+    if (_auth.status != AuthStatus.signedOut) return;
+    _navigator.currentState?.pushNamedAndRemoveUntil(Routes.login, (r) => false);
   }
 
   @override
   void dispose() {
+    _auth.removeListener(_onAuthChanged);
     _auth.dispose();
     _api.dispose();
     super.dispose();
@@ -77,22 +92,11 @@ class _TeraPatientAppState extends State<TeraPatientApp> {
       title: 'Tera',
       debugShowCheckedModeBanner: false,
       theme: buildTeraTheme(),
-      home: AnimatedBuilder(
-        animation: _auth,
-        builder: (context, _) => switch (_auth.status) {
-          AuthStatus.checking => const _Loading(),
-          AuthStatus.signedOut => SignInScreen(auth: _auth),
-          AuthStatus.signedIn => HomeScreen(auth: _auth),
-        },
-      ),
+      navigatorKey: _navigator,
+      // AUTH-00 is the entry point for every launch: it resolves auth, then device eligibility,
+      // then onboarding, and routes once. Nothing else decides where a launch lands.
+      initialRoute: Routes.splash,
+      onGenerateRoute: _router.onGenerateRoute,
     );
   }
-}
-
-class _Loading extends StatelessWidget {
-  const _Loading();
-
-  @override
-  Widget build(BuildContext context) =>
-      const Scaffold(body: Center(child: CircularProgressIndicator()));
 }

@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 
 import '../auth/auth_controller.dart';
 import '../capture/context_intake.dart';
+import '../routing/app_router.dart';
+import '../routing/routes.dart';
 import 'capture_screen.dart';
 import 'context_intake_screen.dart';
 import 'cuff_reading_screen.dart';
@@ -17,9 +19,13 @@ import 'session_result_screen.dart';
 import 'tokens.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.auth, this.intakeStore});
+  const HomeScreen({super.key, required this.auth, this.flow, this.intakeStore});
 
   final AuthController auth;
+
+  /// Null in the older direct-navigation tests. When present, 'Start a spot check' runs the
+  /// spec's startCheck() rather than the hardcoded triage-then-eligibility chain.
+  final TeraFlow? flow;
 
   /// Injectable so tests can drive the gate without secure storage.
   final ContextIntakeStore? intakeStore;
@@ -145,6 +151,21 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () => _recordCuffReading(context),
             child: const Text('Record a cuff reading'),
           ),
+
+          const SizedBox(height: TeraSpacing.xl),
+          const Divider(),
+          const SizedBox(height: TeraSpacing.lg),
+
+          // Section 3's top-level navigation. Stubs for now; the routes exist.
+          OutlinedButton(
+            onPressed: () => Navigator.of(context).pushNamed(Routes.history),
+            child: const Text('History'),
+          ),
+          const SizedBox(height: TeraSpacing.sm),
+          OutlinedButton(
+            onPressed: () => Navigator.of(context).pushNamed(Routes.profile),
+            child: const Text('Profile'),
+          ),
         ],
       ),
     );
@@ -194,15 +215,30 @@ class _HomeScreenState extends State<HomeScreen> {
   /// cannot be used", swallowing the report entirely.
   void _startSpotCheck(BuildContext context) {
     final navigator = Navigator.of(context);
+    final flow = widget.flow;
 
+    // Invariant 8 comes first either way. The PM spec's startCheck() begins at the BP reference
+    // or the pre-check; a patient reporting chest pain must not be walked through either.
     navigator.push(
       MaterialPageRoute<void>(
         builder: (_) => SymptomTriageScreen(
           api: auth.api,
           onDone: () => navigator.popUntil((route) => route.isFirst),
-          onProceed: () => navigator.pushReplacement(
-            MaterialPageRoute<void>(builder: (_) => _eligibilityOnwards(navigator)),
-          ),
+          onProceed: () {
+            if (flow != null) {
+              // Section 38: eligible + needs reference -> BPREF, otherwise PRECHECK; not
+              // eligible -> PRECHECK in BP-only mode.
+              final step = flow.startCheck();
+              navigator.pushReplacementNamed(
+                step.route,
+                arguments: CheckArgs(step.session),
+              );
+              return;
+            }
+            navigator.pushReplacement(
+              MaterialPageRoute<void>(builder: (_) => _eligibilityOnwards(navigator)),
+            );
+          },
         ),
       ),
     );
