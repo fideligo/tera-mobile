@@ -171,7 +171,32 @@ void main() {
   });
 
   group('CTX-01 submission', () {
-    test('it posts a symptom event with the context as payload', () async {
+    test('the session route is used when a session exists', () async {
+      String? path;
+      final ok = await CurrentContextSubmitter(
+        api: _api(
+          MockClient((request) async {
+            path = request.url.path;
+            return http.Response(jsonEncode({'id': 'x'}), 201);
+          }),
+        ),
+      ).submitForSession(sessionId: 'sess-1', context: const CurrentContext(feelingUnwell: true));
+
+      // The typed table, not an event: the backend can tell a context record from a reported
+      // symptom without inspecting a payload.
+      expect(ok, isTrue);
+      expect(path, '/v1/check-sessions/sess-1/context');
+    });
+
+    test('the session route failure never throws', () async {
+      final ok = await CurrentContextSubmitter(
+        api: _api(MockClient((_) async => http.Response('nope', 500))),
+      ).submitForSession(sessionId: 's', context: const CurrentContext());
+
+      expect(ok, isFalse);
+    });
+
+    test('BP-only falls back to an episode-scoped event', () async {
       Map<String, dynamic>? body;
       final ok = await CurrentContextSubmitter(
         api: _api(

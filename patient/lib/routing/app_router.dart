@@ -14,6 +14,7 @@ import '../ui/flow_screens.dart';
 import '../ui/flow_stub_screen.dart';
 import '../capture/phr_profile.dart';
 import '../ui/home_screen.dart';
+import '../ui/insight_screen.dart';
 import '../ui/onboarding_screens.dart';
 import '../ui/sign_in_screen.dart';
 import 'app_flow_state.dart';
@@ -310,13 +311,7 @@ class TeraRouter {
       ),
       Routes.checkInsight => _page(
         settings,
-        (context) => FlowStubScreen(
-          specId: 'INS-01',
-          title: 'Your insight',
-          body: 'Deterministic rule engine plus language layer. Not a diagnosis.',
-          nextLabel: 'Done',
-          onNext: () => TeraFlow.toHome(context),
-        ),
+        (_) => InsightScreen(api: flow.api, sessionId: payload.submittedSessionId),
       ),
 
       // ------------------------------------------------------------------ history

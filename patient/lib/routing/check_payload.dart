@@ -17,6 +17,7 @@ class CheckPayload {
     this.signal,
     this.capturedAt,
     this.cuffReadingSaved = false,
+    this.submittedSessionId,
   });
 
   /// CTX-01. Collected on both paths, before the fork.
@@ -31,15 +32,20 @@ class CheckPayload {
   /// BP-only path: the cuff reading was confirmed and already filed by `CuffReadingScreen`.
   final bool cuffReadingSaved;
 
+  /// Set once the backend has stored the session. The insight is fetched against it.
+  final String? submittedSessionId;
+
   CheckPayload copyWith({
     CurrentContext? context,
     SignalResult? signal,
     DateTime? capturedAt,
     bool? cuffReadingSaved,
+    String? submittedSessionId,
   }) => CheckPayload(
     context: context ?? this.context,
     signal: signal ?? this.signal,
     capturedAt: capturedAt ?? this.capturedAt,
     cuffReadingSaved: cuffReadingSaved ?? this.cuffReadingSaved,
+    submittedSessionId: submittedSessionId ?? this.submittedSessionId,
   );
 }

@@ -5,11 +5,22 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../capture/phr_profile.dart';
+import '../capture/phr_submitter.dart';
 import '../routing/app_flow_state.dart';
 import '../routing/app_router.dart';
 import '../routing/routes.dart';
 
-Future<void> _advance(BuildContext context, TeraFlow flow, OnboardingStep step) async {
+Future<void> _advance(
+  BuildContext context,
+  TeraFlow flow,
+  OnboardingStep step,
+  PhrProfile profile,
+  OnboardingSection section,
+) async {
+  // Local first and unconditionally: onboarding has to work on a bad connection, and a form that
+  // will not advance because a request failed strands a patient at step one of three. The upload
+  // follows and never blocks.
+  await PhrSubmitter(api: flow.api).submit(profile, section: section);
   await flow.completeOnboardingStep(step);
   if (!context.mounted) return;
   final next = flow.state.onboardingComplete ? Routes.home : flow.state.onboardingStep.route;
@@ -84,17 +95,22 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
     }
 
     final existing = await widget.store.read();
-    await widget.store.write(
-      existing.copyWith(
-        dateOfBirth: _dob,
-        sexAtBirth: _sex,
-        heightCm: height,
-        weightKg: weight,
-      ),
+    final saved = existing.copyWith(
+      dateOfBirth: _dob,
+      sexAtBirth: _sex,
+      heightCm: height,
+      weightKg: weight,
     );
+    await widget.store.write(saved);
 
     if (!mounted) return;
-    await _advance(context, widget.flow, OnboardingStep.aboutYou);
+    await _advance(
+      context,
+      widget.flow,
+      OnboardingStep.aboutYou,
+      saved,
+      OnboardingSection.aboutYou,
+    );
   }
 
   @override
@@ -177,16 +193,21 @@ class _HealthContextScreenState extends State<HealthContextScreen> {
     }
 
     final existing = await widget.store.read();
-    await widget.store.write(
-      existing.copyWith(
-        hypertension: _hypertension,
-        takesBpMedication: _medication,
-        conditions: _conditions,
-      ),
+    final saved = existing.copyWith(
+      hypertension: _hypertension,
+      takesBpMedication: _medication,
+      conditions: _conditions,
     );
+    await widget.store.write(saved);
 
     if (!mounted) return;
-    await _advance(context, widget.flow, OnboardingStep.healthContext);
+    await _advance(
+      context,
+      widget.flow,
+      OnboardingStep.healthContext,
+      saved,
+      OnboardingSection.healthContext,
+    );
   }
 
   @override

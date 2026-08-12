@@ -15,9 +15,14 @@ class SubmissionOutcome {
   const SubmissionOutcome({
     required this.accepted,
     required this.message,
+    required this.sessionId,
     this.trendDirection,
     this.duplicate = false,
   });
+
+  /// The id the backend stored this under. CTX-01 is filed against it, so it has to come back
+  /// out of here rather than being generated and forgotten.
+  final String sessionId;
 
   final bool accepted;
   final String message;
@@ -66,13 +71,14 @@ class SessionSubmitter {
         payload,
         extraHeaders: {'X-Session-Nonce': nonce['nonce'] as String, 'Idempotency-Key': sessionId},
       );
-      return _outcomeFrom(response);
+      return _outcomeFrom(response, sessionId);
     } on ApiException catch (e) {
       if (e.statusCode == 409) {
         // The contract: a duplicate returns the stored result unchanged.
-        return const SubmissionOutcome(
+        return SubmissionOutcome(
           accepted: false,
           message: 'This spot check was already recorded.',
+          sessionId: sessionId,
           duplicate: true,
         );
       }
@@ -80,7 +86,7 @@ class SessionSubmitter {
     }
   }
 
-  SubmissionOutcome _outcomeFrom(Map<String, dynamic> response) {
+  SubmissionOutcome _outcomeFrom(Map<String, dynamic> response, String sessionId) {
     final trend = response['trend'] as Map<String, dynamic>?;
     final rejection = response['rejection'] as Map<String, dynamic>?;
     final action = response['action'] as Map<String, dynamic>?;
@@ -90,6 +96,7 @@ class SessionSubmitter {
         accepted: true,
         // The backend's own wording, which is written to avoid implying a measurement.
         message: (action?['message'] as String?) ?? 'Recorded.',
+        sessionId: (response['session_id'] as String?) ?? sessionId,
         trendDirection: trend['direction'] as String?,
       );
     }
@@ -100,6 +107,7 @@ class SessionSubmitter {
           (rejection?['message'] as String?) ??
           (action?['message'] as String?) ??
           'This spot check was recorded but could not be used.',
+      sessionId: (response['session_id'] as String?) ?? sessionId,
     );
   }
 

@@ -1,16 +1,17 @@
 /// Filing CTX-01 to the backend.
 ///
-/// # Why `/v1/events` and not a new endpoint
+/// # Two routes, and which one is used depends on whether a session exists
 ///
-/// `POST /v1/sessions` sets `extra="forbid"`, so a `context` field cannot ride along without a
-/// schema change — and that schema is the one invariant 2 is expressed in, which is not a place to
-/// add a free-form object casually. `/v1/events` already exists for exactly this shape: an episode,
-/// a time, and a bounded free-form payload, with the bound (32 keys) there to stop it becoming a
-/// data channel. Five keys fit comfortably inside it.
+/// `POST /v1/check-sessions/{id}/context` is the real home: a typed table, closed symptom codes,
+/// and a backend that can tell a context record from a reported symptom without inspecting a
+/// payload. It needs a `session_id`, which only exists **after** the check is submitted — CTX-01
+/// is collected before capture, so the context is held in the flow's payload and filed afterwards.
 ///
-/// The event type is `symptom`. It is the only contextual type the enum offers — `medication` is
-/// for a dose event and `red_flag` terminates a session — and the payload carries the medication
-/// answer as one of its fields rather than as a second event.
+/// **BP-only has no session to attach to.** A confirmed cuff reading is not a
+/// `measurement_session`, so there is no id for that route. Rather than lose the context, it falls
+/// back to `/v1/events` as a `symptom` event, which needs only an episode. The fallback is
+/// recorded in `docs/decisions.md` as a gap, not a design: the two modes should file context the
+/// same way once BP-only checks get a session of their own.
 ///
 /// # It is filed even when nothing was reported
 ///
@@ -27,8 +28,23 @@ class CurrentContextSubmitter {
 
   final ApiClient _api;
 
-  /// Returns whether it reached the server. **Never throws and never gates the check** — the
-  /// measurement is the point of the flow, and losing the context should not lose the reading.
+  /// File against a submitted session. The typed route.
+  ///
+  /// **Never throws and never gates the check** — the measurement is the point of the flow, and
+  /// losing the context should not lose the reading.
+  Future<bool> submitForSession({
+    required String sessionId,
+    required CurrentContext context,
+  }) async {
+    try {
+      await _api.postJson('/v1/check-sessions/$sessionId/context', context.toJson());
+      return true;
+    } on Object {
+      return false;
+    }
+  }
+
+  /// BP-only fallback: no session exists, so the context rides on an episode-scoped event.
   Future<bool> submit({
     required String episodeId,
     required CurrentContext context,

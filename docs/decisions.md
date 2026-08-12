@@ -1472,3 +1472,42 @@ judgement about anybody.
 
 `DeviceMeasurements` is injectable on `ProcessingScreen` so the submission path and its error
 handling can be tested without a camera; everything downstream of that seam is the real path.
+
+## Wiring the flow to the new endpoints (PM spec 17, 24, 28, 30, 36)
+
+**The PHR posts to `/v1/profile`, local copy first.** Onboarding has to work on a bad connection,
+and a form that will not advance because a request failed strands a patient at step one of three.
+Each screen sends only the fields it collected: the endpoint treats an absent field as "unchanged",
+so sending the whole profile from a screen that filled half of it would push nulls over the rest.
+
+**CTX-01 moved from `/v1/events` to `/v1/check-sessions/{id}/context`**, which is a typed table with
+closed symptom codes and lets the backend tell a context record from a reported symptom without
+inspecting a payload.
+
+That changed *when* it is filed. The route needs a session id and the session does not exist until
+the check is submitted, so the context now rides in the flow's payload and is filed by processing.
+The cost is that a capture that never completes loses its context; the gain is that the context
+that survives is typed and attached to the thing it describes.
+
+**BP-only still uses the event fallback**, because a confirmed cuff reading is not a
+`measurement_session` and there is no id to attach to. **This is a gap, not a design** — the two
+modes should file context the same way once a BP-only check gets a session of its own.
+
+### Hardware failure is a position problem, not an error
+
+`DeviceMeasurementFailure` no longer falls into the generic error panel. It routes through
+`CheckFlow.afterSensorCapture` as a retryable reject, which means SIG-02 with a "Try again" and the
+**same attempt counter as a rejected capture** — so three failures end at SIG-03 rather than
+looping. A patient whose phone could not be measured can act on that by repositioning; a patient
+staring at a stack trace cannot.
+
+**BP-only never touches the hardware.** Processing returns before any measurement is attempted,
+which is what keeps a not-eligible handset off the camera path entirely rather than relying on it
+to fail gracefully.
+
+### The insight screen composes no copy
+
+`InsightScreen` lays out what the backend returns and writes no sentences of its own. Composing
+copy on the handset would put a second, unreviewed voice in front of a patient, and it would drift
+from the server's the moment either changed. Codes come from the rule engine, sentences from
+`language.py`, layout from here.

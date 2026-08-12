@@ -279,11 +279,8 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
   bool _unwell = false;
   final Set<ContextSymptom> _symptoms = {};
   MedicationStatusToday _medication = MedicationStatusToday.notSure;
-  bool _busy = false;
 
-  Future<void> _next() async {
-    setState(() => _busy = true);
-
+  void _next() {
     final collected = CurrentContext(
       sleepLessThanUsual: _sleep,
       stressHigherThanUsual: _stress,
@@ -292,18 +289,9 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
       medicationStatusToday: _medication,
     );
 
-    // Filed here rather than at submission, so it survives a capture that never completes.
-    // Best effort throughout: losing the context must not lose the reading.
-    try {
-      final resolved = await SessionContextResolver(api: widget.flow.api).resolveEpisode();
-      await CurrentContextSubmitter(
-        api: widget.flow.api,
-      ).submit(episodeId: resolved.episodeId, context: collected);
-    } on Object {
-      // Reported nowhere and blocking nothing. See the submitter's docstring.
-    }
-
-    if (!mounted) return;
+    // Not filed here. `POST /v1/check-sessions/{id}/context` needs a session id, and the session
+    // does not exist until the check is submitted, so the context rides in the payload and
+    // processing files it once there is something to attach it to.
     TeraFlow.advance(
       context,
       CheckFlow.afterContext(widget.session),
@@ -360,10 +348,7 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
             ],
           ),
           const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: _busy ? null : _next,
-            child: Text(_busy ? 'Saving…' : 'Next'),
-          ),
+          ElevatedButton(onPressed: _next, child: const Text('Next')),
         ],
       ),
     );
@@ -480,9 +465,11 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
   Future<void> _run() async {
     final signal = widget.payload.signal;
 
-    // BP-only: the confirmed reading is the measurement and `CuffReadingScreen` already filed it.
-    // There is no session to submit, so processing is the handoff to the insight.
+    // **BP-only never touches the hardware.** The confirmed reading is the measurement and
+    // `CuffReadingScreen` already filed it, so there is no session to submit and no device to
+    // measure. Returning here is what keeps a not-eligible handset off the camera path entirely.
     if (widget.session.mode == CheckMode.bpOnly || signal == null) {
+      await _fileContextForBpOnly();
       if (!mounted) return;
       TeraFlow.advance(
         context,
@@ -497,17 +484,37 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
         api: widget.flow.api,
       ).resolve(await _measurements());
 
-      await SessionSubmitter(api: widget.flow.api).submit(
+      final outcome = await SessionSubmitter(api: widget.flow.api).submit(
         episodeId: resolved.episodeId,
         deviceProfileId: resolved.deviceProfileId,
         startedAt: widget.payload.capturedAt ?? DateTime.now(),
         signal: signal,
       );
 
+      // CTX-01 attaches to the session, so it can only be filed now that one exists. Best effort:
+      // losing the context must not lose the reading.
+      final collected = widget.payload.context;
+      if (collected != null) {
+        await CurrentContextSubmitter(
+          api: widget.flow.api,
+        ).submitForSession(sessionId: outcome.sessionId, context: collected);
+      }
+
       if (!mounted) return;
       TeraFlow.advance(
         context,
         CheckFlow.afterProcessing(widget.session),
+        payload: widget.payload.copyWith(submittedSessionId: outcome.sessionId),
+      );
+    } on DeviceMeasurementFailure {
+      // **Not a generic error.** The handset could not be measured, which is a hardware problem
+      // the patient can act on by repositioning — SIG-02's whole purpose. It routes through the
+      // same attempt counter as a rejected capture, so three of these end the check rather than
+      // looping forever.
+      if (!mounted) return;
+      TeraFlow.advance(
+        context,
+        CheckFlow.afterSensorCapture(widget.session, SignalQuality.retryableReject),
         payload: widget.payload,
       );
     } on ApiException catch (e) {
@@ -521,6 +528,21 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
     } on Object catch (e) {
       if (!mounted) return;
       setState(() => _error = 'The check could not be sent. $e');
+    }
+  }
+
+  /// BP-only has no session to attach context to, so it falls back to the episode-scoped event.
+  /// Recorded as a gap in `docs/decisions.md`, not a design.
+  Future<void> _fileContextForBpOnly() async {
+    final collected = widget.payload.context;
+    if (collected == null) return;
+    try {
+      final resolved = await SessionContextResolver(api: widget.flow.api).resolveEpisode();
+      await CurrentContextSubmitter(
+        api: widget.flow.api,
+      ).submit(episodeId: resolved.episodeId, context: collected);
+    } on Object {
+      // Never blocks. See the submitter's docstring.
     }
   }
 
