@@ -774,7 +774,7 @@ class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
   int _currentPage = 0;
 
   // Track confirmation for each page
-  final List<bool> _confirmed = [false, false, false, false];
+  final List<bool> _confirmed = [false];
 
   @override
   Widget build(BuildContext context) {
@@ -813,7 +813,7 @@ class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: List.generate(
-                  2,
+                  1,
                   (index) => Container(
                     margin: const EdgeInsets.symmetric(horizontal: 4),
                     width: _currentPage == index ? 24 : 8,
@@ -835,21 +835,20 @@ class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
                     const NeverScrollableScrollPhysics(), // Disable swipe to force confirmation
                 onPageChanged: (i) => setState(() => _currentPage = i),
                 children: [
+                  // One page, not two. "Place your phone on your chest" used to live here, before
+                  // the camera screen — which asked the patient to do the two things in the
+                  // physically impossible order: phone flat on the sternum first, then find and
+                  // cover a rear lens they can no longer see. Chest placement now happens during
+                  // the five-second countdown, after the finger is locked, which is the only
+                  // order that actually works one-handed.
                   _buildPage(
-                    step: 'STEP 1: Sit upright',
+                    step: 'Are you seated?',
                     sub:
-                        'Sit upright (seated) with your back supported, shoulders and head relaxed.',
+                        'Sit upright with your back supported, shoulders and head relaxed. Stay '
+                        'seated for the whole check — the next screen turns on the camera light.',
                     icon: Icons.airline_seat_recline_normal,
                     confirmText: 'I\'m seated',
                     pageIndex: 0,
-                  ),
-                  _buildPage(
-                    step: 'STEP 2: Place your phone on your chest',
-                    sub:
-                        'Hold your phone with one hand and place it flat against the center of your chest, screen facing you.',
-                    icon: Icons.phone_android,
-                    confirmText: 'My phone is in position',
-                    pageIndex: 1,
                   ),
                 ],
               ),
@@ -859,18 +858,7 @@ class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed: _confirmed[_currentPage]
-                      ? () {
-                          if (_currentPage < 1) {
-                            _pageController.nextPage(
-                              duration: const Duration(milliseconds: 300),
-                              curve: Curves.easeInOut,
-                            );
-                          } else {
-                            widget.onDone();
-                          }
-                        }
-                      : null,
+                  onPressed: _confirmed[_currentPage] ? widget.onDone : null,
                   style: FilledButton.styleFrom(
                     backgroundColor: TeraColors.ink,
                     foregroundColor: TeraColors.paper,
@@ -883,9 +871,9 @@ class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
                       borderRadius: BorderRadius.circular(TeraRadius.button),
                     ),
                   ),
-                  child: Text(
-                    _currentPage < 1 ? 'Next' : 'Start Camera',
-                    style: const TextStyle(
+                  child: const Text(
+                    'Start camera',
+                    style: TextStyle(
                       fontSize: TeraText.body,
                       fontWeight: FontWeight.bold,
                     ),
@@ -1077,6 +1065,50 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
     }
   }
 
+  /// The AI-commentary question. Returns the patient's answer; `false` if they dismissed it.
+  ///
+  /// Deliberately not dismissible by tapping outside: this is a question about sending health
+  /// data to a third party, and an accidental tap must not read as agreement.
+  Future<bool> _askAiConsent() async {
+    final consent = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(TeraRadius.card),
+        ),
+        backgroundColor: TeraColors.paper,
+        title: const Text(
+          'Data Privacy Notice',
+          style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
+        ),
+        content: const Text(
+          'Do you allow sending your results to a public AI API (NVIDIA) for personalized '
+          'insights?\n\n'
+          'Your result and health profile would be sent — never the recording itself, and '
+          'never your name. If you say no, you still get your full result; it simply comes '
+          'from Tera alone.',
+          style: TextStyle(color: TeraColors.ink, height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('No'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: TeraColors.ink,
+              foregroundColor: TeraColors.paper,
+            ),
+            child: const Text('Yes'),
+          ),
+        ],
+      ),
+    );
+    return consent ?? false;
+  }
+
   Future<void> _run() async {
     final signal = _payload.signal;
 
@@ -1144,14 +1176,19 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
 
       if (!mounted) return;
 
-      // No consent dialog here. `InsightScreen` owns that question and asks it once the
-      // deterministic result is already on screen, so declining costs the patient nothing they
-      // had already earned. A second dialog here asked before there was any result to discuss,
-      // and routed a decline to Home — throwing away the completed check entirely.
+      // The AI question, asked here — after the recording is finished and the session is safely
+      // filed, before the result screen is built. Either answer continues to the insight; the
+      // only thing it changes is whether that screen asks the backend for the extra paragraph.
+      final consent = await _askAiConsent();
+      if (!mounted) return;
+
       TeraFlow.advance(
         context,
         CheckFlow.afterProcessing(widget.session),
-        payload: _payload.copyWith(submittedSessionId: outcome.sessionId),
+        payload: _payload.copyWith(
+          submittedSessionId: outcome.sessionId,
+          aiConsent: consent,
+        ),
       );
     } on DeviceMeasurementFailure catch (e) {
       // **Not a signal-quality outcome, and no longer reported as one.** This means the handset

@@ -21,6 +21,7 @@ class InsightScreen extends StatefulWidget {
     required this.api,
     required this.sessionId,
     this.uncalibratedDemo = false,
+    this.aiConsent,
   });
 
   final ApiClient api;
@@ -32,6 +33,15 @@ class InsightScreen extends StatefulWidget {
   /// confidence gating runs regardless; this only adds a standing warning above whatever it
   /// decides, so the missing reference is never silently absent from the screen a patient reads.
   final bool uncalibratedDemo;
+
+  /// The answer already given on the processing screen, before this screen was built.
+  ///
+  /// `true` loads the insight with `ai_consent=true` in one request, so the commentary is present
+  /// on first paint rather than appearing a second later. `false` is a decision to respect: this
+  /// screen must not re-ask a question the patient has already declined. `null` means they were
+  /// never asked — the submission failed before the question could be put — and only then does
+  /// this screen ask for itself.
+  final bool? aiConsent;
 
   @override
   State<InsightScreen> createState() => _InsightScreenState();
@@ -75,13 +85,21 @@ class _InsightScreenState extends State<InsightScreen> {
       return;
     }
     try {
-      final body = await widget.api.getJson('/v1/check-sessions/$id/insight');
+      // One request, with the answer already known where it is known.
+      final consented = widget.aiConsent == true;
+      final body = await widget.api.getJson(
+        '/v1/check-sessions/$id/insight${consented ? '?ai_consent=true' : ''}',
+      );
       if (!mounted) return;
       setState(() => _insight = body);
       // Asked after the deterministic result is already the thing on screen: declining changes
       // nothing about what the patient just saw, it only decides whether one more paragraph
       // gets added underneath it.
-      WidgetsBinding.instance.addPostFrameCallback((_) => _askAiConsent());
+      // Only when the processing screen never got to ask. A `false` there is a real refusal and
+      // is not re-litigated here.
+      if (widget.aiConsent == null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _askAiConsent());
+      }
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {

@@ -366,6 +366,7 @@ class TeraRouter {
           api: flow.api,
           sessionId: payload.checkSessionId,
           uncalibratedDemo: payload.uncalibratedDemo,
+          aiConsent: payload.aiConsent,
         ),
       ),
 

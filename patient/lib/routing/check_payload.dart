@@ -20,6 +20,7 @@ class CheckPayload {
     this.submittedSessionId,
     this.checkSessionId,
     this.uncalibratedDemo = false,
+    this.aiConsent,
   });
 
   /// CTX-01. Collected on both paths, before the fork.
@@ -47,6 +48,15 @@ class CheckPayload {
   /// deterministic engine itself decides about confidence.
   final bool uncalibratedDemo;
 
+  /// The patient's answer to the AI-commentary question, asked once the recording is finished
+  /// and the session is filed.
+  ///
+  /// Three-valued on purpose. `true` and `false` are decisions the patient made; **null means
+  /// they were never asked**, which happens when the submission failed before the question could
+  /// be put to them. Collapsing null into false would record a refusal nobody gave, and would
+  /// stop [InsightScreen] from asking later when it legitimately still could.
+  final bool? aiConsent;
+
   CheckPayload copyWith({
     CurrentContext? context,
     SignalResult? signal,
@@ -55,6 +65,7 @@ class CheckPayload {
     String? submittedSessionId,
     String? checkSessionId,
     bool? uncalibratedDemo,
+    bool? aiConsent,
   }) => CheckPayload(
     context: context ?? this.context,
     signal: signal ?? this.signal,
@@ -63,5 +74,6 @@ class CheckPayload {
     submittedSessionId: submittedSessionId ?? this.submittedSessionId,
     checkSessionId: checkSessionId ?? this.checkSessionId,
     uncalibratedDemo: uncalibratedDemo ?? this.uncalibratedDemo,
+    aiConsent: aiConsent ?? this.aiConsent,
   );
 }

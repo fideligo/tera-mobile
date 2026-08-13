@@ -48,6 +48,9 @@ class _CaptureScreenState extends State<CaptureScreen> {
   int _consecutiveLostFrames = 0;
   bool _fingerLossHandled = false;
 
+  /// Whether the current frame reads as a covered lens. Drives the confirmation button.
+  bool _fingerDetected = false;
+
   /// Below this mean luma the lens is treated as uncovered. A fingertip against the lens with the
   /// torch on reads far brighter than this; an uncovered lens in a lit room reads far darker.
   static const int _fingerLostLumaThreshold = 50;
@@ -121,13 +124,22 @@ class _CaptureScreenState extends State<CaptureScreen> {
     int avgLuma = ySum ~/ 441;
     _redIntensity = avgLuma;
 
-    if (avgLuma > 100) {
+    final detected = avgLuma > 100;
+    if (detected) {
       _consecutiveLockedFrames++;
-      if (_consecutiveLockedFrames > 30) {
-        _lockFinger();
-      }
     } else {
       _consecutiveLockedFrames = 0;
+    }
+
+    // Rebuild only when the answer *changes*, not on every frame. Without this the confirmation
+    // button never enabled: `_consecutiveLockedFrames` climbed but nothing told the UI, so the
+    // control stayed greyed out under a finger that was already correctly placed.
+    if (detected != _fingerDetected) {
+      setState(() => _fingerDetected = detected);
+    }
+
+    if (_consecutiveLockedFrames > 30) {
+      _lockFinger();
     }
   }
 
@@ -436,20 +448,77 @@ class _CaptureScreenState extends State<CaptureScreen> {
             ),
 
             Padding(
-              padding: const EdgeInsets.all(TeraSpacing.lg),
+              padding: const EdgeInsets.fromLTRB(
+                TeraSpacing.lg,
+                TeraSpacing.lg,
+                TeraSpacing.lg,
+                TeraSpacing.sm,
+              ),
               child: Text(
                 _isRecording
-                    ? 'Recording... Please lie still and do not talk.'
+                    ? 'Recording. Stay still, keep the phone against your chest, and do not '
+                          'talk.'
+                    // The chest-placement instruction lives here, in the countdown, and nowhere
+                    // earlier. Asking for it before the finger step meant asking someone to put
+                    // the phone flat on their sternum and *then* locate a rear lens they can no
+                    // longer see.
                     : _isCountingDown
-                    ? 'Get ready...'
-                    : 'Cover the rear camera with your finger to begin.',
+                    ? 'Place the phone on your chest now. Do not move your finger.'
+                    : 'Cover the rear camera and flash with your finger, and hold it steady.',
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  fontSize: TeraText.body,
-                  color: TeraColors.neutral700,
+                style: TextStyle(
+                  fontSize: _isCountingDown ? TeraText.section : TeraText.body,
+                  fontWeight: _isCountingDown
+                      ? FontWeight.w700
+                      : FontWeight.w400,
+                  color: _isCountingDown
+                      ? TeraColors.ink
+                      : TeraColors.neutral700,
+                  height: 1.4,
                 ),
               ),
             ),
+
+            // The explicit confirmation Task 1 asks for. It stays disabled until the finger-lock
+            // baseline is met, so the button cannot start a recording of an uncovered lens — but
+            // the lock also fires on its own once held, so a patient who is already steady never
+            // has to reach for it.
+            if (!_isRecording && !_isCountingDown)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  TeraSpacing.lg,
+                  0,
+                  TeraSpacing.lg,
+                  TeraSpacing.lg,
+                ),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: _fingerDetected ? _forceLock : null,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: TeraColors.ink,
+                      foregroundColor: TeraColors.paper,
+                      disabledBackgroundColor: TeraColors.neutral300,
+                      disabledForegroundColor: TeraColors.neutral500,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: TeraSpacing.md,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(TeraRadius.button),
+                      ),
+                    ),
+                    child: Text(
+                      _fingerDetected
+                          ? 'My finger is placed correctly'
+                          : 'Waiting for your finger...',
+                      style: const TextStyle(
+                        fontSize: TeraText.body,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
