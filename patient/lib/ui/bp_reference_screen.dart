@@ -1,13 +1,22 @@
-/// BPREF-01 — set the BP reference before a sensor check (PM spec section 12).
+/// BPREF-01 — the two-path choice before a sensor check (PM spec section 12).
 ///
 /// Reached only when [CheckFlow.needsBpReference] says so: no reference yet, the last one has
 /// aged past [bpReferenceMaxAgeDays], or something forced a refresh. A sensor trend is read
-/// against this number, so the default path requires it before capture — [Routes.checkBpInput]
-/// is the real cuff-entry screen this leads to.
+/// against this number.
 ///
-/// # The demo bypass
+/// # Path A — calibration with a tensimeter
 ///
-/// A hackathon judge does not carry a cuff. "Skip Calibration (Demo)" exists for exactly that
+/// "Add BP reading" leads to [Routes.checkBpInput], the real cuff-entry screen, for the mandatory
+/// systolic/diastolic form. The spec asks for that reading taken *simultaneously* with the phone
+/// check; this app's cuff entry has always been a step **before** capture rather than after it —
+/// changing that ordering is a submission-pipeline change, not a copy change, and was out of
+/// scope for a same-day pass. The instructions below say so plainly: take the cuff reading
+/// immediately before starting the recording, while seated together, so the two are as close to
+/// simultaneous as this flow allows.
+///
+/// # Path B — no-cuff demo bypass
+///
+/// A hackathon judge does not carry a cuff. "Skip calibration (demo)" exists for exactly that
 /// case: it skips straight to the pre-check with no reference set, and marks
 /// [CheckPayload.uncalibratedDemo] so [InsightScreen] shows a standing warning instead of quietly
 /// presenting an unreferenced trend as an ordinary one. Nothing about capture, submission or the
@@ -46,9 +55,9 @@ class BpReferenceScreen extends StatelessWidget {
           style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
         ),
         content: const Text(
-          'Without a cuff reading, Tera has nothing to compare this check against. The result '
-          'will be labelled as an uncalibrated estimate throughout, and cannot be read as a '
-          'blood-pressure value.',
+          'Without a tensimeter, this BP-related trend is an uncalibrated estimate. It will be '
+          'labelled as such throughout this check, and cannot be read as a blood-pressure '
+          'value.',
           style: TextStyle(color: TeraColors.ink, height: 1.4),
         ),
         actions: [
@@ -81,87 +90,108 @@ class BpReferenceScreen extends StatelessWidget {
     backgroundColor: TeraColors.page,
     appBar: AppBar(title: const Text('BPREF-01')),
     body: SafeArea(
-      child: Padding(
+      child: ListView(
         padding: const EdgeInsets.all(TeraSpacing.lg),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: TeraSpacing.lg),
-            const Icon(Icons.monitor_heart_outlined, size: 56, color: TeraColors.brand),
-            const SizedBox(height: TeraSpacing.lg),
-            const Text(
-              'Set your blood pressure reference',
-              style: TextStyle(
-                fontSize: TeraText.section,
-                fontWeight: FontWeight.w700,
-                color: TeraColors.ink,
-              ),
+        children: [
+          const Icon(Icons.monitor_heart_outlined, size: 48, color: TeraColors.brand),
+          const SizedBox(height: TeraSpacing.md),
+          const Text(
+            'Choose how to check today',
+            style: TextStyle(
+              fontSize: TeraText.section,
+              fontWeight: FontWeight.w700,
+              color: TeraColors.ink,
             ),
-            const SizedBox(height: TeraSpacing.sm),
-            const Text(
-              'Tera reads your phone check against a recent cuff reading — that reading is '
-              'the only place a blood-pressure number ever comes from. Rest quietly for five '
-              'minutes, then take one with a validated upper-arm cuff.',
-              style: TextStyle(color: TeraColors.neutral700, height: 1.45),
-            ),
-            const SizedBox(height: TeraSpacing.xl),
-            SizedBox(
-              height: 52,
-              child: FilledButton(
-                onPressed: () => Navigator.of(context).pushReplacementNamed(
-                  Routes.checkBpInput,
-                  arguments: CheckArgs(session, payload),
+          ),
+          const SizedBox(height: TeraSpacing.sm),
+          const Text(
+            'Tera reads your phone check against a cuff reading — that reading is the only '
+            'place a blood-pressure number ever comes from. Choose one of the two paths below.',
+            style: TextStyle(color: TeraColors.neutral700, height: 1.45),
+          ),
+          const SizedBox(height: TeraSpacing.xl),
+
+          // Path A — calibration with a tensimeter.
+          Container(
+            padding: const EdgeInsets.all(TeraSpacing.md),
+            decoration: panelDecoration(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'PATH A · Calibrate with a tensimeter',
+                  style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
                 ),
-                style: FilledButton.styleFrom(
-                  backgroundColor: TeraColors.ink,
-                  foregroundColor: TeraColors.paper,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(TeraRadius.button),
-                  ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Sit quietly with your tensimeter ready. Take a cuff reading immediately '
+                  'before you record with Tera, then enter that systolic/diastolic reading — '
+                  'this is what calibrates the result you get today.',
+                  style: TextStyle(color: TeraColors.ink, height: 1.4, fontSize: TeraText.small),
                 ),
-                child: const Text('Add BP reading'),
-              ),
-            ),
-            const Spacer(),
-            Container(
-              padding: const EdgeInsets.all(TeraSpacing.md),
-              decoration: systemFlagDecoration(),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(Icons.warning_amber_rounded, color: TeraColors.plum, size: 20),
-                  const SizedBox(width: TeraSpacing.sm),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'No cuff on hand?',
-                          style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
-                        ),
-                        const SizedBox(height: 4),
-                        const Text(
-                          'You can continue without one. The result will be marked as an '
-                          'uncalibrated estimate and cannot be read as a blood-pressure value.',
-                          style: TextStyle(color: TeraColors.ink, fontSize: TeraText.small, height: 1.4),
-                        ),
-                        const SizedBox(height: TeraSpacing.sm),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: TextButton(
-                            onPressed: () => _skip(context),
-                            style: TextButton.styleFrom(foregroundColor: TeraColors.plum),
-                            child: const Text('Skip calibration (demo)'),
-                          ),
-                        ),
-                      ],
+                const SizedBox(height: TeraSpacing.md),
+                SizedBox(
+                  height: 52,
+                  child: FilledButton(
+                    onPressed: () => Navigator.of(context).pushReplacementNamed(
+                      Routes.checkBpInput,
+                      arguments: CheckArgs(session, payload),
                     ),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: TeraColors.ink,
+                      foregroundColor: TeraColors.paper,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(TeraRadius.button),
+                      ),
+                    ),
+                    child: const Text('Add BP reading'),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          const SizedBox(height: TeraSpacing.lg),
+
+          // Path B — no-cuff demo bypass.
+          Container(
+            padding: const EdgeInsets.all(TeraSpacing.md),
+            decoration: systemFlagDecoration(),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: TeraColors.plum, size: 20),
+                    SizedBox(width: TeraSpacing.sm),
+                    Expanded(
+                      child: Text(
+                        'PATH B · No-cuff demo bypass',
+                        style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Record pulse transit time only, with no tensimeter. Without a tensimeter, '
+                  'this BP-related trend is an uncalibrated estimate — that warning stays on '
+                  'screen for the whole result, and nothing below it is a blood-pressure value.',
+                  style: TextStyle(color: TeraColors.ink, fontSize: TeraText.small, height: 1.4),
+                ),
+                const SizedBox(height: TeraSpacing.sm),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: () => _skip(context),
+                    style: TextButton.styleFrom(foregroundColor: TeraColors.plum),
+                    child: const Text('Skip calibration (demo)'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     ),
   );

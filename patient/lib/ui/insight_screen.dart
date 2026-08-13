@@ -92,13 +92,14 @@ class _InsightScreenState extends State<InsightScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.card)),
         backgroundColor: TeraColors.paper,
         title: const Text(
-          'Data privacy notice',
+          'Data Privacy Notice',
           style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
         ),
         content: const Text(
-          'Your recording result — not the recording itself, and not your name — can be sent '
-          'securely to a public AI API to write one extra paragraph of context. If you say no, '
-          'you keep exactly the result shown above and nothing is sent anywhere.',
+          'Your recording result and health profile — not the recording itself, and not your '
+          'name — will be sent securely to a public AI API (NVIDIA) to generate insights. If '
+          'you say no, you keep exactly the result shown above and nothing is sent anywhere.\n\n'
+          'Do you consent?',
           style: TextStyle(color: TeraColors.ink, height: 1.45),
         ),
         actions: [
@@ -201,10 +202,12 @@ class _InsightScreenState extends State<InsightScreen> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     const Text(
-                                      'Uncalibrated estimate',
+                                      'Without a tensimeter, this BP-related trend is an '
+                                      'uncalibrated estimate.',
                                       style: TextStyle(
                                         fontWeight: FontWeight.w700,
                                         color: TeraColors.ink,
+                                        height: 1.35,
                                       ),
                                     ),
                                     const SizedBox(height: 4),
@@ -258,6 +261,60 @@ class _InsightScreenState extends State<InsightScreen> {
                           ],
                         ),
                       ),
+
+                      // The consent-gated AI paragraph (Task 4). `ai_commentary` is present and
+                      // non-null only when the patient said yes, a key is configured, the call
+                      // succeeded, and the invariant-6 filter passed it — every other outcome
+                      // (declined, unconfigured, unreachable, refused) leaves this whole block
+                      // absent and the deterministic result above stands alone. Placed directly
+                      // under the hero, not at the foot of the screen, so consenting actually
+                      // renders it prominently rather than requiring a scroll to find.
+                      if (_aiLoading) ...[
+                        const SizedBox(height: 16),
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(16),
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        ),
+                      ] else if (insight['ai_commentary'] != null && (insight['ai_commentary'] as String).isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0FDF4),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFBBF7D0)),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.auto_awesome, size: 20, color: Color(0xFF16A34A)),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'AI-GENERATED · NOT REVIEWED BY A CLINICIAN',
+                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF166534), letterSpacing: 0.6),
+                                    ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      insight['ai_commentary'] as String,
+                                      style: const TextStyle(fontSize: 14, color: Color(0xFF15803D), height: 1.4),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
 
                       const SizedBox(height: 24),
                       // 23.3 What This Means. The backend has no single "what_this_means"
@@ -347,58 +404,6 @@ class _InsightScreenState extends State<InsightScreen> {
                           ],
                         ),
                       ),
-
-                      // The consent-gated AI paragraph (Phase 4). `ai_commentary` is present and
-                      // non-null only when the patient said yes, a key is configured, the call
-                      // succeeded, and the invariant-6 filter passed it — every other outcome
-                      // (declined, unconfigured, unreachable, refused) leaves this whole block
-                      // absent and the deterministic result above stands alone.
-                      if (_aiLoading) ...[
-                        const SizedBox(height: 24),
-                        const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(16),
-                            child: SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          ),
-                        ),
-                      ] else if (insight['ai_commentary'] != null && (insight['ai_commentary'] as String).isNotEmpty) ...[
-                        const SizedBox(height: 24),
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF0FDF4),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFBBF7D0)),
-                          ),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(Icons.auto_awesome, size: 20, color: Color(0xFF16A34A)),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text(
-                                      'AI-GENERATED · NOT REVIEWED BY A CLINICIAN',
-                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF166534), letterSpacing: 0.6),
-                                    ),
-                                    const SizedBox(height: 6),
-                                    Text(
-                                      insight['ai_commentary'] as String,
-                                      style: const TextStyle(fontSize: 14, color: Color(0xFF15803D), height: 1.4),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
                     ],
                   ],
                 ),

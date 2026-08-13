@@ -19,6 +19,7 @@ import '../capture/phr_profile.dart';
 import '../ui/home_screen.dart';
 import '../ui/insight_screen.dart';
 import '../ui/onboarding_screens.dart';
+import '../ui/profile_personal_screen.dart';
 import '../ui/register_screen.dart';
 import '../ui/safety_onboarding_screen.dart';
 import '../ui/sign_in_screen.dart';
@@ -336,7 +337,10 @@ class TeraRouter {
 
       // ------------------------------------------------------------------ profile
       Routes.profile => _page(settings, (_) => const ProfileIndexScreen()),
-      Routes.profilePersonal => _stub(settings, 'PROF-01', 'Personal'),
+      Routes.profilePersonal => _page(
+        settings,
+        (_) => ProfilePersonalScreen(flow: flow, store: SecurePhrProfileStore()),
+      ),
       Routes.profileConditions => _stub(settings, 'PROF-02', 'Conditions'),
       Routes.profileMedications => _stub(settings, 'PROF-03', 'Medications'),
       Routes.profileLifestyle => _stub(settings, 'PROF-04', 'Lifestyle'),

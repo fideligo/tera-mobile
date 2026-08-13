@@ -614,15 +614,15 @@ class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
                 onPageChanged: (i) => setState(() => _currentPage = i),
                 children: [
                   _buildPage(
-                    step: 'STEP 1: Sit comfortably',
-                    sub: 'Sit upright with your back supported and both feet flat on the floor.',
-                    icon: Icons.chair_alt,
-                    confirmText: 'I\'m seated correctly',
+                    step: 'STEP 1: Lie down on your back',
+                    sub: 'Lie down supine, on a bed or flat surface, with your shoulders and head relaxed.',
+                    icon: Icons.airline_seat_flat,
+                    confirmText: 'I\'m lying down',
                     pageIndex: 0,
                   ),
                   _buildPage(
                     step: 'STEP 2: Place your phone on your chest',
-                    sub: 'Hold your phone with one hand and place it flat against the center of your chest.',
+                    sub: 'Hold your phone with one hand and place it flat against the center of your chest, screen facing up.',
                     icon: Icons.phone_android,
                     confirmText: 'My phone is in position',
                     pageIndex: 1,

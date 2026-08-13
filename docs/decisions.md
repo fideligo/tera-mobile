@@ -1815,3 +1815,71 @@ was — nothing about the deterministic content is gated behind this.
 
 Full mobile suite unchanged at 244 passing / 20 failing; the 20 are the same pre-existing set
 against screens under active edit elsewhere, not touched here.
+
+## The Core Capture Flow UI/UX pass (Tasks 1–4)
+
+Four asks, one deviation each worth recording plainly rather than resolving silently.
+
+**Task 1 — no literal camera preview.** `tera_capture`'s own library docstring says raw camera
+frames never cross into Dart — only `FrameSample.roiMean`, one derived brightness scalar per
+frame, ever does (invariant 2). There is no image buffer a `CameraPreview`-style widget could
+show, and this app has no dependency on the `camera` plugin to borrow one from; adding it would
+open a second, independent camera session against hardware this project has never had in hand to
+test (`CLAUDE.md`: "The capture paths have never run on real hardware"), risking `CAMERA_IN_USE`
+against the session `tera_capture` already holds. Built instead: a **finger-lock meter** —
+`capture_screen.dart`'s `_FingerLockController` — that gates the "Start recording" button on the
+*real* live `roiMean` stream (via `TeraCapture.startCamera` + `frameSamples`, started early and
+handed off to `recordCamera` once locked, which no-ops the restart since the session is already
+open). It is relative rather than threshold-based: it baselines itself the moment the camera
+opens, then watches for a sustained departure from that baseline (a finger arriving) followed by
+settling (a covered lens stops moving once still) — both about the *shape* of the signal, not an
+absolute brightness value nobody has measured on real hardware yet. A 20 s manual override
+("Start anyway") exists because an unvalidated heuristic must not be able to dead-end a live demo
+on a device it happens to misjudge.
+
+**Task 1 — supine instructions, against the documented protocol.** The proposal (page 4)
+specifies **seated**. The instruction to add "Lie down on your back (supine)" copy is a real
+conflict with that — posture changes hydrostatic pressure at heart level and could plausibly bias
+PTT — not something to reconcile quietly. Implemented anyway, as instructional text only (in
+`capture_screen.dart`'s explaining/ready copy and `flow_screens.dart`'s
+`ScgPpgWalkthroughScreen` step 1): nothing in the signal chain reads posture, so this is
+reversible without touching logic if the clinical answer comes back "seated." Flagged here rather
+than decided unilaterally either way.
+
+**Task 2 — the two paths were already most of the way built.** `bp_reference_screen.dart`
+already had a cuff-entry path and a confirmed-skip path with `CheckPayload.uncalibratedDemo`; this
+pass relabelled them explicitly as PATH A / PATH B and set the warning text to the exact requested
+wording ("Without a tensimeter, this BP-related trend is an uncalibrated estimate") in both the
+skip-confirmation dialog and the persistent `InsightScreen` banner. **Not changed**: Path A's cuff
+reading is still entered *before* capture, not after. The task described a mandatory
+systolic/diastolic form appearing after the 60 s recording; this app's cuff entry has always been
+`CuffReadingScreen` reached pre-capture, and moving it to a post-capture step is a
+submission-pipeline change (session linkage, ordering of what `ProcessingScreen` submits and
+when), not a copy change — out of scope for a same-day pass. The screen's copy says so plainly:
+take the cuff reading immediately before recording, as close to simultaneous as this flow allows.
+
+**Task 3 — Personal Details, not a second onboarding.** `ProfilePersonalScreen`
+(`lib/ui/profile_personal_screen.dart`), wired at `Routes.profilePersonal`, reuses the exact same
+`PhrProfile`/`PhrProfileStore`/`PhrSubmitter` chain ONB-01 already uses — same plausibility bounds,
+same `POST /v1/profile`, one definition of "the profile." The gap it closes: onboarding could set
+date of birth, sex, height and weight once, but nothing let a signed-in patient come back and fix
+a typo or update a weight — `Routes.profilePersonal` resolved to a stub. `Routes.profileConditions`
+`/medications`/`/lifestyle`/`/familyHistory`/`/device`/`/privacy` are still stubs; Task 3 named only
+Age/DOB, Height, Weight and Sex, and those are what this screen covers.
+
+**Task 4 — consent wording and prominence.** `InsightScreen`'s consent dialog title/body now
+match the requested text, with one factual correction: the requested copy says "recording data
+... will be sent," but invariant 2 means the raw recording never leaves the phone regardless of
+consent — only the deterministic result and (now) the EMR profile summary do. The dialog says
+"recording result," not "recording data," because saying otherwise would misrepresent what
+actually leaves the handset to the one person who most needs that to be accurate. The
+`ai_commentary` card moved from the foot of the screen to directly under the hero result, so
+consenting now actually renders it prominently rather than requiring a scroll past three other
+sections to find it.
+
+No widget tests exist yet for `capture_screen.dart`, `bp_reference_screen.dart`,
+`insight_screen.dart`, `flow_screens.dart` or the new `profile_personal_screen.dart` — none did
+before this pass either. `flutter analyze` is clean on all changed files bar the pre-existing
+`deprecated_member_use` (`withOpacity`) already present in `insight_screen.dart`, and the intended
+unused-parameter warnings on `_FingerLockController`'s named tunables. Full suite unchanged at 244
+passing / 20 failing, same pre-existing set.
