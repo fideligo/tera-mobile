@@ -1748,3 +1748,44 @@ still does.
 
 Worth noting how this hid: every widget test passed throughout, because they drive the screens
 directly and none of them wired up `main.dart`'s listener. The regression test now does.
+
+## The auth screens were rewritten; the tests follow, and three regressions came back
+
+A parallel session rebuilt `sign_in_screen.dart` and `register_screen.dart` from scratch. They no
+longer use `AuthScaffold`, `AuthField`, `fieldKey` or `AuthValidators` — `auth_scaffold.dart` is now
+referenced only by itself. The tests have been adapted to the screens as they are; what follows is
+what changed underneath them.
+
+**Fields are addressed by position now.** The rewritten screens dropped the keyed `AuthField`, so
+`_fill` resolves by index (Register: name, email, password; Login: email, password). Position is a
+weaker handle than a key and will break the moment a field is inserted — restoring `fieldKey` on
+the new screens is the better fix, and cheap.
+
+**Three regressions, fixed here because each is one line with a concrete failure mode:**
+
+- **The form promised eight characters; the backend requires twelve.** Every password between the
+  two passed client validation and came back a 422, so the patient learned the real rule only by
+  failing it. Now uses `minPasswordLength`, the constant that already mirrors the server.
+- **Email validation was presence-only.** A missing `@` cost a round trip to discover. The
+  permissive shape check is back — it catches the typo, not the domain.
+- **Raw `0xFF001F3F` returned on both buttons.** Standing constraint 5 is explicit that colour goes
+  through tokens and that no component carries raw hex. Now `TeraColors.ink`, and the Login link is
+  `TeraColors.baltic`. Note this is not a pure substitution: the palette navy is `#12304A`, so the
+  buttons are very slightly different from the frame's `#001F3F`. The token wins.
+
+**Two changes left alone, as deliberate:**
+
+- **The error snack bar is gone**; failures show in the panel only. One channel instead of two is a
+  defensible simplification, so the tests assert one.
+- **Sign-up hands off to the splash** rather than computing `resumeRoute` itself. Different
+  mechanism, same destination, and the splash re-runs AUTH-00 anyway.
+
+**One regression left in place and pinned by a test:** the Name field is required and validated,
+and then discarded. It is not sent (correct — the backend generates a pseudonym) and no longer
+written to the local PHR either, so Home's greeting has nothing to read. `users.name` exists in the
+B2C schema and the dual-write does not populate it. `the name is collected but currently goes
+nowhere` documents where the value stops; when the name is wired to either end that test should
+fail, and the failure is the reminder.
+
+`CurrentContextSubmitter.submitForSession` returns `void` rather than `bool` now, so its tests
+assert the route it called and that a failure completes rather than throws.

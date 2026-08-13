@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../auth/auth_controller.dart';
 import '../routing/routes.dart';
+import '../api/api_client.dart';
 import 'tokens.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -13,20 +14,19 @@ class RegisterScreen extends StatefulWidget {
 
 class _RegisterScreenState extends State<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
 
   bool _obscurePassword = true;
-  bool _obscureConfirmPassword = true;
   bool _isBusy = false;
   String? _errorMessage;
 
   @override
   void dispose() {
+    _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
-    _confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -113,6 +113,27 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         TextFormField(
+                          controller: _nameController,
+                          textCapitalization: TextCapitalization.words,
+                          decoration: InputDecoration(
+                            labelText: 'Nama Lengkap',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(TeraRadius.field),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: TeraSpacing.md,
+                              vertical: TeraSpacing.md,
+                            ),
+                          ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Nama tidak boleh kosong';
+                            }
+                            return null;
+                          },
+                        ),
+                        const SizedBox(height: TeraSpacing.md),
+                        TextFormField(
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
                           decoration: InputDecoration(
@@ -128,6 +149,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           validator: (value) {
                             if (value == null || value.trim().isEmpty) {
                               return 'Email tidak boleh kosong';
+                            }
+                            // Permissive on purpose — it catches the typo, not the domain.
+                            // Without it a missing '@' costs a round trip to find out.
+                            if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value.trim())) {
+                              return 'Masukkan email yang valid, cth: nama@email.com';
                             }
                             return null;
                           },
@@ -163,45 +189,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             if (value == null || value.isEmpty) {
                               return 'Kata Sandi tidak boleh kosong';
                             }
-                            if (value.length < 8) {
-                              return 'Kata sandi minimal 8 karakter';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: TeraSpacing.md),
-                        TextFormField(
-                          controller: _confirmPasswordController,
-                          obscureText: _obscureConfirmPassword,
-                          decoration: InputDecoration(
-                            labelText: 'Konfirmasi Kata Sandi',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(TeraRadius.field),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: TeraSpacing.md,
-                              vertical: TeraSpacing.md,
-                            ),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscureConfirmPassword
-                                    ? Icons.visibility_off
-                                    : Icons.visibility,
-                                color: TeraColors.neutral500,
-                              ),
-                              onPressed: () {
-                                setState(() {
-                                  _obscureConfirmPassword = !_obscureConfirmPassword;
-                                });
-                              },
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Konfirmasi Kata Sandi tidak boleh kosong';
-                            }
-                            if (value != _passwordController.text) {
-                              return 'Kata sandi tidak cocok';
+                            // The backend's own minimum, not a second opinion. At 8 this form
+                            // accepted passwords the server then refused with a 422, so the
+                            // patient was told the rule only after failing it.
+                            if (value.length < minPasswordLength) {
+                              return 'Kata sandi minimal $minPasswordLength karakter';
                             }
                             return null;
                           },
@@ -210,7 +202,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ElevatedButton(
                           onPressed: _isBusy ? null : _register,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF001F3F),
+                            backgroundColor: TeraColors.ink,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
                             shape: RoundedRectangleBorder(
@@ -257,7 +249,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       child: const Text(
                         'Login',
                         style: TextStyle(
-                          color: Color(0xFF001F3F),
+                          // Baltic is the palette's link colour; the raw navy here was neither a
+                          // token nor the link token.
+                          color: TeraColors.baltic,
                           fontWeight: FontWeight.bold,
                           fontSize: TeraText.small,
                         ),

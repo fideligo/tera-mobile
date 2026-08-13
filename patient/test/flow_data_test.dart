@@ -175,7 +175,7 @@ void main() {
   group('CTX-01 submission', () {
     test('the session route is used when a session exists', () async {
       String? path;
-      final ok = await CurrentContextSubmitter(
+      await CurrentContextSubmitter(
         api: _api(
           MockClient((request) async {
             path = request.url.path;
@@ -186,16 +186,21 @@ void main() {
 
       // The typed table, not an event: the backend can tell a context record from a reported
       // symptom without inspecting a payload.
-      expect(ok, isTrue);
+      //
+      // `submitForSession` returns void now rather than a bool, so the observable claim is the
+      // route it called — which is the part that matters here.
       expect(path, '/v1/check-sessions/sess-1/context');
     });
 
     test('the session route failure never throws', () async {
-      final ok = await CurrentContextSubmitter(
-        api: _api(MockClient((_) async => http.Response('nope', 500))),
-      ).submitForSession(sessionId: 's', context: const CurrentContext());
-
-      expect(ok, isFalse);
+      // The whole point of the submitter: a failed context upload loses a record, never the
+      // check. Returning normally *is* the assertion.
+      await expectLater(
+        CurrentContextSubmitter(
+          api: _api(MockClient((_) async => http.Response('nope', 500))),
+        ).submitForSession(sessionId: 's', context: const CurrentContext()),
+        completes,
+      );
     });
 
     test('BP-only falls back to an episode-scoped event', () async {
