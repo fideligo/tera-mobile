@@ -107,7 +107,10 @@ class _HomeScreenState extends State<HomeScreen> {
           children: [
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.symmetric(horizontal: TeraSpacing.lg, vertical: TeraSpacing.md),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: TeraSpacing.lg,
+                  vertical: TeraSpacing.md,
+                ),
                 children: [
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -117,7 +120,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              name == null || name.isEmpty ? greeting : '$greeting, $name',
+                              name == null || name.isEmpty
+                                  ? greeting
+                                  : '$greeting, $name',
                               style: const TextStyle(
                                 fontSize: 24,
                                 fontWeight: FontWeight.w700,
@@ -166,7 +171,10 @@ class _HomeScreenState extends State<HomeScreen> {
                       children: [
                         Text(
                           'Start Check-In',
-                          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                         SizedBox(width: 8),
                         Icon(Icons.chevron_right, size: 20),
@@ -188,7 +196,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF2F5F8), // Matching the light grey/blueish background
+                      color: const Color(
+                        0xFFF2F5F8,
+                      ), // Matching the light grey/blueish background
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
@@ -263,11 +273,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                   borderRadius: BorderRadius.circular(20),
                                 ),
                                 minimumSize: const Size(0, 36),
-                                padding: const EdgeInsets.symmetric(horizontal: 20),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                ),
                               ),
                               child: const Text(
                                 'Complete Profile',
-                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
                               ),
                             ),
                           ],
@@ -304,7 +319,11 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(height: 6),
                         Row(
                           children: [
-                            const Icon(Icons.arrow_upward, color: Colors.red, size: 14),
+                            const Icon(
+                              Icons.arrow_upward,
+                              color: Colors.red,
+                              size: 14,
+                            ),
                             const SizedBox(width: 4),
                             const Text(
                               'Rising',
@@ -323,7 +342,8 @@ class _HomeScreenState extends State<HomeScreen> {
                           child: Stack(
                             children: [
                               Column(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   _buildGridLine('200'),
                                   _buildGridLine('100'),
@@ -331,25 +351,27 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ],
                               ),
                               Positioned.fill(
-                                child: CustomPaint(
-                                  painter: _ChartPainter(),
-                                ),
+                                child: CustomPaint(painter: _ChartPainter()),
                               ),
                               Positioned(
                                 bottom: -24,
                                 left: 40,
                                 right: 0,
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-                                      .map((day) => Text(
-                                            day,
-                                            style: const TextStyle(
-                                              color: TeraColors.neutral400,
-                                              fontSize: 12,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children:
+                                      ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+                                          .map(
+                                            (day) => Text(
+                                              day,
+                                              style: const TextStyle(
+                                                color: TeraColors.neutral400,
+                                                fontSize: 12,
+                                              ),
                                             ),
-                                          ))
-                                      .toList(),
+                                          )
+                                          .toList(),
                                 ),
                               ),
                             ],
@@ -384,11 +406,23 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildRecentActivityList() {
     return Column(
       children: [
-        _buildActivityItem('Aug 12 · 09:20', 'Persistent BP-related change', 'Phone check · Good signal'),
+        _buildActivityItem(
+          'Aug 12 · 09:20',
+          'Persistent BP-related change',
+          'Phone check · Good signal',
+        ),
         const SizedBox(height: 12),
-        _buildActivityItem('Aug 11 · 08:50', 'BP-related change', 'Phone check · Good signal'),
+        _buildActivityItem(
+          'Aug 11 · 08:50',
+          'BP-related change',
+          'Phone check · Good signal',
+        ),
         const SizedBox(height: 12),
-        _buildActivityItem('Aug 10 · 09:05', '138 / 86 mmHg', 'Confirmed BP · Manual input'),
+        _buildActivityItem(
+          'Aug 10 · 09:05',
+          '138 / 86 mmHg',
+          'Confirmed BP · Manual input',
+        ),
       ],
     );
   }
@@ -410,18 +444,41 @@ class _HomeScreenState extends State<HomeScreen> {
               color: TeraColors.brand.withValues(alpha: 0.1),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.favorite_border, color: TeraColors.brand, size: 20),
+            child: const Icon(
+              Icons.favorite_border,
+              color: TeraColors.brand,
+              size: 20,
+            ),
           ),
           const SizedBox(width: 16),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(time, style: const TextStyle(fontSize: 12, color: TeraColors.neutral500)),
+                Text(
+                  time,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: TeraColors.neutral500,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: TeraColors.ink)),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: TeraColors.ink,
+                  ),
+                ),
                 const SizedBox(height: 2),
-                Text(subtitle, style: const TextStyle(fontSize: 13, color: TeraColors.neutral500)),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: TeraColors.neutral500,
+                  ),
+                ),
               ],
             ),
           ),
@@ -435,7 +492,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openGuarded(BuildContext context, String route, String feature) {
     if (auth.isGuest) {
       Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => GuestGateScreen(feature: feature)),
+        MaterialPageRoute<void>(
+          builder: (_) => GuestGateScreen(feature: feature),
+        ),
       );
       return;
     }
@@ -453,20 +512,41 @@ class _HomeScreenState extends State<HomeScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           _buildNavItem(context, Icons.home, 'Home', true, () {}),
-          _buildNavItem(context, Icons.history, 'History', false, () => _openGuarded(context, Routes.history, 'History')),
-          _buildNavItem(context, Icons.person_outline, 'Profile', false, () => _openGuarded(context, Routes.profile, 'Profile')),
+          _buildNavItem(
+            context,
+            Icons.history,
+            'History',
+            false,
+            () => _openGuarded(context, Routes.history, 'History'),
+          ),
+          _buildNavItem(
+            context,
+            Icons.person_outline,
+            'Profile',
+            false,
+            () => _openGuarded(context, Routes.profile, 'Profile'),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildNavItem(BuildContext context, IconData icon, String label, bool isActive, VoidCallback onTap) {
+  Widget _buildNavItem(
+    BuildContext context,
+    IconData icon,
+    String label,
+    bool isActive,
+    VoidCallback onTap,
+  ) {
     return GestureDetector(
       onTap: onTap,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: isActive ? TeraColors.brand : TeraColors.neutral500),
+          Icon(
+            icon,
+            color: isActive ? TeraColors.brand : TeraColors.neutral500,
+          ),
           const SizedBox(height: 4),
           Text(
             label,
@@ -569,10 +649,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 final resolved = await SessionContextResolver(
                   api: auth.api,
                 ).resolveEpisode();
-                checkSessionId = await CheckSessionClient(api: auth.api).open(
-                  episodeId: resolved.episodeId,
-                  mode: step.session.mode,
-                );
+                checkSessionId = await CheckSessionClient(
+                  api: auth.api,
+                ).open(episodeId: resolved.episodeId, mode: step.session.mode);
               } on Object {
                 // Opening failed - most often the contraindication gate at the door, or no
                 // network. The flow still runs and the answers are still collected locally; they
@@ -607,7 +686,7 @@ class _ChartPainter extends CustomPainter {
     final paintDot = Paint()
       ..color = TeraColors.paper
       ..style = PaintingStyle.fill;
-      
+
     final paintDotBorder = Paint()
       ..color = TeraColors.baltic
       ..strokeWidth = 1.5
@@ -616,14 +695,14 @@ class _ChartPainter extends CustomPainter {
     // Hardcoded dummy data for chart visualization
     // Mapping y from 0 to 200 into height
     final data = [60.0, 140.0, 120.0, 70.0, 100.0, 120.0];
-    
+
     // Space for y axis label is 40 (30 width + 8 spacing roughly)
     final startX = 40.0;
     final w = size.width - startX;
     if (w <= 0) return;
-    
+
     final dx = w / (data.length - 1);
-    
+
     final path = Path();
     for (int i = 0; i < data.length; i++) {
       final x = startX + i * dx;
@@ -635,9 +714,9 @@ class _ChartPainter extends CustomPainter {
         path.lineTo(x, y);
       }
     }
-    
+
     canvas.drawPath(path, paintLine);
-    
+
     for (int i = 0; i < data.length; i++) {
       final x = startX + i * dx;
       final y = size.height - (data[i] / 200.0) * size.height;
@@ -649,4 +728,3 @@ class _ChartPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
-

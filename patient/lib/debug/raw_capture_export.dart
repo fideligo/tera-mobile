@@ -96,10 +96,12 @@ Future<Directory> _exportDirectory() async {
   // Must match applicationId in android/app/build.gradle.kts exactly. It is 'id.tera.tera_patient',
   // not 'id.tera.patient' — a mismatch does not fail loudly, it silently falls through to the
   // temp directory below, and the files are then somewhere nobody thinks to look.
-  const externalRoot = '/storage/emulated/0/Android/data/id.tera.tera_patient/files';
+  const externalRoot =
+      '/storage/emulated/0/Android/data/id.tera.tera_patient/files';
   final external = Directory(externalRoot);
   try {
-    if (await external.exists() || (await external.create(recursive: true)).existsSync()) {
+    if (await external.exists() ||
+        (await external.create(recursive: true)).existsSync()) {
       return external;
     }
   } on FileSystemException {

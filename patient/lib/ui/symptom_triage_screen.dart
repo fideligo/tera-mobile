@@ -96,7 +96,10 @@ class _SymptomTriageScreenState extends State<SymptomTriageScreen> {
                 }),
                 title: Text(
                   symptom.label,
-                  style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
+                  style: const TextStyle(
+                    fontSize: TeraText.body,
+                    color: TeraColors.ink,
+                  ),
                 ),
                 controlAffinity: ListTileControlAffinity.leading,
                 contentPadding: EdgeInsets.zero,
@@ -108,7 +111,9 @@ class _SymptomTriageScreenState extends State<SymptomTriageScreen> {
             const SizedBox(height: TeraSpacing.lg),
             FilledButton(
               onPressed: _continue,
-              child: Text(_selected.isEmpty ? 'None of these — continue' : 'Continue'),
+              child: Text(
+                _selected.isEmpty ? 'None of these — continue' : 'Continue',
+              ),
             ),
             const SizedBox(height: TeraSpacing.md),
             const Text(

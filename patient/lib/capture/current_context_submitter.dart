@@ -39,7 +39,10 @@ class CurrentContextSubmitter {
     try {
       // POST, not PATCH — `session_context` is append-only (invariant 5); the route inserts and
       // a correction supersedes rather than overwriting.
-      await _api.postJson('/v1/check-sessions/$sessionId/context', context.toJson());
+      await _api.postJson(
+        '/v1/check-sessions/$sessionId/context',
+        context.toJson(),
+      );
     } on Object {
       // Deliberately swallowed. See the library docstring.
     }

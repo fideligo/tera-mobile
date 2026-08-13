@@ -48,7 +48,9 @@ class BpReferenceScreen extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.card)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(TeraRadius.card),
+        ),
         backgroundColor: TeraColors.paper,
         title: const Text(
           'Skip calibration?',
@@ -93,7 +95,11 @@ class BpReferenceScreen extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.all(TeraSpacing.lg),
         children: [
-          const Icon(Icons.monitor_heart_outlined, size: 48, color: TeraColors.brand),
+          const Icon(
+            Icons.monitor_heart_outlined,
+            size: 48,
+            color: TeraColors.brand,
+          ),
           const SizedBox(height: TeraSpacing.md),
           const Text(
             'Choose how to check today',
@@ -120,14 +126,21 @@ class BpReferenceScreen extends StatelessWidget {
               children: [
                 const Text(
                   'PATH A · Calibrate with a tensimeter',
-                  style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: TeraColors.ink,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 const Text(
                   'Sit quietly with your tensimeter ready. Take a cuff reading immediately '
                   'before you record with Tera, then enter that systolic/diastolic reading — '
                   'this is what calibrates the result you get today.',
-                  style: TextStyle(color: TeraColors.ink, height: 1.4, fontSize: TeraText.small),
+                  style: TextStyle(
+                    color: TeraColors.ink,
+                    height: 1.4,
+                    fontSize: TeraText.small,
+                  ),
                 ),
                 const SizedBox(height: TeraSpacing.md),
                 SizedBox(
@@ -162,12 +175,19 @@ class BpReferenceScreen extends StatelessWidget {
                 const Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.warning_amber_rounded, color: TeraColors.plum, size: 20),
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color: TeraColors.plum,
+                      size: 20,
+                    ),
                     SizedBox(width: TeraSpacing.sm),
                     Expanded(
                       child: Text(
                         'PATH B · No-cuff demo bypass',
-                        style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: TeraColors.ink,
+                        ),
                       ),
                     ),
                   ],
@@ -177,14 +197,20 @@ class BpReferenceScreen extends StatelessWidget {
                   'Record pulse transit time only, with no tensimeter. Without a tensimeter, '
                   'this BP-related trend is an uncalibrated estimate — that warning stays on '
                   'screen for the whole result, and nothing below it is a blood-pressure value.',
-                  style: TextStyle(color: TeraColors.ink, fontSize: TeraText.small, height: 1.4),
+                  style: TextStyle(
+                    color: TeraColors.ink,
+                    fontSize: TeraText.small,
+                    height: 1.4,
+                  ),
                 ),
                 const SizedBox(height: TeraSpacing.sm),
                 Align(
                   alignment: Alignment.centerLeft,
                   child: TextButton(
                     onPressed: () => _skip(context),
-                    style: TextButton.styleFrom(foregroundColor: TeraColors.plum),
+                    style: TextButton.styleFrom(
+                      foregroundColor: TeraColors.plum,
+                    ),
                     child: const Text('Skip calibration (demo)'),
                   ),
                 ),

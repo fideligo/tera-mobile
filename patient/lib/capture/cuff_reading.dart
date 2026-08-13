@@ -100,7 +100,10 @@ class DraftCuffReading {
     final pulse = pulseBpm;
     if (pulse != null && (pulse < pulseMinBpm || pulse > pulseMaxBpm)) {
       violations.add(
-        CuffReadingViolation('pulse_bpm', 'Pulse must be between $pulseMinBpm and $pulseMaxBpm.'),
+        CuffReadingViolation(
+          'pulse_bpm',
+          'Pulse must be between $pulseMinBpm and $pulseMaxBpm.',
+        ),
       );
     }
 
@@ -114,7 +117,9 @@ class DraftCuffReading {
   ConfirmedCuffReading confirm({DateTime? at}) {
     final violations = validate();
     if (violations.isNotEmpty) {
-      throw StateError('an invalid cuff reading cannot be confirmed: ${violations.first.message}');
+      throw StateError(
+        'an invalid cuff reading cannot be confirmed: ${violations.first.message}',
+      );
     }
     final now = at ?? DateTime.now().toUtc();
     return ConfirmedCuffReading._(draft: this, confirmedAt: now);
@@ -128,7 +133,10 @@ class DraftCuffReading {
 /// by reading the call site.
 @immutable
 class ConfirmedCuffReading {
-  const ConfirmedCuffReading._({required this.draft, required this.confirmedAt});
+  const ConfirmedCuffReading._({
+    required this.draft,
+    required this.confirmedAt,
+  });
 
   final DraftCuffReading draft;
   final DateTime confirmedAt;
@@ -142,8 +150,6 @@ class ConfirmedCuffReading {
     'source': 'manual_entry',
     'taken_at': (draft.takenAt ?? confirmedAt).toUtc().toIso8601String(),
     'user_confirmed_at': confirmedAt.toUtc().toIso8601String(),
-    // Invariant 9. A patient typed this off a real cuff.
-    'synthetic': false,
   };
 }
 

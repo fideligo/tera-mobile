@@ -60,7 +60,9 @@ class SecureDeviceProfileStore implements DeviceProfileStore {
   SecureDeviceProfileStore({FlutterSecureStorage? storage})
     : _storage =
           storage ??
-          const FlutterSecureStorage(aOptions: AndroidOptions(encryptedSharedPreferences: true));
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(encryptedSharedPreferences: true),
+          );
 
   final FlutterSecureStorage _storage;
 
@@ -70,7 +72,8 @@ class SecureDeviceProfileStore implements DeviceProfileStore {
   Future<String?> read() => _storage.read(key: _key);
 
   @override
-  Future<void> write(String deviceProfileId) => _storage.write(key: _key, value: deviceProfileId);
+  Future<void> write(String deviceProfileId) =>
+      _storage.write(key: _key, value: deviceProfileId);
 
   @override
   Future<void> clear() => _storage.delete(key: _key);
@@ -113,17 +116,24 @@ class SessionContextResolver {
       );
     }
 
-    final episodes = (await _api.getJson('/v1/episodes'))['episodes'] as List<dynamic>? ?? [];
+    final episodes =
+        (await _api.getJson('/v1/episodes'))['episodes'] as List<dynamic>? ??
+        [];
     // The open episode, not merely the first: a closed one is a finished course of monitoring
     // and appending to it would misfile the reading.
-    final open = episodes.cast<Map<String, dynamic>>().where((e) => e['ended_at'] == null);
+    final open = episodes.cast<Map<String, dynamic>>().where(
+      (e) => e['ended_at'] == null,
+    );
     if (open.isEmpty) {
       throw const SessionContextFailure(
         'There is no open monitoring period on this account. Your clinic starts one before '
         'readings can be recorded.',
       );
     }
-    return (patientId: patientId, episodeId: open.first['episode_id'] as String);
+    return (
+      patientId: patientId,
+      episodeId: open.first['episode_id'] as String,
+    );
   }
 
   /// Resolve the patient, the episode and the device profile, registering the handset if it has

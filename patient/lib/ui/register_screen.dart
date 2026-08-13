@@ -47,7 +47,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     setState(() => _isBusy = false);
 
     if (success) {
-      Navigator.of(context).pushNamedAndRemoveUntil(Routes.splash, (r) => false);
+      Navigator.of(
+        context,
+      ).pushNamedAndRemoveUntil(Routes.splash, (r) => false);
     } else {
       setState(() => _errorMessage = widget.auth.error);
     }
@@ -118,7 +120,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           decoration: InputDecoration(
                             labelText: 'Nama Lengkap',
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(TeraRadius.field),
+                              borderRadius: BorderRadius.circular(
+                                TeraRadius.field,
+                              ),
                             ),
                             contentPadding: const EdgeInsets.symmetric(
                               horizontal: TeraSpacing.md,
@@ -139,7 +143,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           decoration: InputDecoration(
                             labelText: 'Email',
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(TeraRadius.field),
+                              borderRadius: BorderRadius.circular(
+                                TeraRadius.field,
+                              ),
                             ),
                             contentPadding: const EdgeInsets.symmetric(
                               horizontal: TeraSpacing.md,
@@ -152,7 +158,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             }
                             // Permissive on purpose — it catches the typo, not the domain.
                             // Without it a missing '@' costs a round trip to find out.
-                            if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(value.trim())) {
+                            if (!RegExp(
+                              r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+                            ).hasMatch(value.trim())) {
                               return 'Masukkan email yang valid, cth: nama@email.com';
                             }
                             return null;
@@ -165,7 +173,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           decoration: InputDecoration(
                             labelText: 'Kata Sandi',
                             border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(TeraRadius.field),
+                              borderRadius: BorderRadius.circular(
+                                TeraRadius.field,
+                              ),
                             ),
                             contentPadding: const EdgeInsets.symmetric(
                               horizontal: TeraSpacing.md,
@@ -204,9 +214,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: TeraColors.ink,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
+                            padding: const EdgeInsets.symmetric(
+                              vertical: TeraSpacing.md,
+                            ),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(TeraRadius.button),
+                              borderRadius: BorderRadius.circular(
+                                TeraRadius.button,
+                              ),
                             ),
                             elevation: 0,
                           ),

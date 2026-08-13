@@ -29,7 +29,8 @@ import 'ui/tokens.dart';
 ///     flutter run --dart-define=TERA_API_URL=http://192.168.1.10:8000
 const String apiBaseUrl = String.fromEnvironment(
   'TERA_API_URL',
-  defaultValue: 'http://10.0.2.2:8000', // the host machine, as seen from an Android emulator
+  defaultValue:
+      'http://10.0.2.2:8000', // the host machine, as seen from an Android emulator
 );
 
 void main() {
@@ -91,7 +92,10 @@ class _TeraPatientAppState extends State<TeraPatientApp> {
     if (_auth.status != AuthStatus.signedOut) return;
     if (previous != AuthStatus.signedIn) return;
 
-    _navigator.currentState?.pushNamedAndRemoveUntil(Routes.login, (r) => false);
+    _navigator.currentState?.pushNamedAndRemoveUntil(
+      Routes.login,
+      (r) => false,
+    );
   }
 
   @override

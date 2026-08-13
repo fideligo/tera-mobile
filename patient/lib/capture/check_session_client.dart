@@ -19,7 +19,10 @@ class CheckSessionClient {
   /// downstream attaches to this id, so a flow that continued without one would collect PRE-01 and
   /// CTX-01 into nothing — which is the failure this whole change exists to remove. The caller
   /// decides what to show; it must not carry on silently.
-  Future<String> open({required String episodeId, required CheckMode mode}) async {
+  Future<String> open({
+    required String episodeId,
+    required CheckMode mode,
+  }) async {
     final body = await _api.postJson('/v1/check-sessions', {
       'episode_id': episodeId,
       'mode': mode == CheckMode.sensor ? 'sensor' : 'bp_only',

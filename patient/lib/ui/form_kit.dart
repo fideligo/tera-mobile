@@ -40,7 +40,10 @@ class FieldLabel extends StatelessWidget {
           if (required)
             const TextSpan(
               text: ' *',
-              style: TextStyle(color: TeraColors.plum, fontWeight: FontWeight.w700),
+              style: TextStyle(
+                color: TeraColors.plum,
+                fontWeight: FontWeight.w700,
+              ),
             ),
         ],
       ),
@@ -54,7 +57,12 @@ class FieldLabel extends StatelessWidget {
 /// what this reproduces. Larger than a [FieldLabel] because on those screens the question *is* the
 /// content, not a caption above a control.
 class QuestionHeading extends StatelessWidget {
-  const QuestionHeading(this.text, {super.key, this.required = false, this.hint});
+  const QuestionHeading(
+    this.text, {
+    super.key,
+    this.required = false,
+    this.hint,
+  });
 
   final String text;
   final bool required;
@@ -80,7 +88,10 @@ class QuestionHeading extends StatelessWidget {
             if (required)
               const TextSpan(
                 text: ' *',
-                style: TextStyle(color: TeraColors.plum, fontWeight: FontWeight.w700),
+                style: TextStyle(
+                  color: TeraColors.plum,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
           ],
         ),
@@ -167,8 +178,12 @@ class AnswerOption extends StatelessWidget {
                         style: TextStyle(
                           fontSize: TeraText.body,
                           height: 1.3,
-                          color: enabled ? TeraColors.ink : TeraColors.neutral500,
-                          fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                          color: enabled
+                              ? TeraColors.ink
+                              : TeraColors.neutral500,
+                          fontWeight: selected
+                              ? FontWeight.w600
+                              : FontWeight.w400,
                         ),
                       ),
                       if (detail != null) ...[
@@ -195,7 +210,11 @@ class AnswerOption extends StatelessWidget {
 }
 
 class _Glyph extends StatelessWidget {
-  const _Glyph({required this.selected, required this.multi, required this.enabled});
+  const _Glyph({
+    required this.selected,
+    required this.multi,
+    required this.enabled,
+  });
 
   final bool selected;
   final bool multi;

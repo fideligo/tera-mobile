@@ -35,10 +35,9 @@ enum MedicationStatusToday {
   final String wireValue;
   final String label;
 
-  static MedicationStatusToday fromWire(String? v) => MedicationStatusToday.values.firstWhere(
-    (m) => m.wireValue == v,
-    orElse: () => notSure,
-  );
+  static MedicationStatusToday fromWire(String? v) => MedicationStatusToday
+      .values
+      .firstWhere((m) => m.wireValue == v, orElse: () => notSure);
 }
 
 /// The milder, contextual symptoms. Deliberately **not** the invariant 8 red-flag list.

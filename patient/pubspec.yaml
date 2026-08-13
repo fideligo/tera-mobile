@@ -25,6 +25,8 @@ dependencies:
   # its own PDF preview never touches the network.
   pdf: ^3.11.1
   printing: ^5.13.4
+  camera: ^0.12.0+1
+  sensors_plus: ^7.1.0
 
 dev_dependencies:
   flutter_test:

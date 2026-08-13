@@ -39,6 +39,7 @@ abstract final class Routes {
   static const checkWait = '/check/wait';
 
   static const checkContext = '/check/context';
+  static const checkCalibrationIntro = '/check/calibration-intro';
   static const checkWalkthrough1 = '/check/walkthrough/1';
   static const checkWalkthrough2 = '/check/walkthrough/2';
   static const checkWalkthrough3 = '/check/walkthrough/3';
@@ -56,7 +57,8 @@ abstract final class Routes {
   /// `history/:eventId`. Built with [historyDetailFor]; parsed by the router.
   static const historyDetailPrefix = '/history/';
 
-  static String historyDetailFor(String eventId) => '$historyDetailPrefix$eventId';
+  static String historyDetailFor(String eventId) =>
+      '$historyDetailPrefix$eventId';
 
   // profile/
   static const profile = '/profile';

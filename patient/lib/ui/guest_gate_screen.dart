@@ -27,7 +27,11 @@ class GuestGateScreen extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(Icons.lock_outline, size: 56, color: TeraColors.neutral400),
+            const Icon(
+              Icons.lock_outline,
+              size: 56,
+              color: TeraColors.neutral400,
+            ),
             const SizedBox(height: TeraSpacing.lg),
             Text(
               'Login to save and track your $feature',
@@ -54,8 +58,9 @@ class GuestGateScreen extends StatelessWidget {
               width: double.infinity,
               height: 52,
               child: FilledButton(
-                onPressed: () =>
-                    Navigator.of(context).pushNamedAndRemoveUntil(Routes.login, (r) => false),
+                onPressed: () => Navigator.of(
+                  context,
+                ).pushNamedAndRemoveUntil(Routes.login, (r) => false),
                 style: FilledButton.styleFrom(
                   backgroundColor: TeraColors.ink,
                   foregroundColor: TeraColors.paper,

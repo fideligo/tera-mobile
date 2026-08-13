@@ -39,12 +39,14 @@ class CuffReadingScreen extends StatefulWidget {
     super.key,
     required this.api,
     required this.onDone,
+    this.checkSessionId,
     this.isReference = false,
     this.ocr = const MockCuffOcrExtractor(),
   });
 
   final ApiClient api;
   final VoidCallback onDone;
+  final String? checkSessionId;
   final bool isReference;
 
   /// Injectable so a test can drive the flow without waiting on the mock's delay.
@@ -115,7 +117,9 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
     final draft = DraftCuffReading(
       systolicMmhg: int.parse(_systolic.text.trim()),
       diastolicMmhg: int.parse(_diastolic.text.trim()),
-      pulseBpm: _pulse.text.trim().isEmpty ? null : int.parse(_pulse.text.trim()),
+      pulseBpm: _pulse.text.trim().isEmpty
+          ? null
+          : int.parse(_pulse.text.trim()),
     );
 
     // The cross-field rules the per-field validators cannot see.
@@ -143,12 +147,26 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
     try {
       // Confirmation happens here, at the tap, and is stamped with that instant.
       final confirmed = draft.confirm();
-      final resolver = SessionContextResolver(api: widget.api);
-      final (:patientId, :episodeId) = await resolver.resolveEpisode();
-      await CuffReadingSubmitter(api: widget.api).submit(
-        reading: confirmed,
-        episodeId: episodeId,
-      );
+      if (widget.checkSessionId != null && widget.checkSessionId!.isNotEmpty) {
+        await widget.api.postJson(
+          '/v1/check-sessions/${widget.checkSessionId}/process',
+          {
+            'blood_pressure': {
+              'systolic': confirmed.draft.systolicMmhg,
+              'diastolic': confirmed.draft.diastolicMmhg,
+              if (confirmed.draft.pulseBpm != null)
+                'pulse': confirmed.draft.pulseBpm,
+              'source': 'manual_entry',
+            },
+          },
+        );
+      } else {
+        final resolver = SessionContextResolver(api: widget.api);
+        final (:patientId, :episodeId) = await resolver.resolveEpisode();
+        await CuffReadingSubmitter(
+          api: widget.api,
+        ).submit(reading: confirmed, episodeId: episodeId);
+      }
       if (!mounted) return;
       setState(() {
         _stage = _Stage.saved;
@@ -204,13 +222,21 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
     const SizedBox(height: TeraSpacing.lg),
     const Text(
       'Tera uses a recent blood pressure\nreading as a personal reference\nfor your BP-related trend.',
-      style: TextStyle(color: TeraColors.ink, height: 1.5, fontSize: TeraText.body),
+      style: TextStyle(
+        color: TeraColors.ink,
+        height: 1.5,
+        fontSize: TeraText.body,
+      ),
       textAlign: TextAlign.center,
     ),
     const SizedBox(height: TeraSpacing.xl),
     const Text(
       'Small checklist\nBefore measuring:',
-      style: TextStyle(color: TeraColors.ink, height: 1.5, fontSize: TeraText.body),
+      style: TextStyle(
+        color: TeraColors.ink,
+        height: 1.5,
+        fontSize: TeraText.body,
+      ),
       textAlign: TextAlign.center,
     ),
     const SizedBox(height: TeraSpacing.sm),
@@ -220,7 +246,11 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
       '✓ Avoid caffeine for the past 30 minutes\n'
       '✓ Avoid smoking or nicotine for the past\n30 minutes\n'
       '✓ Sit with your back supported and feet\nflat',
-      style: TextStyle(color: TeraColors.ink, height: 1.5, fontSize: TeraText.body),
+      style: TextStyle(
+        color: TeraColors.ink,
+        height: 1.5,
+        fontSize: TeraText.body,
+      ),
       textAlign: TextAlign.center,
     ),
     const SizedBox(height: TeraSpacing.xl),
@@ -229,7 +259,10 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
       child: const Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text('next ', style: TextStyle(color: TeraColors.ink, fontSize: TeraText.body)),
+          Text(
+            'next ',
+            style: TextStyle(color: TeraColors.ink, fontSize: TeraText.body),
+          ),
           Icon(Icons.arrow_forward, color: TeraColors.ink, size: 18),
         ],
       ),
@@ -240,16 +273,71 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
 
   List<Widget> _readingStage() => [
     const SizedBox(height: TeraSpacing.xl),
-    const LinearProgressIndicator(),
-    const SizedBox(height: TeraSpacing.lg),
-    const Text(
-      'Reading the display…',
-      style: TextStyle(
-        fontSize: TeraText.section,
-        fontWeight: FontWeight.w600,
-        color: TeraColors.ink,
+    Container(
+      height: 300,
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.black87,
+        borderRadius: BorderRadius.circular(TeraRadius.card),
+        border: Border.all(color: TeraColors.brand, width: 2),
       ),
-      textAlign: TextAlign.center,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          const Icon(Icons.camera_alt, color: Colors.white24, size: 64),
+          // Faux scanner line animation
+          TweenAnimationBuilder<double>(
+            tween: Tween(begin: -150.0, end: 150.0),
+            duration: const Duration(milliseconds: 1500),
+            builder: (context, value, child) {
+              return Transform.translate(
+                offset: Offset(0, value),
+                child: child,
+              );
+            },
+            onEnd:
+                () {}, // The tween itself doesn't loop easily without a controller, but it's 3s total so it will run twice roughly.
+            child: Container(
+              height: 2,
+              width: 250,
+              decoration: BoxDecoration(
+                color: Colors.greenAccent,
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.greenAccent.withValues(alpha: 0.5),
+                    blurRadius: 10,
+                    spreadRadius: 2,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          Positioned(
+            bottom: 20,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    color: Colors.white,
+                    strokeWidth: 2,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Reading display digits...',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     ),
   ];
 
@@ -258,7 +346,9 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
   List<Widget> _enterStage() => [
     const SizedBox(height: TeraSpacing.xl),
     Text(
-      widget.isReference ? 'Set your blood pressure reference' : 'Add your blood pressure reading',
+      widget.isReference
+          ? 'Set your blood pressure reference'
+          : 'Add your blood pressure reading',
       style: const TextStyle(
         fontSize: TeraText.section,
         fontWeight: FontWeight.w700,
@@ -269,10 +359,7 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
     const SizedBox(height: TeraSpacing.md),
     const Text(
       'Enter the reading you just measured',
-      style: TextStyle(
-        fontSize: TeraText.body,
-        color: TeraColors.neutral700,
-      ),
+      style: TextStyle(fontSize: TeraText.body, color: TeraColors.neutral700),
       textAlign: TextAlign.center,
     ),
     const SizedBox(height: TeraSpacing.xl),
@@ -316,10 +403,15 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
         foregroundColor: TeraColors.ink,
         side: const BorderSide(color: TeraColors.ink),
         padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(TeraRadius.button),
+        ),
       ),
       onPressed: _photograph,
-      child: const Text('Scan monitor instead', style: TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold)),
+      child: const Text(
+        'Scan monitor instead',
+        style: TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold),
+      ),
     ),
     const SizedBox(height: TeraSpacing.md),
     FilledButton(
@@ -327,10 +419,15 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
         backgroundColor: TeraColors.ink,
         foregroundColor: TeraColors.paper,
         padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(TeraRadius.button),
+        ),
       ),
       onPressed: _review,
-      child: const Text('Save', style: TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold)),
+      child: const Text(
+        'Save',
+        style: TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold),
+      ),
     ),
   ];
 
@@ -347,7 +444,14 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
       children: [
         Expanded(
           flex: 2,
-          child: Text(label, textAlign: TextAlign.right, style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink)),
+          child: Text(
+            label,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              fontSize: TeraText.body,
+              color: TeraColors.ink,
+            ),
+          ),
         ),
         const SizedBox(width: TeraSpacing.md),
         Expanded(
@@ -363,7 +467,10 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
               focusedBorder: InputBorder.none,
               contentPadding: EdgeInsets.symmetric(vertical: 14),
             ),
-            style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
+            style: const TextStyle(
+              fontSize: TeraText.body,
+              color: TeraColors.ink,
+            ),
             keyboardType: TextInputType.number,
             inputFormatters: [FilteringTextInputFormatter.digitsOnly],
             textInputAction: TextInputAction.next,
@@ -380,7 +487,14 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
         const SizedBox(width: TeraSpacing.md),
         Expanded(
           flex: 2,
-          child: Text(unit, textAlign: TextAlign.left, style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink)),
+          child: Text(
+            unit,
+            textAlign: TextAlign.left,
+            style: const TextStyle(
+              fontSize: TeraText.body,
+              color: TeraColors.ink,
+            ),
+          ),
         ),
       ],
     );
@@ -401,9 +515,17 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
         textAlign: TextAlign.center,
       ),
       const SizedBox(height: TeraSpacing.xl),
-      _horizontalNumberBox(label: 'systolic', value: _systolic.text, unit: 'mmHg'),
+      _horizontalNumberBox(
+        label: 'systolic',
+        value: _systolic.text,
+        unit: 'mmHg',
+      ),
       const SizedBox(height: TeraSpacing.sm),
-      _horizontalNumberBox(label: 'diastolic', value: _diastolic.text, unit: 'mmHg'),
+      _horizontalNumberBox(
+        label: 'diastolic',
+        value: _diastolic.text,
+        unit: 'mmHg',
+      ),
       const SizedBox(height: TeraSpacing.sm),
       _horizontalNumberBox(label: 'pulse', value: _pulse.text, unit: 'bpm'),
       const SizedBox(height: TeraSpacing.md),
@@ -416,7 +538,10 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
             child: Text(
               'Measured\nJust now · ${TimeOfDay.now().format(context)}',
               textAlign: TextAlign.left,
-              style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
+              style: const TextStyle(
+                fontSize: TeraText.body,
+                color: TeraColors.ink,
+              ),
             ),
           ),
         ],
@@ -431,10 +556,18 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
           foregroundColor: TeraColors.ink,
           side: const BorderSide(color: TeraColors.ink),
           padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(TeraRadius.button),
+          ),
         ),
         onPressed: _photograph,
-        child: const Text('Scan monitor instead', style: TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold)),
+        child: const Text(
+          'Scan monitor instead',
+          style: TextStyle(
+            fontSize: TeraText.body,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
       const SizedBox(height: TeraSpacing.md),
       OutlinedButton(
@@ -442,10 +575,18 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
           foregroundColor: TeraColors.ink,
           side: const BorderSide(color: TeraColors.ink),
           padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(TeraRadius.button),
+          ),
         ),
         onPressed: _busy ? null : () => setState(() => _stage = _Stage.enter),
-        child: const Text('Edit', style: TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold)),
+        child: const Text(
+          'Edit',
+          style: TextStyle(
+            fontSize: TeraText.body,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
       ),
       const SizedBox(height: TeraSpacing.md),
       FilledButton(
@@ -453,13 +594,21 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
           backgroundColor: TeraColors.ink,
           foregroundColor: TeraColors.paper,
           padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(TeraRadius.button),
+          ),
         ),
         onPressed: _busy ? null : _confirmAndSave,
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Text(_busy ? 'Saving...' : 'Confirm ', style: const TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold)),
+            Text(
+              _busy ? 'Saving...' : 'Confirm ',
+              style: const TextStyle(
+                fontSize: TeraText.body,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             if (!_busy) const Icon(Icons.check, size: 20),
           ],
         ),
@@ -477,7 +626,14 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
       children: [
         Expanded(
           flex: 2,
-          child: Text(label, textAlign: TextAlign.right, style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink)),
+          child: Text(
+            label,
+            textAlign: TextAlign.right,
+            style: const TextStyle(
+              fontSize: TeraText.body,
+              color: TeraColors.ink,
+            ),
+          ),
         ),
         const SizedBox(width: TeraSpacing.md),
         Expanded(
@@ -486,13 +642,26 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
             padding: const EdgeInsets.symmetric(vertical: 14),
             color: TeraColors.neutral200,
             alignment: Alignment.center,
-            child: Text(value, style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink)),
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: TeraText.body,
+                color: TeraColors.ink,
+              ),
+            ),
           ),
         ),
         const SizedBox(width: TeraSpacing.md),
         Expanded(
           flex: 2,
-          child: Text(unit, textAlign: TextAlign.left, style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink)),
+          child: Text(
+            unit,
+            textAlign: TextAlign.left,
+            style: const TextStyle(
+              fontSize: TeraText.body,
+              color: TeraColors.ink,
+            ),
+          ),
         ),
       ],
     );
@@ -522,6 +691,9 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
   Widget _errorPanel(String message) => Container(
     decoration: systemFlagDecoration(),
     padding: const EdgeInsets.all(TeraSpacing.md),
-    child: Text(message, style: const TextStyle(color: TeraColors.ink, height: 1.4)),
+    child: Text(
+      message,
+      style: const TextStyle(color: TeraColors.ink, height: 1.4),
+    ),
   );
 }

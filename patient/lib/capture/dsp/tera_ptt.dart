@@ -127,7 +127,8 @@ BeatDetection detectScgBeats(List<double> scg, double fs) {
     }
     double i = firstAbove.toDouble();
     if (firstAbove > 0 && seg[firstAbove] > seg[firstAbove - 1]) {
-      i = (firstAbove - 1) +
+      i =
+          (firstAbove - 1) +
           (thr - seg[firstAbove - 1]) / (seg[firstAbove] - seg[firstAbove - 1]);
     }
     onsets.add(a + i);
@@ -223,7 +224,8 @@ BeatDetection detectPpgFeet(List<double> ppg, double fs) {
 double _hrFromTimes(List<double> times) {
   final rr = <double>[
     for (int i = 1; i < times.length; i++)
-      if (times[i] - times[i - 1] > 60.0 / maxBpm && times[i] - times[i - 1] < 60.0 / 40.0)
+      if (times[i] - times[i - 1] > 60.0 / maxBpm &&
+          times[i] - times[i - 1] < 60.0 / 40.0)
         times[i] - times[i - 1],
   ];
   if (rr.isEmpty) return double.nan;
@@ -330,18 +332,8 @@ GateResult qualityGate({
   }
 
   for (final check in [
-    (
-      'chest',
-      scgHr,
-      scgSpectralHr,
-      GateFailure.chestBeatDetectionUnreliable,
-    ),
-    (
-      'finger',
-      ppgHr,
-      ppgSpectralHr,
-      GateFailure.fingerBeatDetectionUnreliable,
-    ),
+    ('chest', scgHr, scgSpectralHr, GateFailure.chestBeatDetectionUnreliable),
+    ('finger', ppgHr, ppgSpectralHr, GateFailure.fingerBeatDetectionUnreliable),
   ]) {
     final (name, a, b, failure) = check;
     if (!a.isFinite || !b.isFinite) {
@@ -355,7 +347,8 @@ GateResult qualityGate({
       return GateResult(
         passed: false,
         failure: failure,
-        detail: '$name beat detection unreliable '
+        detail:
+            '$name beat detection unreliable '
             '(${(a - b).abs().toStringAsFixed(0)} bpm disagreement)',
       );
     }
@@ -368,7 +361,8 @@ GateResult qualityGate({
     return GateResult(
       passed: false,
       failure: GateFailure.sensorsDisagree,
-      detail: 'chest and finger disagree by '
+      detail:
+          'chest and finger disagree by '
           '${(scgHr - ppgHr).abs().toStringAsFixed(0)} bpm, not the same heartbeats',
     );
   }
@@ -377,7 +371,8 @@ GateResult qualityGate({
     return GateResult(
       passed: false,
       failure: GateFailure.lowPairYield,
-      detail: 'only ${(100 * summary.pairYield).toStringAsFixed(0)}% of beats paired',
+      detail:
+          'only ${(100 * summary.pairYield).toStringAsFixed(0)}% of beats paired',
     );
   }
 

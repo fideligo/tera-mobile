@@ -89,8 +89,10 @@ class SafetyOnboardingScreen extends StatefulWidget {
 }
 
 class _SafetyOnboardingScreenState extends State<SafetyOnboardingScreen> {
-  late final ContextIntakeStore _intakeStore = widget._intakeStore ?? SecureContextIntakeStore();
-  late final PhrProfileStore _profileStore = widget._profileStore ?? SecurePhrProfileStore();
+  late final ContextIntakeStore _intakeStore =
+      widget._intakeStore ?? SecureContextIntakeStore();
+  late final PhrProfileStore _profileStore =
+      widget._profileStore ?? SecurePhrProfileStore();
 
   BodyStateAnswer? _bodyState;
   RhythmAnswer? _rhythm;
@@ -123,7 +125,10 @@ class _SafetyOnboardingScreenState extends State<SafetyOnboardingScreen> {
       return;
     }
     if (_needsBirthDate && _birthDate == null) {
-      setState(() => _error = 'Add the date you gave birth, or choose a different answer.');
+      setState(
+        () => _error =
+            'Add the date you gave birth, or choose a different answer.',
+      );
       return;
     }
 
@@ -168,9 +173,10 @@ class _SafetyOnboardingScreenState extends State<SafetyOnboardingScreen> {
     unawaited(PatientContextSubmitter(api: widget.flow.api).submit(intake));
 
     if (!mounted) return;
-    Navigator.of(
-      context,
-    ).pushNamedAndRemoveUntil(widget.flow.state.onboardingStep.route, (r) => false);
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      widget.flow.state.onboardingStep.route,
+      (r) => false,
+    );
   }
 
   /// The hard stop, stated once and in the wording the gate defines.
@@ -193,7 +199,11 @@ class _SafetyOnboardingScreenState extends State<SafetyOnboardingScreen> {
       ),
       content: const Text(
         pregnancyBlockMessage,
-        style: TextStyle(fontSize: TeraText.small, color: TeraColors.ink, height: 1.45),
+        style: TextStyle(
+          fontSize: TeraText.small,
+          color: TeraColors.ink,
+          height: 1.45,
+        ),
       ),
       actions: [
         FilledButton(
@@ -216,10 +226,14 @@ class _SafetyOnboardingScreenState extends State<SafetyOnboardingScreen> {
       specId: 'ONB-02',
       step: 2,
       title: 'Measurement safety',
-      subtitle: 'Two questions that change whether Tera can read a trend for you.',
+      subtitle:
+          'Two questions that change whether Tera can read a trend for you.',
       actions: StepActions(onNext: _next, busy: _busy),
       children: [
-        const QuestionHeading('Which best describes you right now?', required: true),
+        const QuestionHeading(
+          'Which best describes you right now?',
+          required: true,
+        ),
         const SizedBox(height: TeraSpacing.md),
         for (final option in BodyStateAnswer.values)
           AnswerOption(
@@ -233,7 +247,8 @@ class _SafetyOnboardingScreenState extends State<SafetyOnboardingScreen> {
                 : null,
             onTap: () => setState(() {
               _bodyState = option;
-              if (option != BodyStateAnswer.recentlyGaveBirth) _birthDate = null;
+              if (option != BodyStateAnswer.recentlyGaveBirth)
+                _birthDate = null;
             }),
           ),
 
@@ -276,7 +291,11 @@ class _SafetyOnboardingScreenState extends State<SafetyOnboardingScreen> {
 }
 
 class _DateRow extends StatelessWidget {
-  const _DateRow({required this.value, required this.placeholder, required this.onTap});
+  const _DateRow({
+    required this.value,
+    required this.placeholder,
+    required this.onTap,
+  });
 
   final DateTime? value;
   final String placeholder;
@@ -304,7 +323,11 @@ class _DateRow extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const Icon(Icons.calendar_today_outlined, color: TeraColors.neutral500, size: 22),
+              const Icon(
+                Icons.calendar_today_outlined,
+                color: TeraColors.neutral500,
+                size: 22,
+              ),
               const SizedBox(width: TeraSpacing.md),
               Expanded(
                 child: Text(

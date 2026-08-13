@@ -68,7 +68,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
       // No swiping back into a measurement.
       canPop: false,
       child: Scaffold(
-        appBar: AppBar(title: const Text('Stop'), automaticallyImplyLeading: false),
+        appBar: AppBar(
+          title: const Text('Stop'),
+          automaticallyImplyLeading: false,
+        ),
         body: SafeArea(
           child: ListView(
             padding: const EdgeInsets.all(TeraSpacing.md),
@@ -96,7 +99,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                 const SizedBox(height: TeraSpacing.lg),
                 const Text(
                   'You reported:',
-                  style: TextStyle(fontSize: TeraText.small, color: TeraColors.neutral700),
+                  style: TextStyle(
+                    fontSize: TeraText.small,
+                    color: TeraColors.neutral700,
+                  ),
                 ),
                 const SizedBox(height: TeraSpacing.sm),
                 for (final symptom in widget.symptoms)
@@ -104,7 +110,10 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                     padding: const EdgeInsets.only(bottom: TeraSpacing.xs),
                     child: Text(
                       symptom.label,
-                      style: const TextStyle(color: TeraColors.ink, height: 1.4),
+                      style: const TextStyle(
+                        color: TeraColors.ink,
+                        height: 1.4,
+                      ),
                     ),
                   ),
               ],
@@ -120,7 +129,7 @@ class _EmergencyScreenState extends State<EmergencyScreen> {
                   // Stated, not apologised for. It changes nothing about what to do.
                   false =>
                     'This phone could not reach your clinic’s record just now. That does not '
-                    'change the advice above.',
+                        'change the advice above.',
                 },
                 style: const TextStyle(
                   fontSize: TeraText.small,

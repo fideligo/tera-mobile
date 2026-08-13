@@ -161,7 +161,9 @@ class _Tree {
     // scikit-learn's rule is `x <= threshold` goes left. Getting this backwards produces a
     // confident answer from the wrong half of every split.
     while (feature[node] != -2) {
-      node = x[feature[node]] <= threshold[node] ? childrenLeft[node] : childrenRight[node];
+      node = x[feature[node]] <= threshold[node]
+          ? childrenLeft[node]
+          : childrenRight[node];
     }
     final v = value[node];
     final total = v.reduce((a, b) => a + b);
@@ -169,10 +171,16 @@ class _Tree {
   }
 
   static _Tree fromJson(Map<String, dynamic> json) => _Tree(
-    childrenLeft: (json['children_left'] as List).map((v) => (v as num).toInt()).toList(),
-    childrenRight: (json['children_right'] as List).map((v) => (v as num).toInt()).toList(),
+    childrenLeft: (json['children_left'] as List)
+        .map((v) => (v as num).toInt())
+        .toList(),
+    childrenRight: (json['children_right'] as List)
+        .map((v) => (v as num).toInt())
+        .toList(),
     feature: (json['feature'] as List).map((v) => (v as num).toInt()).toList(),
-    threshold: (json['threshold'] as List).map((v) => (v as num).toDouble()).toList(),
+    threshold: (json['threshold'] as List)
+        .map((v) => (v as num).toDouble())
+        .toList(),
     value: (json['value'] as List)
         .map((row) => (row as List).map((v) => (v as num).toDouble()).toList())
         .toList(),
@@ -211,8 +219,13 @@ class RhythmForest {
   ///
   /// Throws [FormatException] on a feature order this build does not compute. A silent mismatch
   /// would give a confident answer from the wrong columns.
-  factory RhythmForest.fromJson(Map<String, dynamic> json, {double fallbackThreshold = 0.5}) {
-    final features = (json['features'] as List?)?.map((v) => v.toString()).toList();
+  factory RhythmForest.fromJson(
+    Map<String, dynamic> json, {
+    double fallbackThreshold = 0.5,
+  }) {
+    final features = (json['features'] as List?)
+        ?.map((v) => v.toString())
+        .toList();
     if (features == null || features.length != rhythmFeatureOrder.length) {
       throw FormatException(
         'model_trees.json declares ${features?.length} features, this build computes '

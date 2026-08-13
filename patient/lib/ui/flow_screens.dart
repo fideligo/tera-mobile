@@ -68,7 +68,12 @@ class _SplashScreenState extends State<SplashScreen> {
         children: [
           ClipRRect(
             borderRadius: BorderRadius.circular(TeraRadius.card),
-            child: Image.asset('assets/logo.jpeg', width: 96, height: 96, fit: BoxFit.cover),
+            child: Image.asset(
+              'assets/logo.jpeg',
+              width: 96,
+              height: 96,
+              fit: BoxFit.cover,
+            ),
           ),
           const SizedBox(height: TeraSpacing.md),
           const Text(
@@ -144,7 +149,11 @@ class _PrecheckScreenState extends State<PrecheckScreen> {
     );
   }
 
-  Widget _buildYesNoQuestion(String question, bool? value, ValueChanged<bool> onChanged) {
+  Widget _buildYesNoQuestion(
+    String question,
+    bool? value,
+    ValueChanged<bool> onChanged,
+  ) {
     return Padding(
       padding: const EdgeInsets.only(bottom: TeraSpacing.lg),
       child: Column(
@@ -184,7 +193,11 @@ class _PrecheckScreenState extends State<PrecheckScreen> {
     );
   }
 
-  Widget _buildToggle({required String label, required bool isSelected, required VoidCallback onTap}) {
+  Widget _buildToggle({
+    required String label,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
     return Material(
       color: isSelected ? TeraColors.brand : TeraColors.paper,
       borderRadius: BorderRadius.circular(TeraRadius.button),
@@ -219,7 +232,14 @@ class _PrecheckScreenState extends State<PrecheckScreen> {
     return Scaffold(
       backgroundColor: TeraColors.paper,
       appBar: AppBar(
-        title: const Text('Before your check', style: TextStyle(color: TeraColors.ink, fontSize: TeraText.section, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Before your check',
+          style: TextStyle(
+            color: TeraColors.ink,
+            fontSize: TeraText.section,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         backgroundColor: TeraColors.paper,
         elevation: 0,
         iconTheme: const IconThemeData(color: TeraColors.ink),
@@ -233,14 +253,38 @@ class _PrecheckScreenState extends State<PrecheckScreen> {
                 children: [
                   const Text(
                     'For a more comparable trend, check that you\'re in a resting condition.',
-                    style: TextStyle(fontSize: TeraText.body, color: TeraColors.neutral700, height: 1.4),
+                    style: TextStyle(
+                      fontSize: TeraText.body,
+                      color: TeraColors.neutral700,
+                      height: 1.4,
+                    ),
                   ),
                   const SizedBox(height: TeraSpacing.xl),
-                  _buildYesNoQuestion('Have you rested quietly for at least 5 minutes?', _rested, (v) => setState(() => _rested = v)),
-                  _buildYesNoQuestion('Have you exercised or been physically active in the last 30 minutes?', _activity, (v) => setState(() => _activity = v)),
-                  _buildYesNoQuestion('Have you had coffee, tea, or another caffeinated drink in the last 30 minutes?', _caffeine, (v) => setState(() => _caffeine = v)),
-                  _buildYesNoQuestion('Have you smoked or used nicotine in the last 30 minutes?', _nicotine, (v) => setState(() => _nicotine = v)),
-                  _buildYesNoQuestion('Do you need to use the restroom?', _restroom, (v) => setState(() => _restroom = v)),
+                  _buildYesNoQuestion(
+                    'Have you rested quietly for at least 5 minutes?',
+                    _rested,
+                    (v) => setState(() => _rested = v),
+                  ),
+                  _buildYesNoQuestion(
+                    'Have you exercised or been physically active in the last 30 minutes?',
+                    _activity,
+                    (v) => setState(() => _activity = v),
+                  ),
+                  _buildYesNoQuestion(
+                    'Have you had coffee, tea, or another caffeinated drink in the last 30 minutes?',
+                    _caffeine,
+                    (v) => setState(() => _caffeine = v),
+                  ),
+                  _buildYesNoQuestion(
+                    'Have you smoked or used nicotine in the last 30 minutes?',
+                    _nicotine,
+                    (v) => setState(() => _nicotine = v),
+                  ),
+                  _buildYesNoQuestion(
+                    'Do you need to use the restroom?',
+                    _restroom,
+                    (v) => setState(() => _restroom = v),
+                  ),
                 ],
               ),
             ),
@@ -249,17 +293,35 @@ class _PrecheckScreenState extends State<PrecheckScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed: _busy ? null : _next,
+                  onPressed:
+                      (_busy ||
+                          _rested == null ||
+                          _activity == null ||
+                          _caffeine == null ||
+                          _nicotine == null ||
+                          _restroom == null)
+                      ? null
+                      : _next,
                   style: FilledButton.styleFrom(
                     backgroundColor: TeraColors.ink,
                     foregroundColor: TeraColors.paper,
-                    padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: TeraSpacing.md,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(TeraRadius.button),
+                    ),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(_busy ? 'Saving...' : 'Next', style: const TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold)),
+                      Text(
+                        _busy ? 'Saving...' : 'Next',
+                        style: const TextStyle(
+                          fontSize: TeraText.body,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                       if (!_busy) ...[
                         const SizedBox(width: TeraSpacing.sm),
                         const Icon(Icons.arrow_forward, size: 20),
@@ -308,7 +370,7 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
   final Set<ContextSymptom> _symptoms = {};
   bool _otherSymptom = false;
   MedicationStatusToday _medication = MedicationStatusToday.notSure;
-  
+
   bool _busy = false;
 
   Future<void> _next() async {
@@ -320,11 +382,13 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
       symptoms: _symptoms,
       medicationStatusToday: _medication,
     );
-    
+
     final checkSessionId = widget.payload.checkSessionId;
     if (checkSessionId != null) {
       try {
-        await CurrentContextSubmitter(api: widget.flow.api).submitForSession(sessionId: checkSessionId, context: collected);
+        await CurrentContextSubmitter(
+          api: widget.flow.api,
+        ).submitForSession(sessionId: checkSessionId, context: collected);
       } on Object {
         // Fallback local if network fails.
       }
@@ -338,7 +402,11 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
     );
   }
 
-  Widget _buildChip(String label, bool isSelected, ValueChanged<bool> onSelected) {
+  Widget _buildChip(
+    String label,
+    bool isSelected,
+    ValueChanged<bool> onSelected,
+  ) {
     return FilterChip(
       label: Text(
         label,
@@ -352,19 +420,32 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
       onSelected: onSelected,
       selectedColor: TeraColors.brand.withValues(alpha: 0.1),
       backgroundColor: TeraColors.paper,
-      shape: StadiumBorder(side: BorderSide(color: isSelected ? TeraColors.brand : TeraColors.neutral300, width: 1.5)),
+      shape: StadiumBorder(
+        side: BorderSide(
+          color: isSelected ? TeraColors.brand : TeraColors.neutral300,
+          width: 1.5,
+        ),
+      ),
       showCheckmark: false,
-      padding: const EdgeInsets.symmetric(horizontal: TeraSpacing.sm, vertical: TeraSpacing.sm),
+      padding: const EdgeInsets.symmetric(
+        horizontal: TeraSpacing.sm,
+        vertical: TeraSpacing.sm,
+      ),
     );
   }
-  
+
   Widget _buildSection(String title, Widget content) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           title,
-          style: const TextStyle(fontSize: TeraText.section, fontWeight: FontWeight.bold, color: TeraColors.ink, height: 1.2),
+          style: const TextStyle(
+            fontSize: TeraText.section,
+            fontWeight: FontWeight.bold,
+            color: TeraColors.ink,
+            height: 1.2,
+          ),
         ),
         const SizedBox(height: TeraSpacing.md),
         content,
@@ -377,7 +458,14 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
     return Scaffold(
       backgroundColor: TeraColors.paper,
       appBar: AppBar(
-        title: const Text('About this check', style: TextStyle(color: TeraColors.ink, fontSize: TeraText.section, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'About this check',
+          style: TextStyle(
+            color: TeraColors.ink,
+            fontSize: TeraText.section,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         backgroundColor: TeraColors.paper,
         elevation: 0,
         iconTheme: const IconThemeData(color: TeraColors.ink),
@@ -391,52 +479,126 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
                 children: [
                   const Text(
                     'A few quick details help Tera put your result into context.',
-                    style: TextStyle(fontSize: TeraText.body, color: TeraColors.neutral700, height: 1.4),
+                    style: TextStyle(
+                      fontSize: TeraText.body,
+                      color: TeraColors.neutral700,
+                      height: 1.4,
+                    ),
                   ),
                   const SizedBox(height: TeraSpacing.xl),
-                  _buildSection('Anything different today?', Wrap(
-                    spacing: TeraSpacing.sm,
-                    runSpacing: TeraSpacing.sm,
-                    children: [
-                      _buildChip('Slept less than usual', _sleep, (v) => setState(() { _sleep = v; _nothingUnusual1 = false; })),
-                      _buildChip('Higher stress', _stress, (v) => setState(() { _stress = v; _nothingUnusual1 = false; })),
-                      _buildChip('Recent exercise', _recentExercise, (v) => setState(() { _recentExercise = v; _nothingUnusual1 = false; })),
-                      _buildChip('More caffeine than usual', _moreCaffeine, (v) => setState(() { _moreCaffeine = v; _nothingUnusual1 = false; })),
-                      _buildChip('Feeling unwell', _unwell, (v) => setState(() { _unwell = v; _nothingUnusual1 = false; })),
-                      _buildChip('Nothing unusual', _nothingUnusual1, (v) {
-                        if (v) setState(() { _sleep = false; _stress = false; _unwell = false; _recentExercise = false; _moreCaffeine = false; _nothingUnusual1 = true; });
-                      }),
-                    ],
-                  )),
-                  const SizedBox(height: TeraSpacing.xl),
-                  _buildSection('How are you feeling?', Wrap(
-                    spacing: TeraSpacing.sm,
-                    runSpacing: TeraSpacing.sm,
-                    children: [
-                      _buildChip('No symptoms', _symptoms.isEmpty && !_otherSymptom, (v) {
-                        if (v) setState(() { _symptoms.clear(); _otherSymptom = false; });
-                      }),
-                      for (final symptom in ContextSymptom.values)
-                        _buildChip(symptom.label, _symptoms.contains(symptom), (v) {
-                          setState(() {
-                            if (v) _symptoms.add(symptom);
-                            else _symptoms.remove(symptom);
-                          });
+                  _buildSection(
+                    'Anything different today?',
+                    Wrap(
+                      spacing: TeraSpacing.sm,
+                      runSpacing: TeraSpacing.sm,
+                      children: [
+                        _buildChip(
+                          'Slept less than usual',
+                          _sleep,
+                          (v) => setState(() {
+                            _sleep = v;
+                            _nothingUnusual1 = false;
+                          }),
+                        ),
+                        _buildChip(
+                          'Higher stress',
+                          _stress,
+                          (v) => setState(() {
+                            _stress = v;
+                            _nothingUnusual1 = false;
+                          }),
+                        ),
+                        _buildChip(
+                          'Recent exercise',
+                          _recentExercise,
+                          (v) => setState(() {
+                            _recentExercise = v;
+                            _nothingUnusual1 = false;
+                          }),
+                        ),
+                        _buildChip(
+                          'More caffeine than usual',
+                          _moreCaffeine,
+                          (v) => setState(() {
+                            _moreCaffeine = v;
+                            _nothingUnusual1 = false;
+                          }),
+                        ),
+                        _buildChip(
+                          'Feeling unwell',
+                          _unwell,
+                          (v) => setState(() {
+                            _unwell = v;
+                            _nothingUnusual1 = false;
+                          }),
+                        ),
+                        _buildChip('Nothing unusual', _nothingUnusual1, (v) {
+                          if (v)
+                            setState(() {
+                              _sleep = false;
+                              _stress = false;
+                              _unwell = false;
+                              _recentExercise = false;
+                              _moreCaffeine = false;
+                              _nothingUnusual1 = true;
+                            });
                         }),
-                      _buildChip('Other', _otherSymptom, (v) => setState(() => _otherSymptom = v)),
-                    ],
-                  )),
+                      ],
+                    ),
+                  ),
                   const SizedBox(height: TeraSpacing.xl),
-                  _buildSection('Did you take your blood pressure medication as usual today?', Wrap(
-                    spacing: TeraSpacing.sm,
-                    runSpacing: TeraSpacing.sm,
-                    children: [
-                      for (final status in MedicationStatusToday.values)
-                        _buildChip(status.label, _medication == status, (v) {
-                          if (v) setState(() => _medication = status);
-                        }),
-                    ],
-                  )),
+                  _buildSection(
+                    'How are you feeling?',
+                    Wrap(
+                      spacing: TeraSpacing.sm,
+                      runSpacing: TeraSpacing.sm,
+                      children: [
+                        _buildChip(
+                          'No symptoms',
+                          _symptoms.isEmpty && !_otherSymptom,
+                          (v) {
+                            if (v)
+                              setState(() {
+                                _symptoms.clear();
+                                _otherSymptom = false;
+                              });
+                          },
+                        ),
+                        for (final symptom in ContextSymptom.values)
+                          _buildChip(
+                            symptom.label,
+                            _symptoms.contains(symptom),
+                            (v) {
+                              setState(() {
+                                if (v)
+                                  _symptoms.add(symptom);
+                                else
+                                  _symptoms.remove(symptom);
+                              });
+                            },
+                          ),
+                        _buildChip(
+                          'Other',
+                          _otherSymptom,
+                          (v) => setState(() => _otherSymptom = v),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: TeraSpacing.xl),
+                  _buildSection(
+                    'Did you take your blood pressure medication as usual today?',
+                    Wrap(
+                      spacing: TeraSpacing.sm,
+                      runSpacing: TeraSpacing.sm,
+                      children: [
+                        for (final status in MedicationStatusToday.values)
+                          _buildChip(status.label, _medication == status, (v) {
+                            if (v) setState(() => _medication = status);
+                          }),
+                      ],
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -449,13 +611,23 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
                   style: FilledButton.styleFrom(
                     backgroundColor: TeraColors.ink,
                     foregroundColor: TeraColors.paper,
-                    padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: TeraSpacing.md,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(TeraRadius.button),
+                    ),
                   ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(_busy ? 'Saving...' : 'Next', style: const TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold)),
+                      Text(
+                        _busy ? 'Saving...' : 'Next',
+                        style: const TextStyle(
+                          fontSize: TeraText.body,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
                       if (!_busy) ...[
                         const SizedBox(width: TeraSpacing.sm),
                         const Icon(Icons.arrow_forward, size: 20),
@@ -530,7 +702,9 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
   @override
   Widget build(BuildContext context) {
     if (!_walkthroughDone) {
-      return ScgPpgWalkthroughScreen(onDone: () => setState(() => _walkthroughDone = true));
+      return ScgPpgWalkthroughScreen(
+        onDone: () => setState(() => _walkthroughDone = true),
+      );
     }
     return CaptureScreen(
       onComplete: (capture) async {
@@ -546,11 +720,16 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
           context,
           CheckFlow.afterSensorCapture(
             widget.session,
-            result.accepted ? SignalQuality.accepted : SignalQuality.retryableReject,
+            result.accepted
+                ? SignalQuality.accepted
+                : SignalQuality.retryableReject,
           ),
           // Carried whether accepted or not. A rejected session is still submitted and retained
           // (invariant 3), so processing needs it either way.
-          payload: widget.payload.copyWith(signal: result, capturedAt: capture.startedAt),
+          payload: widget.payload.copyWith(
+            signal: result,
+            capturedAt: capture.startedAt,
+          ),
         );
       },
     );
@@ -562,13 +741,14 @@ class ScgPpgWalkthroughScreen extends StatefulWidget {
   const ScgPpgWalkthroughScreen({super.key, required this.onDone});
 
   @override
-  State<ScgPpgWalkthroughScreen> createState() => _ScgPpgWalkthroughScreenState();
+  State<ScgPpgWalkthroughScreen> createState() =>
+      _ScgPpgWalkthroughScreenState();
 }
 
 class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
-  
+
   // Track confirmation for each page
   final List<bool> _confirmed = [false, false, false, false];
 
@@ -577,16 +757,28 @@ class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
     return Scaffold(
       backgroundColor: TeraColors.paper,
       appBar: AppBar(
-        title: const Text('Setup', style: TextStyle(color: TeraColors.ink, fontSize: TeraText.section, fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Setup',
+          style: TextStyle(
+            color: TeraColors.ink,
+            fontSize: TeraText.section,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         backgroundColor: TeraColors.paper,
         elevation: 0,
         iconTheme: const IconThemeData(color: TeraColors.ink),
-        leading: _currentPage > 0 ? IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            _pageController.previousPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
-          },
-        ) : null,
+        leading: _currentPage > 0
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back),
+                onPressed: () {
+                  _pageController.previousPage(
+                    duration: const Duration(milliseconds: 300),
+                    curve: Curves.easeInOut,
+                  );
+                },
+              )
+            : null,
       ),
       body: SafeArea(
         child: Column(
@@ -596,50 +788,44 @@ class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
               padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(4, (index) => Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 4),
-                  width: _currentPage == index ? 24 : 8,
-                  height: 8,
-                  decoration: BoxDecoration(
-                    color: _currentPage == index ? TeraColors.brand : TeraColors.neutral300,
-                    borderRadius: BorderRadius.circular(4),
+                children: List.generate(
+                  2,
+                  (index) => Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    width: _currentPage == index ? 24 : 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: _currentPage == index
+                          ? TeraColors.brand
+                          : TeraColors.neutral300,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
                   ),
-                )),
+                ),
               ),
             ),
             Expanded(
               child: PageView(
                 controller: _pageController,
-                physics: const NeverScrollableScrollPhysics(), // Disable swipe to force confirmation
+                physics:
+                    const NeverScrollableScrollPhysics(), // Disable swipe to force confirmation
                 onPageChanged: (i) => setState(() => _currentPage = i),
                 children: [
                   _buildPage(
-                    step: 'STEP 1: Lie down on your back',
-                    sub: 'Lie down supine, on a bed or flat surface, with your shoulders and head relaxed.',
-                    icon: Icons.airline_seat_flat,
-                    confirmText: 'I\'m lying down',
+                    step: 'STEP 1: Sit upright',
+                    sub:
+                        'Sit upright (seated) with your back supported, shoulders and head relaxed.',
+                    icon: Icons.airline_seat_recline_normal,
+                    confirmText: 'I\'m seated',
                     pageIndex: 0,
                   ),
                   _buildPage(
                     step: 'STEP 2: Place your phone on your chest',
-                    sub: 'Hold your phone with one hand and place it flat against the center of your chest, screen facing up.',
+                    sub:
+                        'Hold your phone with one hand and place it flat against the center of your chest, screen facing you.',
                     icon: Icons.phone_android,
                     confirmText: 'My phone is in position',
                     pageIndex: 1,
-                  ),
-                  _buildPage(
-                    step: 'STEP 3: Cover the rear camera',
-                    sub: 'With your other hand, gently place your index finger over the rear camera and flash.',
-                    icon: Icons.camera_rear,
-                    confirmText: 'My finger is in position',
-                    pageIndex: 2,
-                  ),
-                  _buildPage(
-                    step: 'STEP 4: Relax and stay still',
-                    sub: 'Keep your position and avoid moving or talking during the check.',
-                    icon: Icons.self_improvement,
-                    confirmText: 'I\'m ready',
-                    pageIndex: 3,
                   ),
                 ],
               ),
@@ -649,24 +835,36 @@ class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
               child: SizedBox(
                 width: double.infinity,
                 child: FilledButton(
-                  onPressed: _confirmed[_currentPage] ? () {
-                    if (_currentPage < 3) {
-                      _pageController.nextPage(duration: const Duration(milliseconds: 300), curve: Curves.easeInOut);
-                    } else {
-                      widget.onDone();
-                    }
-                  } : null,
+                  onPressed: _confirmed[_currentPage]
+                      ? () {
+                          if (_currentPage < 1) {
+                            _pageController.nextPage(
+                              duration: const Duration(milliseconds: 300),
+                              curve: Curves.easeInOut,
+                            );
+                          } else {
+                            widget.onDone();
+                          }
+                        }
+                      : null,
                   style: FilledButton.styleFrom(
                     backgroundColor: TeraColors.ink,
                     foregroundColor: TeraColors.paper,
                     disabledBackgroundColor: TeraColors.neutral300,
                     disabledForegroundColor: TeraColors.neutral500,
-                    padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.button)),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: TeraSpacing.md,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(TeraRadius.button),
+                    ),
                   ),
                   child: Text(
-                    _currentPage < 3 ? 'Next' : 'Start Check',
-                    style: const TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold),
+                    _currentPage < 1 ? 'Next' : 'Start Camera',
+                    style: const TextStyle(
+                      fontSize: TeraText.body,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ),
@@ -685,7 +883,10 @@ class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
     required int pageIndex,
   }) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: TeraSpacing.xl, vertical: TeraSpacing.lg),
+      padding: const EdgeInsets.symmetric(
+        horizontal: TeraSpacing.xl,
+        vertical: TeraSpacing.lg,
+      ),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.start,
         children: [
@@ -702,18 +903,28 @@ class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
           Text(
             step,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: TeraText.section, fontWeight: FontWeight.bold, color: TeraColors.ink),
+            style: const TextStyle(
+              fontSize: TeraText.section,
+              fontWeight: FontWeight.bold,
+              color: TeraColors.ink,
+            ),
           ),
           const SizedBox(height: TeraSpacing.md),
           Text(
             sub,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: TeraText.body, color: TeraColors.neutral700, height: 1.4),
+            style: const TextStyle(
+              fontSize: TeraText.body,
+              color: TeraColors.neutral700,
+              height: 1.4,
+            ),
           ),
           const Spacer(),
           // Confirmation Toggle
           Material(
-            color: _confirmed[pageIndex] ? TeraColors.brand.withValues(alpha: 0.1) : TeraColors.paper,
+            color: _confirmed[pageIndex]
+                ? TeraColors.brand.withValues(alpha: 0.1)
+                : TeraColors.paper,
             borderRadius: BorderRadius.circular(TeraRadius.button),
             child: InkWell(
               onTap: () {
@@ -723,10 +934,15 @@ class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
               },
               borderRadius: BorderRadius.circular(TeraRadius.button),
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md, horizontal: TeraSpacing.md),
+                padding: const EdgeInsets.symmetric(
+                  vertical: TeraSpacing.md,
+                  horizontal: TeraSpacing.md,
+                ),
                 decoration: BoxDecoration(
                   border: Border.all(
-                    color: _confirmed[pageIndex] ? TeraColors.brand : TeraColors.neutral300,
+                    color: _confirmed[pageIndex]
+                        ? TeraColors.brand
+                        : TeraColors.neutral300,
                     width: 1.5,
                   ),
                   borderRadius: BorderRadius.circular(TeraRadius.button),
@@ -734,8 +950,12 @@ class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
                 child: Row(
                   children: [
                     Icon(
-                      _confirmed[pageIndex] ? Icons.check_circle : Icons.radio_button_unchecked,
-                      color: _confirmed[pageIndex] ? TeraColors.brand : TeraColors.neutral500,
+                      _confirmed[pageIndex]
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked,
+                      color: _confirmed[pageIndex]
+                          ? TeraColors.brand
+                          : TeraColors.neutral500,
                     ),
                     const SizedBox(width: TeraSpacing.md),
                     Expanded(
@@ -744,7 +964,9 @@ class _ScgPpgWalkthroughScreenState extends State<ScgPpgWalkthroughScreen> {
                         style: TextStyle(
                           fontSize: TeraText.body,
                           fontWeight: FontWeight.w600,
-                          color: _confirmed[pageIndex] ? TeraColors.brand : TeraColors.ink,
+                          color: _confirmed[pageIndex]
+                              ? TeraColors.brand
+                              : TeraColors.ink,
                         ),
                       ),
                     ),
@@ -829,6 +1051,49 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
       await _fileContext();
 
       if (!mounted) return;
+
+      final bool? consent = await showDialog<bool>(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('Data Privacy Notice'),
+            content: const Text(
+              'Your data will be sent securely to NVIDIA NIM public AI to generate insights. Do you consent?',
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Decline'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('I Consent'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (consent != true) {
+        TeraFlow.toHome(context);
+        return;
+      }
+
+      if (!mounted) return;
+      
+      // POST the sensor data to the ML backend route / rule engine
+      if (widget.payload.checkSessionId != null) {
+        await widget.flow.api.postJson(
+          '/v1/check-sessions/${widget.payload.checkSessionId}/process',
+          {
+            'scg': signal.scg,
+            'ppg': signal.ppg,
+            'ai_consent': true,
+          }
+        );
+      }
+
       TeraFlow.advance(
         context,
         CheckFlow.afterProcessing(widget.session),
@@ -842,7 +1107,10 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
       if (!mounted) return;
       TeraFlow.advance(
         context,
-        CheckFlow.afterSensorCapture(widget.session, SignalQuality.retryableReject),
+        CheckFlow.afterSensorCapture(
+          widget.session,
+          SignalQuality.retryableReject,
+        ),
         payload: widget.payload,
       );
     } on ApiException catch (e) {
@@ -916,7 +1184,11 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
               : Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Text(_contraindicated ? 'Tera cannot produce a trend' : 'Could not send'),
+                    Text(
+                      _contraindicated
+                          ? 'Tera cannot produce a trend'
+                          : 'Could not send',
+                    ),
                     const SizedBox(height: 8),
                     Text(error),
                     const SizedBox(height: 24),
@@ -947,9 +1219,17 @@ class ProfileIndexScreen extends StatelessWidget {
     ('Personal Details', Routes.profilePersonal, Icons.person_outline),
     ('Health Conditions', Routes.profileConditions, Icons.favorite_border),
     ('Medications', Routes.profileMedications, Icons.medication_outlined),
-    ('Lifestyle & Risk Factors', Routes.profileLifestyle, Icons.directions_walk),
+    (
+      'Lifestyle & Risk Factors',
+      Routes.profileLifestyle,
+      Icons.directions_walk,
+    ),
     ('Family History', Routes.profileFamilyHistory, Icons.family_restroom),
-    ('BP Reference & Monitoring', Routes.profileBpReference, Icons.monitor_heart_outlined),
+    (
+      'BP Reference & Monitoring',
+      Routes.profileBpReference,
+      Icons.monitor_heart_outlined,
+    ),
     ('Device Eligibility', Routes.profileDevice, Icons.smartphone),
     ('Data & Privacy', Routes.profilePrivacy, Icons.privacy_tip_outlined),
   ];
@@ -959,7 +1239,13 @@ class ProfileIndexScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
-        title: const Text('Profile', style: TextStyle(color: Color(0xFF1E293B), fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Profile',
+          style: TextStyle(
+            color: Color(0xFF1E293B),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: const IconThemeData(color: Color(0xFF1E293B)),
@@ -970,14 +1256,35 @@ class ProfileIndexScreen extends StatelessWidget {
           // Header
           Row(
             children: [
-              const CircleAvatar(radius: 32, backgroundColor: Color(0xFF0F172A), child: Text('T', style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold))),
+              const CircleAvatar(
+                radius: 32,
+                backgroundColor: Color(0xFF0F172A),
+                child: Text(
+                  'T',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
               const SizedBox(width: 16),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: const [
-                  Text('Tera User', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+                  Text(
+                    'Tera User',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1E293B),
+                    ),
+                  ),
                   SizedBox(height: 4),
-                  Text('user@example.com', style: TextStyle(fontSize: 14, color: Color(0xFF64748B))),
+                  Text(
+                    'user@example.com',
+                    style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
+                  ),
                 ],
               ),
             ],
@@ -986,49 +1293,102 @@ class ProfileIndexScreen extends StatelessWidget {
           // Completion
           Container(
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
-                    Text('Health Profile', style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
+                    Text(
+                      'Health Profile',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF1E293B),
+                      ),
+                    ),
                     SizedBox(height: 4),
-                    Text('65% complete', style: TextStyle(fontSize: 12, color: Color(0xFF64748B))),
+                    Text(
+                      '65% complete',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    ),
                   ],
                 ),
                 FilledButton(
                   onPressed: () {},
-                  style: FilledButton.styleFrom(backgroundColor: const Color(0xFF2563EB), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8))),
-                  child: const Text('Complete', style: TextStyle(fontWeight: FontWeight.w600)),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: const Text(
+                    'Complete',
+                    style: TextStyle(fontWeight: FontWeight.w600),
+                  ),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 32),
-          const Text('Settings', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
+          const Text(
+            'Settings',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF1E293B),
+            ),
+          ),
           const SizedBox(height: 12),
           Container(
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12), border: Border.all(color: const Color(0xFFE2E8F0))),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
             child: Column(
-              children: _entries.map((entry) => Column(
-                children: [
-                  ListTile(
-                    leading: Icon(entry.$3, color: const Color(0xFF64748B)),
-                    title: Text(entry.$1, style: const TextStyle(color: Color(0xFF334155), fontWeight: FontWeight.w500)),
-                    trailing: const Icon(Icons.chevron_right, color: Color(0xFFCBD5E1)),
-                    onTap: () => Navigator.of(context).pushNamed(entry.$2),
-                  ),
-                  if (entry != _entries.last) const Divider(height: 1, indent: 56),
-                ],
-              )).toList(),
+              children: _entries
+                  .map(
+                    (entry) => Column(
+                      children: [
+                        ListTile(
+                          leading: Icon(
+                            entry.$3,
+                            color: const Color(0xFF64748B),
+                          ),
+                          title: Text(
+                            entry.$1,
+                            style: const TextStyle(
+                              color: Color(0xFF334155),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          trailing: const Icon(
+                            Icons.chevron_right,
+                            color: Color(0xFFCBD5E1),
+                          ),
+                          onTap: () =>
+                              Navigator.of(context).pushNamed(entry.$2),
+                        ),
+                        if (entry != _entries.last)
+                          const Divider(height: 1, indent: 56),
+                      ],
+                    ),
+                  )
+                  .toList(),
             ),
           ),
           const SizedBox(height: 24),
           TextButton(
             onPressed: () {},
-            child: const Text('Log Out', style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600)),
+            child: const Text(
+              'Log Out',
+              style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+            ),
           ),
           const SizedBox(height: 48),
         ],
@@ -1036,4 +1396,3 @@ class ProfileIndexScreen extends StatelessWidget {
     );
   }
 }
-

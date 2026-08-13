@@ -36,23 +36,20 @@ import '../routing/routes.dart';
 import 'form_kit.dart';
 import 'tokens.dart';
 
-/// Save locally, advance the step, then upload. In that order, for the reason in the library
-/// docstring.
+/// Save locally and advance the step.
+/// The final step (ONB-03) handles the monolithic API submission.
 Future<void> advanceOnboarding(
   BuildContext context,
   TeraFlow flow,
   OnboardingStep step,
   PhrProfile profile,
-  OnboardingSection section,
 ) async {
   await flow.completeOnboardingStep(step);
-  // Fire and forget by design — `PhrSubmitter.submit` swallows and reports a bool it does not
-  // need to wait for. The server copy is what survives an uninstall; the handset copy is what
-  // the next screen reads.
-  unawaited(PhrSubmitter(api: flow.api).submit(profile, section: section));
 
   if (!context.mounted) return;
-  final next = flow.state.onboardingComplete ? Routes.home : flow.state.onboardingStep.route;
+  final next = flow.state.onboardingComplete
+      ? Routes.home
+      : flow.state.onboardingStep.route;
   Navigator.of(context).pushNamedAndRemoveUntil(next, (r) => false);
 }
 
@@ -182,7 +179,6 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
       widget.flow,
       OnboardingStep.aboutYou,
       saved,
-      OnboardingSection.aboutYou,
     );
   }
 
@@ -196,7 +192,8 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
         specId: 'ONB-01',
         step: 1,
         title: 'About you',
-        subtitle: 'Two answers Tera needs, and two it can use if you have them.',
+        subtitle:
+            'Two answers Tera needs, and two it can use if you have them.',
         actions: StepActions(
           onNext: _next,
           busy: _busy,
@@ -209,7 +206,10 @@ class _AboutYouScreenState extends State<AboutYouScreen> {
           _DateField(value: _dob, onTap: _pickDob),
           const SizedBox(height: TeraSpacing.xl),
 
-          const QuestionHeading('What is your sex assigned at birth?', required: true),
+          const QuestionHeading(
+            'What is your sex assigned at birth?',
+            required: true,
+          ),
           const SizedBox(height: TeraSpacing.md),
           for (final option in SexAtBirth.values)
             AnswerOption(
@@ -265,8 +265,18 @@ class _DateField extends StatelessWidget {
   final VoidCallback onTap;
 
   static const _months = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
 
   @override
@@ -291,7 +301,11 @@ class _DateField extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const Icon(Icons.calendar_today_outlined, color: TeraColors.neutral500, size: 22),
+              const Icon(
+                Icons.calendar_today_outlined,
+                color: TeraColors.neutral500,
+                size: 22,
+              ),
               const SizedBox(width: TeraSpacing.md),
               Expanded(
                 child: Text(
@@ -356,7 +370,10 @@ class _MeasurementField extends StatelessWidget {
         ),
       ),
       suffixIconConstraints: const BoxConstraints(minWidth: 56),
-      errorStyle: const TextStyle(fontSize: TeraText.micro, color: TeraColors.plum),
+      errorStyle: const TextStyle(
+        fontSize: TeraText.micro,
+        color: TeraColors.plum,
+      ),
       errorBorder: OutlineInputBorder(
         borderRadius: TeraRadius.fieldBorder,
         borderSide: const BorderSide(color: TeraColors.plum),
@@ -374,7 +391,11 @@ class _MeasurementField extends StatelessWidget {
 
 /// ONB-03 — Health Context. Two required questions and a multi-select.
 class HealthContextScreen extends StatefulWidget {
-  const HealthContextScreen({super.key, required this.flow, required this.store});
+  const HealthContextScreen({
+    super.key,
+    required this.flow,
+    required this.store,
+  });
 
   final TeraFlow flow;
   final PhrProfileStore store;
@@ -464,13 +485,22 @@ class _HealthContextScreenState extends State<HealthContextScreen> {
     );
     await widget.store.write(saved);
 
+    final success = await PhrSubmitter(api: widget.flow.api).submit(saved);
     if (!mounted) return;
+
+    if (!success) {
+      setState(() {
+        _busy = false;
+        _error = 'Could not save profile. Check your connection and try again.';
+      });
+      return;
+    }
+
     await advanceOnboarding(
       context,
       widget.flow,
       OnboardingStep.healthContext,
       saved,
-      OnboardingSection.healthContext,
     );
   }
 

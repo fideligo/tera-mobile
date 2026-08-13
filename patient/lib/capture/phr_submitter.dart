@@ -29,11 +29,16 @@ class PhrSubmitter {
   static Map<String, dynamic> patchFor(PhrProfile profile) {
     return {
       if (profile.dateOfBirth != null)
-        'date_of_birth': profile.dateOfBirth!.toIso8601String().split('T').first,
-      if (profile.sexAtBirth != null) 'sex_assigned_at_birth': profile.sexAtBirth!.wireValue,
+        'date_of_birth': profile.dateOfBirth!
+            .toIso8601String()
+            .split('T')
+            .first,
+      if (profile.sexAtBirth != null)
+        'sex_assigned_at_birth': profile.sexAtBirth!.wireValue,
       if (profile.heightCm != null) 'height_cm': profile.heightCm,
       if (profile.weightKg != null) 'weight_kg': profile.weightKg,
-      if (profile.hypertension != null) 'hypertension_status': profile.hypertension!.wireValue,
+      if (profile.hypertension != null)
+        'hypertension_status': profile.hypertension!.wireValue,
       if (profile.takesBpMedication != null)
         'taking_bp_medication': profile.takesBpMedication,
       'conditions': [for (final c in profile.conditions) c.wireValue],

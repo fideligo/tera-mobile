@@ -26,10 +26,10 @@ import 'package:meta/meta.dart';
 
 /// Fixed output of the mock. Named rather than inlined so a test can assert the screen shows
 /// exactly these and not something it rounded or reformatted on the way.
-const int mockOcrSystolic = 152;
-const int mockOcrDiastolic = 96;
-const int mockOcrPulse = 74;
-const double mockOcrConfidence = 0.88;
+const int mockOcrSystolic = 120;
+const int mockOcrDiastolic = 80;
+const int mockOcrPulse = 72;
+const double mockOcrConfidence = 0.98;
 
 /// Shown wherever simulated numbers appear. Kept here so it cannot drift from the thing it
 /// describes.
@@ -78,7 +78,7 @@ abstract class CuffOcrExtractor {
 /// Stand-in until a real extractor lands. Returns [mockOcrSystolic] over [mockOcrDiastolic] after
 /// a delay long enough for the UI's waiting state to be visible and judged.
 class MockCuffOcrExtractor implements CuffOcrExtractor {
-  const MockCuffOcrExtractor({this.delay = const Duration(seconds: 1)});
+  const MockCuffOcrExtractor({this.delay = const Duration(seconds: 3)});
 
   final Duration delay;
 

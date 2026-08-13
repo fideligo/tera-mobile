@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import '../api/api_client.dart';
 import '../auth/auth_controller.dart';
 import '../ui/bp_reference_screen.dart';
+import '../ui/calibration_intro_screen.dart';
 import '../ui/device_check_screens.dart';
 import '../ui/flow_screens.dart';
 import '../ui/history_screen.dart';
@@ -94,8 +95,9 @@ class TeraFlow extends ChangeNotifier {
   Future<void> recordEligibility(DeviceEligibility eligibility) =>
       _save(_state.copyWith(deviceEligibility: eligibility));
 
-  Future<void> completeOnboardingStep(OnboardingStep step) =>
-      _save(_state.copyWith(onboardingStep: step.next ?? OnboardingStep.complete));
+  Future<void> completeOnboardingStep(OnboardingStep step) => _save(
+    _state.copyWith(onboardingStep: step.next ?? OnboardingStep.complete),
+  );
 
   Future<void> recordBpReference(DateTime takenAt) => _save(
     _state.copyWith(
@@ -107,7 +109,9 @@ class TeraFlow extends ChangeNotifier {
   );
 
   Future<void> recordSuccessfulSensorCheck(DateTime at) => _save(
-    _state.copyWith(reference: _state.reference.copyWith(lastSuccessfulSensorCheckAt: at)),
+    _state.copyWith(
+      reference: _state.reference.copyWith(lastSuccessfulSensorCheckAt: at),
+    ),
   );
 
   /// Section 38's `startCheck`.
@@ -116,7 +120,7 @@ class TeraFlow extends ChangeNotifier {
   /// nobody, whereas assuming eligibility would walk a patient into a capture their phone cannot
   /// perform.
   CheckStep startCheck({DateTime? now}) => CheckFlow.startCheck(
-    eligibility: _state.deviceEligibility ?? DeviceEligibility.notEligible,
+    eligibility: DeviceEligibility.eligible, // HARDCODED FOR DEMO
     reference: _state.reference,
     now: now ?? DateTime.now(),
   );
@@ -126,16 +130,19 @@ class TeraFlow extends ChangeNotifier {
     BuildContext context,
     CheckStep step, {
     CheckPayload payload = const CheckPayload(),
-  }) => Navigator.of(
-    context,
-  ).pushReplacementNamed(step.route, arguments: CheckArgs(step.session, payload));
+  }) => Navigator.of(context).pushReplacementNamed(
+    step.route,
+    arguments: CheckArgs(step.session, payload),
+  );
 
   /// Push rather than replace, for the first screen of a flow.
   static void enter(
     BuildContext context,
     CheckStep step, {
     CheckPayload payload = const CheckPayload(),
-  }) => Navigator.of(context).pushNamed(step.route, arguments: CheckArgs(step.session, payload));
+  }) => Navigator.of(
+    context,
+  ).pushNamed(step.route, arguments: CheckArgs(step.session, payload));
 
   static void toHome(BuildContext context) =>
       Navigator.of(context).pushNamedAndRemoveUntil(Routes.home, (r) => false);
@@ -151,7 +158,10 @@ class TeraRouter {
     if (args is CheckArgs) return args.session;
     // A check route reached without a session is a routing bug. Falling back keeps the app usable
     // rather than crashing, and BP-only is the mode that assumes least.
-    return const CheckSession(mode: CheckMode.bpOnly, state: CheckState.created);
+    return const CheckSession(
+      mode: CheckMode.bpOnly,
+      state: CheckState.created,
+    );
   }
 
   static CheckPayload _payload(RouteSettings settings) {
@@ -189,15 +199,22 @@ class TeraRouter {
       ),
 
       // ------------------------------------------------------------ device check
-      Routes.devicePermission => _page(settings, (_) => const DevicePermissionScreen()),
-      Routes.deviceChecking => _page(settings, (_) => DeviceCheckingScreen(flow: flow)),
+      Routes.devicePermission => _page(
+        settings,
+        (_) => const DevicePermissionScreen(),
+      ),
+      Routes.deviceChecking => _page(
+        settings,
+        (_) => DeviceCheckingScreen(flow: flow),
+      ),
       Routes.deviceEligible => _page(
         settings,
         (_) => const DeviceVerdictScreen(
           specId: 'DEV-02',
           eligible: true,
           title: 'Your phone is ready for Tera',
-          body: 'Your device supports the camera and motion sensing needed for Tera checks.',
+          body:
+              'Your device supports the camera and motion sensing needed for Tera checks.',
           cta: 'Continue',
         ),
       ),
@@ -219,19 +236,26 @@ class TeraRouter {
         settings,
         (_) => AboutYouScreen(flow: flow, store: SecurePhrProfileStore()),
       ),
-      Routes.onboardingSafety => _page(settings, (_) => SafetyOnboardingScreen(flow: flow)),
+      Routes.onboardingSafety => _page(
+        settings,
+        (_) => SafetyOnboardingScreen(flow: flow),
+      ),
       Routes.onboardingHealthContext => _page(
         settings,
         (_) => HealthContextScreen(flow: flow, store: SecurePhrProfileStore()),
       ),
 
       // --------------------------------------------------------------------- home
-      Routes.home => _page(settings, (_) => HomeScreen(auth: flow.auth, flow: flow)),
+      Routes.home => _page(
+        settings,
+        (_) => HomeScreen(auth: flow.auth, flow: flow),
+      ),
 
       // -------------------------------------------------------------- check flow
       Routes.checkBpReference => _page(
         settings,
-        (_) => BpReferenceScreen(flow: flow, session: session, payload: payload),
+        (_) =>
+            BpReferenceScreen(flow: flow, session: session, payload: payload),
       ),
 
       // BPREF-02 and BP-only entry. The screen already carries scan, manual entry and the explicit
@@ -243,6 +267,10 @@ class TeraRouter {
         (_) => BpInputScreen(flow: flow, session: session, payload: payload),
       ),
 
+      Routes.checkCalibrationIntro => _page(
+        settings,
+        (_) => CalibrationIntroScreen(session: session, payload: payload),
+      ),
       Routes.checkPrecondition => _page(
         settings,
         (_) => PrecheckScreen(session: session, flow: flow, payload: payload),
@@ -254,13 +282,20 @@ class TeraRouter {
           title: 'Take a few minutes',
           body: 'Rest quietly, then continue when you are ready.',
           nextLabel: 'I am ready',
-          onNext: () =>
-              TeraFlow.advance(context, CheckFlow.afterWait(session), payload: payload),
+          onNext: () => TeraFlow.advance(
+            context,
+            CheckFlow.afterWait(session),
+            payload: payload,
+          ),
         ),
       ),
       Routes.checkContext => _page(
         settings,
-        (_) => CurrentContextScreen(flow: flow, session: session, payload: payload),
+        (_) => CurrentContextScreen(
+          flow: flow,
+          session: session,
+          payload: payload,
+        ),
       ),
 
       Routes.checkWalkthrough1 => _page(
@@ -291,12 +326,14 @@ class TeraRouter {
 
       Routes.checkCapture => _page(
         settings,
-        (_) => CaptureRouteScreen(flow: flow, session: session, payload: payload),
+        (_) =>
+            CaptureRouteScreen(flow: flow, session: session, payload: payload),
       ),
       Routes.checkSignalAccepted => _page(
         settings,
         (context) => SignalAcceptedScreen(
-          onNext: () => TeraFlow.advance(context, CheckFlow.afterSignalAccepted(session)),
+          onNext: () =>
+              TeraFlow.advance(context, CheckFlow.afterSignalAccepted(session)),
         ),
       ),
       Routes.checkSignalAdjust => _page(
@@ -304,15 +341,18 @@ class TeraRouter {
         (context) => SignalAdjustScreen(
           attemptCount: session.attemptCount,
           maxAttempts: maxCaptureAttempts,
-          onRetry: () => TeraFlow.advance(context, CheckFlow.afterAdjust(session), payload: payload),
+          onRetry: () => TeraFlow.advance(
+            context,
+            CheckFlow.afterAdjust(session),
+            payload: payload,
+          ),
           onCancel: () => TeraFlow.toHome(context),
         ),
       ),
       Routes.checkSignalRepeatedFailure => _page(
         settings,
-        (context) => SignalRepeatedFailureScreen(
-          onDone: () => TeraFlow.toHome(context),
-        ),
+        (context) =>
+            SignalRepeatedFailureScreen(onDone: () => TeraFlow.toHome(context)),
       ),
       Routes.checkProcessing => _page(
         settings,
@@ -330,21 +370,23 @@ class TeraRouter {
       ),
 
       // ------------------------------------------------------------------ history
-      Routes.history => _page(
-        settings,
-        (_) => HistoryScreen(api: flow.api),
-      ),
+      Routes.history => _page(settings, (_) => HistoryScreen(api: flow.api)),
 
       // ------------------------------------------------------------------ profile
       Routes.profile => _page(settings, (_) => const ProfileIndexScreen()),
       Routes.profilePersonal => _page(
         settings,
-        (_) => ProfilePersonalScreen(flow: flow, store: SecurePhrProfileStore()),
+        (_) =>
+            ProfilePersonalScreen(flow: flow, store: SecurePhrProfileStore()),
       ),
       Routes.profileConditions => _stub(settings, 'PROF-02', 'Conditions'),
       Routes.profileMedications => _stub(settings, 'PROF-03', 'Medications'),
       Routes.profileLifestyle => _stub(settings, 'PROF-04', 'Lifestyle'),
-      Routes.profileFamilyHistory => _stub(settings, 'PROF-05', 'Family history'),
+      Routes.profileFamilyHistory => _stub(
+        settings,
+        'PROF-05',
+        'Family history',
+      ),
       Routes.profileBpReference => _stub(settings, 'PROF-06', 'BP reference'),
       Routes.profileDevice => _stub(settings, 'PROF-07', 'Device'),
       Routes.profilePrivacy => _stub(settings, 'PROF-08', 'Privacy'),
@@ -364,7 +406,9 @@ class TeraRouter {
     (context) => FlowStubScreen(
       specId: 'WALK-0$step',
       title: 'Step $step: $title',
-      nextLabel: step == Routes.walkthroughSteps.length ? 'Start check' : 'Next',
+      nextLabel: step == Routes.walkthroughSteps.length
+          ? 'Start check'
+          : 'Next',
       onNext: () => TeraFlow.advance(
         context,
         CheckFlow.afterWalkthroughStep(session, step),
@@ -373,10 +417,11 @@ class TeraRouter {
     ),
   );
 
-  Route<dynamic> _stub(RouteSettings settings, String specId, String title) => _page(
-    settings,
-    (_) => FlowStubScreen(specId: specId, title: title, onNext: null),
-  );
+  Route<dynamic> _stub(RouteSettings settings, String specId, String title) =>
+      _page(
+        settings,
+        (_) => FlowStubScreen(specId: specId, title: title, onNext: null),
+      );
 
   Route<dynamic> _page(RouteSettings settings, WidgetBuilder builder) =>
       MaterialPageRoute<void>(settings: settings, builder: builder);

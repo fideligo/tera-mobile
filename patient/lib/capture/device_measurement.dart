@@ -210,7 +210,10 @@ class DeviceEligibilityReporter {
         capabilities: capabilities,
         accelRateHz: accelRateHz,
       );
-      await _api.postJson('/v1/device/eligibility', measurements.toEligibilityPayload());
+      await _api.postJson(
+        '/v1/device/eligibility',
+        measurements.toEligibilityPayload(),
+      );
       return true;
     } on Object {
       return false;

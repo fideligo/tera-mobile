@@ -40,7 +40,8 @@ class _ContextIntakeScreenState extends State<ContextIntakeScreen> {
   final _formKey = GlobalKey<FormState>();
 
   DateTime? _regimenChange;
-  final List<({TextEditingController name, TextEditingController dose})> _medications = [];
+  final List<({TextEditingController name, TextEditingController dose})>
+  _medications = [];
   PregnancyAnswer? _pregnant;
   bool? _arrhythmia;
   final _clinicSys = TextEditingController();
@@ -93,7 +94,10 @@ class _ContextIntakeScreenState extends State<ContextIntakeScreen> {
     dose: TextEditingController(),
   ));
 
-  Future<void> _pickDate({required DateTime? current, required ValueChanged<DateTime> onPicked}) async {
+  Future<void> _pickDate({
+    required DateTime? current,
+    required ValueChanged<DateTime> onPicked,
+  }) async {
     final now = DateTime.now();
     final picked = await showDatePicker(
       context: context,
@@ -116,7 +120,9 @@ class _ContextIntakeScreenState extends State<ContextIntakeScreen> {
       return null;
     }
     if (_arrhythmia == null) {
-      setState(() => _error = 'Answer the irregular-heartbeat question before saving.');
+      setState(
+        () => _error = 'Answer the irregular-heartbeat question before saving.',
+      );
       return null;
     }
 
@@ -139,7 +145,10 @@ class _ContextIntakeScreenState extends State<ContextIntakeScreen> {
         return null;
       }
     } else if (sys != null || dia != null) {
-      setState(() => _error = 'Enter both numbers from the clinic reading, or neither.');
+      setState(
+        () =>
+            _error = 'Enter both numbers from the clinic reading, or neither.',
+      );
       return null;
     }
 
@@ -147,7 +156,8 @@ class _ContextIntakeScreenState extends State<ContextIntakeScreen> {
       lastRegimenChangeDate: _regimenChange,
       medications: [
         for (final row in _medications)
-          if (row.name.text.trim().isNotEmpty || row.dose.text.trim().isNotEmpty)
+          if (row.name.text.trim().isNotEmpty ||
+              row.dose.text.trim().isNotEmpty)
             Medication(name: row.name.text, dose: row.dose.text),
       ],
       pregnant: _pregnant!,
@@ -302,9 +312,13 @@ class _ContextIntakeScreenState extends State<ContextIntakeScreen> {
                           switch (answer) {
                             PregnancyAnswer.yes => 'Yes',
                             PregnancyAnswer.no => 'No',
-                            PregnancyAnswer.preferNotToSay => 'Prefer not to say',
+                            PregnancyAnswer.preferNotToSay =>
+                              'Prefer not to say',
                           },
-                          style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
+                          style: const TextStyle(
+                            fontSize: TeraText.body,
+                            color: TeraColors.ink,
+                          ),
                         ),
                         contentPadding: EdgeInsets.zero,
                         activeColor: TeraColors.brand,
@@ -314,7 +328,9 @@ class _ContextIntakeScreenState extends State<ContextIntakeScreen> {
               ),
               const SizedBox(height: TeraSpacing.lg),
 
-              _sectionLabel('Have you been told you have an irregular heartbeat?'),
+              _sectionLabel(
+                'Have you been told you have an irregular heartbeat?',
+              ),
               RadioGroup<bool>(
                 groupValue: _arrhythmia,
                 onChanged: (v) => setState(() => _arrhythmia = v),
@@ -325,7 +341,10 @@ class _ContextIntakeScreenState extends State<ContextIntakeScreen> {
                         value: yes,
                         title: Text(
                           yes ? 'Yes' : 'No',
-                          style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
+                          style: const TextStyle(
+                            fontSize: TeraText.body,
+                            color: TeraColors.ink,
+                          ),
                         ),
                         contentPadding: EdgeInsets.zero,
                         activeColor: TeraColors.brand,
@@ -341,7 +360,9 @@ class _ContextIntakeScreenState extends State<ContextIntakeScreen> {
                   Expanded(
                     child: TextFormField(
                       controller: _clinicSys,
-                      decoration: const InputDecoration(labelText: 'Top (systolic)'),
+                      decoration: const InputDecoration(
+                        labelText: 'Top (systolic)',
+                      ),
                       keyboardType: TextInputType.number,
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     ),
@@ -350,7 +371,9 @@ class _ContextIntakeScreenState extends State<ContextIntakeScreen> {
                   Expanded(
                     child: TextFormField(
                       controller: _clinicDia,
-                      decoration: const InputDecoration(labelText: 'Bottom (diastolic)'),
+                      decoration: const InputDecoration(
+                        labelText: 'Bottom (diastolic)',
+                      ),
                       keyboardType: TextInputType.number,
                       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     ),
@@ -391,7 +414,7 @@ class _ContextIntakeScreenState extends State<ContextIntakeScreen> {
                   // either way; only the durable copy is missing.
                   false =>
                     'Saved on this phone. It could not reach your Tera account just now and will '
-                    'need saving again when you are back online.',
+                        'need saving again when you are back online.',
                   true => 'Saved to this phone and to your Tera account.',
                   null => 'Saved on this phone and to your Tera account.',
                 },

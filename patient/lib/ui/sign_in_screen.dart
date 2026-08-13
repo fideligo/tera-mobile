@@ -52,7 +52,9 @@ class _SignInScreenState extends State<SignInScreen> {
     if (mounted) {
       setState(() => _busy = false);
       if (success) {
-        Navigator.of(context).pushNamedAndRemoveUntil(Routes.splash, (r) => false);
+        Navigator.of(
+          context,
+        ).pushNamedAndRemoveUntil(Routes.splash, (r) => false);
       }
     }
   }
@@ -161,17 +163,23 @@ class _SignInScreenState extends State<SignInScreen> {
                             keyboardType: TextInputType.emailAddress,
                             autocorrect: false,
                             textInputAction: TextInputAction.next,
-                            style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
+                            style: const TextStyle(
+                              fontSize: TeraText.body,
+                              color: TeraColors.ink,
+                            ),
                             decoration: const InputDecoration(
                               hintText: 'cth: nama@email.com',
-                              hintStyle: TextStyle(color: TeraColors.neutral500),
+                              hintStyle: TextStyle(
+                                color: TeraColors.neutral500,
+                              ),
                               contentPadding: EdgeInsets.symmetric(
                                 horizontal: TeraSpacing.md,
                                 vertical: 14,
                               ),
                             ),
-                            validator: (v) =>
-                                (v == null || v.trim().isEmpty) ? 'Masukkan email kamu.' : null,
+                            validator: (v) => (v == null || v.trim().isEmpty)
+                                ? 'Masukkan email kamu.'
+                                : null,
                           ),
                           const SizedBox(height: TeraSpacing.lg),
 
@@ -198,10 +206,15 @@ class _SignInScreenState extends State<SignInScreen> {
                             obscureText: _obscure,
                             textInputAction: TextInputAction.done,
                             onFieldSubmitted: (_) => _submit(),
-                            style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
+                            style: const TextStyle(
+                              fontSize: TeraText.body,
+                              color: TeraColors.ink,
+                            ),
                             decoration: InputDecoration(
                               hintText: 'Masukkan kata sandimu',
-                              hintStyle: const TextStyle(color: TeraColors.neutral500),
+                              hintStyle: const TextStyle(
+                                color: TeraColors.neutral500,
+                              ),
                               contentPadding: const EdgeInsets.symmetric(
                                 horizontal: TeraSpacing.md,
                                 vertical: 14,
@@ -213,11 +226,13 @@ class _SignInScreenState extends State<SignInScreen> {
                                       : Icons.visibility_outlined,
                                   color: TeraColors.neutral500,
                                 ),
-                                onPressed: () => setState(() => _obscure = !_obscure),
+                                onPressed: () =>
+                                    setState(() => _obscure = !_obscure),
                               ),
                             ),
-                            validator: (v) =>
-                                (v == null || v.isEmpty) ? 'Masukkan kata sandi.' : null,
+                            validator: (v) => (v == null || v.isEmpty)
+                                ? 'Masukkan kata sandi.'
+                                : null,
                           ),
                         ],
                       ),
@@ -232,7 +247,10 @@ class _SignInScreenState extends State<SignInScreen> {
                       padding: const EdgeInsets.all(TeraSpacing.md),
                       child: Text(
                         error,
-                        style: const TextStyle(color: TeraColors.ink, height: 1.4),
+                        style: const TextStyle(
+                          color: TeraColors.ink,
+                          height: 1.4,
+                        ),
                       ),
                     ),
                   ],
@@ -248,7 +266,9 @@ class _SignInScreenState extends State<SignInScreen> {
                         backgroundColor: const Color(0xFF0D2B45),
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(TeraRadius.button),
+                          borderRadius: BorderRadius.circular(
+                            TeraRadius.button,
+                          ),
                         ),
                         textStyle: const TextStyle(
                           fontSize: TeraText.body,
@@ -274,7 +294,9 @@ class _SignInScreenState extends State<SignInScreen> {
                     children: [
                       Expanded(child: Divider(color: TeraColors.neutral300)),
                       Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: TeraSpacing.md),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: TeraSpacing.md,
+                        ),
                         child: Text(
                           'Atau lanjut dengan',
                           style: TextStyle(
@@ -306,7 +328,9 @@ class _SignInScreenState extends State<SignInScreen> {
                         foregroundColor: TeraColors.ink,
                         side: const BorderSide(color: TeraColors.neutral300),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(TeraRadius.button),
+                          borderRadius: BorderRadius.circular(
+                            TeraRadius.button,
+                          ),
                         ),
                         textStyle: const TextStyle(
                           fontSize: TeraText.body,
@@ -346,7 +370,8 @@ class _SignInScreenState extends State<SignInScreen> {
                         ),
                       ),
                       GestureDetector(
-                        onTap: () => Navigator.of(context).pushNamed(Routes.register),
+                        onTap: () =>
+                            Navigator.of(context).pushNamed(Routes.register),
                         child: const Text(
                           'Register',
                           style: TextStyle(

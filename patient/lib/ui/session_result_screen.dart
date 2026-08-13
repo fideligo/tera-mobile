@@ -89,7 +89,9 @@ class _SessionResultScreenState extends State<SessionResultScreen> {
 
       if (!mounted) return;
       setState(() => _stage = _Stage.resolving);
-      final context = await SessionContextResolver(api: widget.api).resolve(measurements);
+      final context = await SessionContextResolver(
+        api: widget.api,
+      ).resolve(measurements);
 
       if (!mounted) return;
       setState(() => _stage = _Stage.submitting);
@@ -181,7 +183,10 @@ class _SessionResultScreenState extends State<SessionResultScreen> {
         ],
         // Compile-time constant. In a build without --dart-define=TERA_DEBUG_CAPTURE the whole
         // branch is removed, so the raw export is absent rather than merely hidden.
-        if (kDebugCaptureEnabled) ...[const SizedBox(height: TeraSpacing.md), _debugExport()],
+        if (kDebugCaptureEnabled) ...[
+          const SizedBox(height: TeraSpacing.md),
+          _debugExport(),
+        ],
         const SizedBox(height: TeraSpacing.lg),
         FilledButton(onPressed: widget.onDone, child: const Text('Done')),
       ],
@@ -213,10 +218,17 @@ class _SessionResultScreenState extends State<SessionResultScreen> {
         const SizedBox(height: TeraSpacing.sm),
         const Text(
           debugCaptureNotice,
-          style: TextStyle(color: TeraColors.ink, height: 1.5, fontSize: TeraText.small),
+          style: TextStyle(
+            color: TeraColors.ink,
+            height: 1.5,
+            fontSize: TeraText.small,
+          ),
         ),
         const SizedBox(height: TeraSpacing.md),
-        OutlinedButton(onPressed: _exportRaw, child: const Text('Write raw signals to this phone')),
+        OutlinedButton(
+          onPressed: _exportRaw,
+          child: const Text('Write raw signals to this phone'),
+        ),
         if (_exportNote != null) ...[
           const SizedBox(height: TeraSpacing.sm),
           Text(
@@ -236,7 +248,10 @@ class _SessionResultScreenState extends State<SessionResultScreen> {
     try {
       final result = await exportRawCapture(widget.capture);
       if (!mounted) return;
-      setState(() => _exportNote = 'Written to:\n${result.accelPath}\n${result.framesPath}');
+      setState(
+        () => _exportNote =
+            'Written to:\n${result.accelPath}\n${result.framesPath}',
+      );
     } on Object catch (e) {
       if (!mounted) return;
       setState(() => _exportNote = 'Export failed. $e');
@@ -254,10 +269,15 @@ class _SessionResultScreenState extends State<SessionResultScreen> {
     'decrease' =>
       'This spot check sits below your usual range. It is not a blood-pressure '
           'reading. Use your cuff to check.',
-    _ => 'This spot check sits within your usual range. It is not a blood-pressure reading.',
+    _ =>
+      'This spot check sits within your usual range. It is not a blood-pressure reading.',
   };
 
-  Widget _panel({required String title, required String body, bool flagged = false}) {
+  Widget _panel({
+    required String title,
+    required String body,
+    bool flagged = false,
+  }) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(TeraSpacing.md),
@@ -274,7 +294,10 @@ class _SessionResultScreenState extends State<SessionResultScreen> {
             ),
           ),
           const SizedBox(height: TeraSpacing.sm),
-          Text(body, style: const TextStyle(color: TeraColors.ink, height: 1.5)),
+          Text(
+            body,
+            style: const TextStyle(color: TeraColors.ink, height: 1.5),
+          ),
         ],
       ),
     );

@@ -39,7 +39,8 @@ class AuthController extends ChangeNotifier {
 
   /// Home and the check flow read this rather than [isSignedIn] directly, so a guest reaches the
   /// same screens a signed-in patient does.
-  bool get canUseApp => _status == AuthStatus.signedIn || _status == AuthStatus.guest;
+  bool get canUseApp =>
+      _status == AuthStatus.signedIn || _status == AuthStatus.guest;
 
   /// Restore a session from secure storage at launch.
   ///
@@ -52,7 +53,10 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> signIn({required String username, required String password}) async {
+  Future<bool> signIn({
+    required String username,
+    required String password,
+  }) async {
     _error = null;
     notifyListeners();
 
@@ -77,12 +81,18 @@ class AuthController extends ChangeNotifier {
   /// Registration signs the patient in, because the endpoint mints tokens with the account. The
   /// alternative — bouncing them to the login form with the credentials they typed thirty seconds
   /// ago — is a round trip that exists only to make the app feel like a clinic system.
-  Future<bool> register({required String subject, required String password}) async {
+  Future<bool> register({
+    required String subject,
+    required String password,
+  }) async {
     _error = null;
     notifyListeners();
 
     try {
-      _session = await _api.registerPatient(subject: subject, password: password);
+      _session = await _api.registerPatient(
+        subject: subject,
+        password: password,
+      );
       _status = AuthStatus.signedIn;
       notifyListeners();
       return true;

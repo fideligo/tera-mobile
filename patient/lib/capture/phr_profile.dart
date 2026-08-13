@@ -33,8 +33,9 @@ enum SexAtBirth {
   final String wireValue;
   final String label;
 
-  static SexAtBirth? fromWire(String? v) =>
-      v == null ? null : SexAtBirth.values.where((s) => s.wireValue == v).firstOrNull;
+  static SexAtBirth? fromWire(String? v) => v == null
+      ? null
+      : SexAtBirth.values.where((s) => s.wireValue == v).firstOrNull;
 }
 
 /// ONB-03's hypertension question.
@@ -48,8 +49,9 @@ enum HypertensionStatus {
   final String wireValue;
   final String label;
 
-  static HypertensionStatus? fromWire(String? v) =>
-      v == null ? null : HypertensionStatus.values.where((s) => s.wireValue == v).firstOrNull;
+  static HypertensionStatus? fromWire(String? v) => v == null
+      ? null
+      : HypertensionStatus.values.where((s) => s.wireValue == v).firstOrNull;
 }
 
 /// ONB-03's condition list. Reported, never inferred.
@@ -119,7 +121,8 @@ class PhrProfile {
   final Set<KnownCondition> conditions;
 
   bool get aboutYouComplete => dateOfBirth != null && sexAtBirth != null;
-  bool get healthContextComplete => hypertension != null && takesBpMedication != null;
+  bool get healthContextComplete =>
+      hypertension != null && takesBpMedication != null;
 
   /// Sanity bounds, not clinical ones. They exist to catch a slipped decimal point, and a value
   /// inside them is not a judgement about anybody.
@@ -128,8 +131,10 @@ class PhrProfile {
   static const double minWeightKg = 10;
   static const double maxWeightKg = 400;
 
-  static bool heightIsPlausible(double v) => v >= minHeightCm && v <= maxHeightCm;
-  static bool weightIsPlausible(double v) => v >= minWeightKg && v <= maxWeightKg;
+  static bool heightIsPlausible(double v) =>
+      v >= minHeightCm && v <= maxHeightCm;
+  static bool weightIsPlausible(double v) =>
+      v >= minWeightKg && v <= maxWeightKg;
 
   /// A birth date in the future is a typo, not a person.
   static bool dobIsPlausible(DateTime dob, {DateTime? now}) =>
@@ -206,7 +211,9 @@ class SecurePhrProfileStore implements PhrProfileStore {
   SecurePhrProfileStore({FlutterSecureStorage? storage})
     : _storage =
           storage ??
-          const FlutterSecureStorage(aOptions: AndroidOptions(encryptedSharedPreferences: true));
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(encryptedSharedPreferences: true),
+          );
 
   final FlutterSecureStorage _storage;
 

@@ -77,7 +77,8 @@ class BpReferenceStatus {
     DateTime? lastSuccessfulSensorCheckAt,
     bool? forceReferenceRefresh,
   }) => BpReferenceStatus(
-    currentReferenceTakenAt: currentReferenceTakenAt ?? this.currentReferenceTakenAt,
+    currentReferenceTakenAt:
+        currentReferenceTakenAt ?? this.currentReferenceTakenAt,
     lastSuccessfulSensorCheckAt:
         lastSuccessfulSensorCheckAt ?? this.lastSuccessfulSensorCheckAt,
     forceReferenceRefresh: forceReferenceRefresh ?? this.forceReferenceRefresh,
@@ -137,13 +138,16 @@ class CheckSession {
 
   final PrecheckAnswers? precheck;
 
-  CheckSession copyWith({CheckState? state, int? attemptCount, PrecheckAnswers? precheck}) =>
-      CheckSession(
-        mode: mode,
-        state: state ?? this.state,
-        attemptCount: attemptCount ?? this.attemptCount,
-        precheck: precheck ?? this.precheck,
-      );
+  CheckSession copyWith({
+    CheckState? state,
+    int? attemptCount,
+    PrecheckAnswers? precheck,
+  }) => CheckSession(
+    mode: mode,
+    state: state ?? this.state,
+    attemptCount: attemptCount ?? this.attemptCount,
+    precheck: precheck ?? this.precheck,
+  );
 }
 
 /// A state to move to and the route that shows it. Returned together so a caller cannot advance
@@ -160,7 +164,10 @@ abstract final class CheckFlow {
   /// Section 38's `needsBPReference`.
   ///
   /// Three independent reasons, checked in the spec's order. Only sensor-mode sessions ask.
-  static bool needsBpReference(BpReferenceStatus status, {required DateTime now}) {
+  static bool needsBpReference(
+    BpReferenceStatus status, {
+    required DateTime now,
+  }) {
     if (status.currentReferenceTakenAt == null) return true;
 
     final lastCheck = status.lastSuccessfulSensorCheckAt;
@@ -181,69 +188,106 @@ abstract final class CheckFlow {
     required DateTime now,
   }) {
     if (eligibility == DeviceEligibility.eligible) {
-      const session = CheckSession(mode: CheckMode.sensor, state: CheckState.created);
-      if (needsBpReference(reference, now: now)) {
-        return CheckStep(
-          session.copyWith(state: CheckState.referenceRequired),
-          Routes.checkBpReference,
-        );
-      }
-      return CheckStep(session.copyWith(state: CheckState.precheck), Routes.checkPrecondition);
+      const session = CheckSession(
+        mode: CheckMode.sensor,
+        state: CheckState.created,
+      );
+      return CheckStep(
+        session.copyWith(state: CheckState.precheck),
+        Routes.checkPrecondition,
+      );
     }
 
-    const session = CheckSession(mode: CheckMode.bpOnly, state: CheckState.created);
-    return CheckStep(session.copyWith(state: CheckState.precheck), Routes.checkPrecondition);
+    const session = CheckSession(
+      mode: CheckMode.bpOnly,
+      state: CheckState.created,
+    );
+    return CheckStep(
+      session.copyWith(state: CheckState.precheck),
+      Routes.checkPrecondition,
+    );
   }
 
   /// After BPREF: the reference is set, so the session joins the common path.
-  static CheckStep afterBpReference(CheckSession session) =>
-      CheckStep(session.copyWith(state: CheckState.precheck), Routes.checkPrecondition);
+  static CheckStep afterBpReference(CheckSession session) => CheckStep(
+    session.copyWith(state: CheckState.precheck),
+    Routes.checkPrecondition,
+  );
 
   /// Section 38's `afterPrecheck`.
-  static CheckStep afterPrecheck(CheckSession session, PrecheckAnswers answers) {
+  static CheckStep afterPrecheck(
+    CheckSession session,
+    PrecheckAnswers answers,
+  ) {
     final next = session.copyWith(precheck: answers);
     if (!answers.isReady) {
-      return CheckStep(next.copyWith(state: CheckState.waiting), Routes.checkWait);
+      return CheckStep(
+        next.copyWith(state: CheckState.waiting),
+        Routes.checkWait,
+      );
     }
-    return CheckStep(next.copyWith(state: CheckState.context), Routes.checkContext);
+    return CheckStep(
+      next.copyWith(state: CheckState.context),
+      Routes.checkContext,
+    );
   }
 
   /// The wait screen's only exit: back to the pre-check questions, per section 31.
-  static CheckStep afterWait(CheckSession session) =>
-      CheckStep(session.copyWith(state: CheckState.precheck), Routes.checkPrecondition);
+  static CheckStep afterWait(CheckSession session) => CheckStep(
+    session.copyWith(state: CheckState.precheck),
+    Routes.checkPrecondition,
+  );
 
   /// Section 38's `afterContext`. This is where the two product loops diverge.
   static CheckStep afterContext(CheckSession session) {
     if (session.mode == CheckMode.sensor) {
       return CheckStep(
         session.copyWith(state: CheckState.walkthrough),
-        Routes.checkWalkthrough1,
+        Routes.checkCalibrationIntro,
       );
     }
-    return CheckStep(session.copyWith(state: CheckState.bpInput), Routes.checkBpInput);
+    return CheckStep(
+      session.copyWith(state: CheckState.bpInput),
+      Routes.checkBpInput,
+    );
   }
 
   /// Walkthrough steps 1-4, then capture. Returns null past the last step's successor, which
   /// would be a bug in the caller rather than a state.
-  static CheckStep afterWalkthroughStep(CheckSession session, int completedStep) {
+  static CheckStep afterWalkthroughStep(
+    CheckSession session,
+    int completedStep,
+  ) {
     if (completedStep < Routes.walkthroughSteps.length) {
       return CheckStep(session, Routes.walkthroughSteps[completedStep]);
     }
-    return CheckStep(session.copyWith(state: CheckState.capture), Routes.checkCapture);
+    return CheckStep(
+      session.copyWith(state: CheckState.capture),
+      Routes.checkCapture,
+    );
   }
 
   /// Section 38's `afterSensorCapture`.
   ///
   /// The attempt is counted here, on the way out of capture, so a retry that never reaches the
   /// gate cannot inflate the count and a rejected attempt always does.
-  static CheckStep afterSensorCapture(CheckSession session, SignalQuality quality) {
+  static CheckStep afterSensorCapture(
+    CheckSession session,
+    SignalQuality quality,
+  ) {
     final attempted = session.copyWith(attemptCount: session.attemptCount + 1);
 
     if (quality == SignalQuality.accepted) {
-      return CheckStep(attempted.copyWith(state: CheckState.processing), Routes.checkSignalAccepted);
+      return CheckStep(
+        attempted.copyWith(state: CheckState.processing),
+        Routes.checkSignalAccepted,
+      );
     }
     if (attempted.attemptCount < maxCaptureAttempts) {
-      return CheckStep(attempted.copyWith(state: CheckState.capture), Routes.checkSignalAdjust);
+      return CheckStep(
+        attempted.copyWith(state: CheckState.capture),
+        Routes.checkSignalAdjust,
+      );
     }
     return CheckStep(
       attempted.copyWith(state: CheckState.failedQuality),
@@ -251,17 +295,25 @@ abstract final class CheckFlow {
     );
   }
 
-  static CheckStep afterSignalAccepted(CheckSession session) =>
-      CheckStep(session.copyWith(state: CheckState.processing), Routes.checkProcessing);
+  static CheckStep afterSignalAccepted(CheckSession session) => CheckStep(
+    session.copyWith(state: CheckState.processing),
+    Routes.checkProcessing,
+  );
 
   /// SIG-02's "Try again": back to capture, with the attempt count preserved.
-  static CheckStep afterAdjust(CheckSession session) =>
-      CheckStep(session.copyWith(state: CheckState.capture), Routes.checkCapture);
+  static CheckStep afterAdjust(CheckSession session) => CheckStep(
+    session.copyWith(state: CheckState.capture),
+    Routes.checkCapture,
+  );
 
   /// BP-only: a confirmed reading is the measurement, so it goes straight to processing.
-  static CheckStep afterBpConfirmed(CheckSession session) =>
-      CheckStep(session.copyWith(state: CheckState.processing), Routes.checkProcessing);
+  static CheckStep afterBpConfirmed(CheckSession session) => CheckStep(
+    session.copyWith(state: CheckState.processing),
+    Routes.checkProcessing,
+  );
 
-  static CheckStep afterProcessing(CheckSession session) =>
-      CheckStep(session.copyWith(state: CheckState.completed), Routes.checkInsight);
+  static CheckStep afterProcessing(CheckSession session) => CheckStep(
+    session.copyWith(state: CheckState.completed),
+    Routes.checkInsight,
+  );
 }

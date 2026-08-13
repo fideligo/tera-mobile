@@ -31,8 +31,10 @@ enum OnboardingStep {
   /// unfinished onboarding step" — the step itself, not the first one.
   final String route;
 
-  static OnboardingStep fromWire(String? v) =>
-      OnboardingStep.values.firstWhere((s) => s.wireValue == v, orElse: () => aboutYou);
+  static OnboardingStep fromWire(String? v) => OnboardingStep.values.firstWhere(
+    (s) => s.wireValue == v,
+    orElse: () => aboutYou,
+  );
 
   OnboardingStep? get next => switch (this) {
     aboutYou => safety,
@@ -81,8 +83,12 @@ class AppFlowState {
   Map<String, dynamic> toJson() => {
     'device_eligibility': deviceEligibility?.name,
     'onboarding_step': onboardingStep.wireValue,
-    'bp_reference_taken_at': reference.currentReferenceTakenAt?.toUtc().toIso8601String(),
-    'last_sensor_check_at': reference.lastSuccessfulSensorCheckAt?.toUtc().toIso8601String(),
+    'bp_reference_taken_at': reference.currentReferenceTakenAt
+        ?.toUtc()
+        .toIso8601String(),
+    'last_sensor_check_at': reference.lastSuccessfulSensorCheckAt
+        ?.toUtc()
+        .toIso8601String(),
     'force_reference_refresh': reference.forceReferenceRefresh,
   };
 
@@ -100,11 +106,14 @@ class AppFlowState {
               (e) => e.name == eligibility,
               orElse: () => DeviceEligibility.notEligible,
             ),
-      onboardingStep: OnboardingStep.fromWire(json['onboarding_step'] as String?),
+      onboardingStep: OnboardingStep.fromWire(
+        json['onboarding_step'] as String?,
+      ),
       reference: BpReferenceStatus(
         currentReferenceTakenAt: at('bp_reference_taken_at'),
         lastSuccessfulSensorCheckAt: at('last_sensor_check_at'),
-        forceReferenceRefresh: json['force_reference_refresh'] as bool? ?? false,
+        forceReferenceRefresh:
+            json['force_reference_refresh'] as bool? ?? false,
       ),
     );
   }
@@ -120,7 +129,9 @@ class SecureAppFlowStore implements AppFlowStore {
   SecureAppFlowStore({FlutterSecureStorage? storage})
     : _storage =
           storage ??
-          const FlutterSecureStorage(aOptions: AndroidOptions(encryptedSharedPreferences: true));
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(encryptedSharedPreferences: true),
+          );
 
   final FlutterSecureStorage _storage;
 

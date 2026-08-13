@@ -69,7 +69,10 @@ class SessionSubmitter {
       final response = await _api.postJson(
         '/v1/sessions',
         payload,
-        extraHeaders: {'X-Session-Nonce': nonce['nonce'] as String, 'Idempotency-Key': sessionId},
+        extraHeaders: {
+          'X-Session-Nonce': nonce['nonce'] as String,
+          'Idempotency-Key': sessionId,
+        },
       );
       return _outcomeFrom(response, sessionId);
     } on ApiException catch (e) {
@@ -86,7 +89,10 @@ class SessionSubmitter {
     }
   }
 
-  SubmissionOutcome _outcomeFrom(Map<String, dynamic> response, String sessionId) {
+  SubmissionOutcome _outcomeFrom(
+    Map<String, dynamic> response,
+    String sessionId,
+  ) {
     final trend = response['trend'] as Map<String, dynamic>?;
     final rejection = response['rejection'] as Map<String, dynamic>?;
     final action = response['action'] as Map<String, dynamic>?;
@@ -118,8 +124,10 @@ class SessionSubmitter {
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
 
-    String hex(int start, int end) =>
-        bytes.sublist(start, end).map((b) => b.toRadixString(16).padLeft(2, '0')).join();
+    String hex(int start, int end) => bytes
+        .sublist(start, end)
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
 
     return '${hex(0, 4)}-${hex(4, 6)}-${hex(6, 8)}-${hex(8, 10)}-${hex(10, 16)}';
   }

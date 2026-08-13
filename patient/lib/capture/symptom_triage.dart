@@ -118,7 +118,9 @@ class RedFlagRecorder {
       await _api.postJson('/v1/events', {
         'episode_id': episodeId,
         'event_type': 'red_flag',
-        'occurred_at': (occurredAt ?? DateTime.now().toUtc()).toUtc().toIso8601String(),
+        'occurred_at': (occurredAt ?? DateTime.now().toUtc())
+            .toUtc()
+            .toIso8601String(),
         'payload': {
           'symptoms': [for (final s in symptoms) s.wireValue],
           // What the handset showed, so the record says what the patient was actually told

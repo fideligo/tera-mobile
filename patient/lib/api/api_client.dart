@@ -48,8 +48,9 @@ class ApiException implements Exception {
 
 /// The session ended and cannot be recovered without the patient signing in again.
 class SessionExpiredException extends ApiException {
-  SessionExpiredException([super.message = 'Your session has ended. Please sign in again.'])
-    : super(statusCode: 401);
+  SessionExpiredException([
+    super.message = 'Your session has ended. Please sign in again.',
+  ]) : super(statusCode: 401);
 }
 
 class ApiClient {
@@ -73,7 +74,10 @@ class ApiClient {
   // ------------------------------------------------------------------ auth
 
   /// Exchange credentials for tokens and store them.
-  Future<StoredSession> signIn({required String username, required String password}) async {
+  Future<StoredSession> signIn({
+    required String username,
+    required String password,
+  }) async {
     final response = await _http.post(
       Uri.parse('$baseUrl/v1/auth/token'),
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -126,7 +130,10 @@ class ApiClient {
     );
 
     if (response.statusCode != 201) {
-      throw ApiException(_registerMessageFor(response), statusCode: response.statusCode);
+      throw ApiException(
+        _registerMessageFor(response),
+        statusCode: response.statusCode,
+      );
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -145,14 +152,16 @@ class ApiClient {
   ///
   /// 422 is handled here rather than by [_messageFor] because FastAPI's validation `detail` is a
   /// list of field objects, not a sentence — surfacing it raw would show a patient a JSON dump.
-  String _registerMessageFor(http.Response response) => switch (response.statusCode) {
-    409 => 'That email is already registered. Sign in instead.',
-    422 =>
-      'Check your details: a valid email, and a password of at least '
-          '$minPasswordLength characters.',
-    429 => 'Too many sign-up attempts from this connection. Try again later.',
-    _ => _messageFor(response),
-  };
+  String _registerMessageFor(http.Response response) =>
+      switch (response.statusCode) {
+        409 => 'That email is already registered. Sign in instead.',
+        422 =>
+          'Check your details: a valid email, and a password of at least '
+              '$minPasswordLength characters.',
+        429 =>
+          'Too many sign-up attempts from this connection. Try again later.',
+        _ => _messageFor(response),
+      };
 
   /// Revoke the refresh token, then clear local state regardless of the outcome.
   ///
@@ -181,8 +190,9 @@ class ApiClient {
 
   // ------------------------------------------------------------------ requests
 
-  Future<Map<String, dynamic>> getJson(String path) async =>
-      _decode(await _send((token) => _http.get(_uri(path), headers: _headers(token))));
+  Future<Map<String, dynamic>> getJson(String path) async => _decode(
+    await _send((token) => _http.get(_uri(path), headers: _headers(token))),
+  );
 
   Future<Map<String, dynamic>> postJson(
     String path,
@@ -198,6 +208,20 @@ class ApiClient {
     ),
   );
 
+  Future<Map<String, dynamic>> patchJson(
+    String path,
+    Map<String, dynamic> body, {
+    Map<String, String> extraHeaders = const {},
+  }) async => _decode(
+    await _send(
+      (token) => _http.patch(
+        _uri(path),
+        headers: {..._headers(token), ...extraHeaders},
+        body: jsonEncode(body),
+      ),
+    ),
+  );
+
   Uri _uri(String path) => Uri.parse('$baseUrl$path');
 
   Map<String, String> _headers(String token) => {
@@ -206,9 +230,12 @@ class ApiClient {
   };
 
   /// Send, and on 401 refresh once and retry once.
-  Future<http.Response> _send(Future<http.Response> Function(String token) request) async {
+  Future<http.Response> _send(
+    Future<http.Response> Function(String token) request,
+  ) async {
     var session = await _tokens.read();
-    if (session == null) throw SessionExpiredException('You are not signed in.');
+    if (session == null)
+      throw SessionExpiredException('You are not signed in.');
 
     var response = await request(session.accessToken);
     if (response.statusCode != 401) return response;
@@ -274,7 +301,8 @@ class ApiClient {
   String _messageFor(http.Response response) {
     try {
       final body = jsonDecode(response.body);
-      if (body is Map && body['detail'] is String) return body['detail'] as String;
+      if (body is Map && body['detail'] is String)
+        return body['detail'] as String;
     } on Object {
       // fall through
     }

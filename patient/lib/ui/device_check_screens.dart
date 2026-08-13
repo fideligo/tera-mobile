@@ -80,9 +80,9 @@ class DevicePermissionScreen extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: () => Navigator.of(context).pushReplacementNamed(
-                  Routes.deviceChecking,
-                ),
+                onPressed: () => Navigator.of(
+                  context,
+                ).pushReplacementNamed(Routes.deviceChecking),
                 style: FilledButton.styleFrom(
                   backgroundColor: TeraColors.paper,
                   foregroundColor: TeraColors.ink,
@@ -143,10 +143,7 @@ class _WhyDoesTeraNeedThisState extends State<_WhyDoesTeraNeedThis> {
               AnimatedRotation(
                 duration: const Duration(milliseconds: 200),
                 turns: _expanded ? 0.5 : 0,
-                child: const Icon(
-                  Icons.expand_more,
-                  color: TeraColors.ink,
-                ),
+                child: const Icon(Icons.expand_more, color: TeraColors.ink),
               ),
             ],
           ),
@@ -173,7 +170,9 @@ class _WhyDoesTeraNeedThisState extends State<_WhyDoesTeraNeedThis> {
             ),
           ),
         ),
-        crossFadeState: _expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+        crossFadeState: _expanded
+            ? CrossFadeState.showSecond
+            : CrossFadeState.showFirst,
         duration: const Duration(milliseconds: 200),
       ),
     ],
@@ -205,7 +204,8 @@ class _DeviceCheckingScreenState extends State<DeviceCheckingScreen>
   @override
   void initState() {
     super.initState();
-    _pulse = AnimationController(vsync: this, duration: _expectedProbeDuration)..forward();
+    _pulse = AnimationController(vsync: this, duration: _expectedProbeDuration)
+      ..forward();
     WidgetsBinding.instance.addPostFrameCallback((_) => _check());
   }
 
@@ -315,7 +315,9 @@ class DeviceVerdictScreen extends StatelessWidget {
         child: Column(
           children: [
             const Spacer(),
-            _SensorHalo(state: eligible ? _HaloState.ready : _HaloState.unavailable),
+            _SensorHalo(
+              state: eligible ? _HaloState.ready : _HaloState.unavailable,
+            ),
             const SizedBox(height: TeraSpacing.xxl),
             _Headline(title),
             const SizedBox(height: TeraSpacing.md),
@@ -324,9 +326,10 @@ class DeviceVerdictScreen extends StatelessWidget {
             SizedBox(
               width: double.infinity,
               child: FilledButton(
-                onPressed: () => Navigator.of(
-                  context,
-                ).pushNamedAndRemoveUntil(Routes.onboardingAboutYou, (r) => false),
+                onPressed: () => Navigator.of(context).pushNamedAndRemoveUntil(
+                  Routes.onboardingAboutYou,
+                  (r) => false,
+                ),
                 style: FilledButton.styleFrom(
                   backgroundColor: TeraColors.ink,
                   foregroundColor: TeraColors.paper,
@@ -380,7 +383,10 @@ class _SensorHalo extends StatelessWidget {
   Widget build(BuildContext context) {
     final size = math.min(MediaQuery.sizeOf(context).width * 0.62, 260.0);
     final painter = animation == null
-        ? CustomPaint(size: Size.square(size), painter: _HaloPainter(state: state, t: 0))
+        ? CustomPaint(
+            size: Size.square(size),
+            painter: _HaloPainter(state: state, t: 0),
+          )
         : AnimatedBuilder(
             animation: animation!,
             builder: (_, _) => CustomPaint(
@@ -555,7 +561,9 @@ class _HaloPainter extends CustomPainter {
       ..strokeWidth = width * 0.055
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
-      ..color = state == _HaloState.unavailable ? TeraColors.neutral300 : TeraColors.brand;
+      ..color = state == _HaloState.unavailable
+          ? TeraColors.neutral300
+          : TeraColors.brand;
 
     final path = Path();
     const steps = 40;
@@ -563,7 +571,9 @@ class _HaloPainter extends CustomPainter {
     for (var i = 0; i <= steps; i++) {
       final f = i / steps;
       final x = centre.dx - width / 2 + width * f;
-      final y = centre.dy - math.sin(f * math.pi * 2) * amplitude * (1 - (f - 0.5).abs());
+      final y =
+          centre.dy -
+          math.sin(f * math.pi * 2) * amplitude * (1 - (f - 0.5).abs());
       i == 0 ? path.moveTo(x, y) : path.lineTo(x, y);
     }
     canvas.drawPath(path, stroke);

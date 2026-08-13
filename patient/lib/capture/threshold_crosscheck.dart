@@ -166,7 +166,10 @@ ThresholdCrossCheckResult reportThresholdCrossCheck({
   required double accelRateHz,
   required Map<String, dynamic> deviceProfile,
 }) {
-  final result = crossCheckThresholds(accelRateHz: accelRateHz, deviceProfile: deviceProfile);
+  final result = crossCheckThresholds(
+    accelRateHz: accelRateHz,
+    deviceProfile: deviceProfile,
+  );
   developer.log(
     result.summary,
     name: 'tera.thresholds',

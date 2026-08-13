@@ -31,12 +31,13 @@ class StoredSession {
   final String role;
   final String subject;
 
-  StoredSession copyWith({String? accessToken, String? refreshToken}) => StoredSession(
-    accessToken: accessToken ?? this.accessToken,
-    refreshToken: refreshToken ?? this.refreshToken,
-    role: role,
-    subject: subject,
-  );
+  StoredSession copyWith({String? accessToken, String? refreshToken}) =>
+      StoredSession(
+        accessToken: accessToken ?? this.accessToken,
+        refreshToken: refreshToken ?? this.refreshToken,
+        role: role,
+        subject: subject,
+      );
 }
 
 /// The contract, so tests and the UI do not need a real keystore.
@@ -50,7 +51,9 @@ class SecureTokenStore implements TokenStore {
   SecureTokenStore({FlutterSecureStorage? storage})
     : _storage =
           storage ??
-          const FlutterSecureStorage(aOptions: AndroidOptions(encryptedSharedPreferences: true));
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(encryptedSharedPreferences: true),
+          );
 
   final FlutterSecureStorage _storage;
 
@@ -71,7 +74,12 @@ class SecureTokenStore implements TokenStore {
       // in again, which is the only useful thing to do with it.
       return null;
     }
-    return StoredSession(accessToken: access, refreshToken: refresh, role: role, subject: subject);
+    return StoredSession(
+      accessToken: access,
+      refreshToken: refresh,
+      role: role,
+      subject: subject,
+    );
   }
 
   @override

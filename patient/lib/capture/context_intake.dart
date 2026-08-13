@@ -41,8 +41,8 @@ enum PregnancyAnswer {
 
   final String wireValue;
 
-  static PregnancyAnswer fromWire(String value) =>
-      PregnancyAnswer.values.firstWhere((a) => a.wireValue == value, orElse: () => no);
+  static PregnancyAnswer fromWire(String value) => PregnancyAnswer.values
+      .firstWhere((a) => a.wireValue == value, orElse: () => no);
 }
 
 @immutable
@@ -56,8 +56,10 @@ class Medication {
 
   Map<String, dynamic> toJson() => {'name': name.trim(), 'dose': dose.trim()};
 
-  static Medication fromJson(Map<String, dynamic> json) =>
-      Medication(name: json['name'] as String? ?? '', dose: json['dose'] as String? ?? '');
+  static Medication fromJson(Map<String, dynamic> json) => Medication(
+    name: json['name'] as String? ?? '',
+    dose: json['dose'] as String? ?? '',
+  );
 }
 
 /// The last blood pressure taken somewhere with a real cuff and a clinician.
@@ -85,11 +87,12 @@ class ClinicBloodPressure {
     'taken_on': takenOn.toUtc().toIso8601String(),
   };
 
-  static ClinicBloodPressure fromJson(Map<String, dynamic> json) => ClinicBloodPressure(
-    systolicMmhg: json['systolic_mmhg'] as int,
-    diastolicMmhg: json['diastolic_mmhg'] as int,
-    takenOn: DateTime.parse(json['taken_on'] as String),
-  );
+  static ClinicBloodPressure fromJson(Map<String, dynamic> json) =>
+      ClinicBloodPressure(
+        systolicMmhg: json['systolic_mmhg'] as int,
+        diastolicMmhg: json['diastolic_mmhg'] as int,
+        takenOn: DateTime.parse(json['taken_on'] as String),
+      );
 }
 
 @immutable
@@ -111,7 +114,9 @@ class ContextIntake {
   final ClinicBloodPressure? lastClinicBp;
 
   Map<String, dynamic> toJson() => {
-    'last_regimen_change_date': lastRegimenChangeDate?.toUtc().toIso8601String(),
+    'last_regimen_change_date': lastRegimenChangeDate
+        ?.toUtc()
+        .toIso8601String(),
     'medications': [for (final m in medications) m.toJson()],
     'pregnant': pregnant.wireValue,
     'known_arrhythmia': knownArrhythmia,
@@ -130,7 +135,9 @@ class ContextIntake {
     knownArrhythmia: json['known_arrhythmia'] as bool? ?? false,
     lastClinicBp: json['last_clinic_bp'] == null
         ? null
-        : ClinicBloodPressure.fromJson(json['last_clinic_bp'] as Map<String, dynamic>),
+        : ClinicBloodPressure.fromJson(
+            json['last_clinic_bp'] as Map<String, dynamic>,
+          ),
   );
 }
 
@@ -167,7 +174,9 @@ abstract final class ContextIntakeSafety {
   /// detection rather than invalidating the method, and the signal chain's own quality gate is
   /// where a capture too irregular to use gets rejected.
   static IntakeGate evaluate(ContextIntake intake) =>
-      intake.pregnant == PregnancyAnswer.yes ? IntakeGate.blockedPregnancy : IntakeGate.clear;
+      intake.pregnant == PregnancyAnswer.yes
+      ? IntakeGate.blockedPregnancy
+      : IntakeGate.clear;
 
   /// Whether a spot check may proceed to capture and submission.
   static bool allowsTrendGeneration(ContextIntake? intake) =>
@@ -186,7 +195,9 @@ class SecureContextIntakeStore implements ContextIntakeStore {
   SecureContextIntakeStore({FlutterSecureStorage? storage})
     : _storage =
           storage ??
-          const FlutterSecureStorage(aOptions: AndroidOptions(encryptedSharedPreferences: true));
+          const FlutterSecureStorage(
+            aOptions: AndroidOptions(encryptedSharedPreferences: true),
+          );
 
   final FlutterSecureStorage _storage;
 
@@ -246,7 +257,9 @@ class PatientContextSubmitter {
   static Map<String, dynamic> payload(ContextIntake intake) {
     final bp = intake.lastClinicBp;
     return {
-      'last_regimen_change_date': intake.lastRegimenChangeDate?.toUtc().toIso8601String(),
+      'last_regimen_change_date': intake.lastRegimenChangeDate
+          ?.toUtc()
+          .toIso8601String(),
       'medications': [
         for (final m in intake.medications)
           if (!m.isEmpty) {'name': m.name.trim(), 'dose': m.dose.trim()},

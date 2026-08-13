@@ -151,8 +151,14 @@ ThemeData buildTeraTheme() {
         backgroundColor: TeraColors.brand,
         foregroundColor: TeraColors.paper,
         shape: RoundedRectangleBorder(borderRadius: TeraRadius.buttonBorder),
-        padding: const EdgeInsets.symmetric(horizontal: TeraSpacing.lg, vertical: TeraSpacing.md),
-        textStyle: const TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.w600),
+        padding: const EdgeInsets.symmetric(
+          horizontal: TeraSpacing.lg,
+          vertical: TeraSpacing.md,
+        ),
+        textStyle: const TextStyle(
+          fontSize: TeraText.body,
+          fontWeight: FontWeight.w600,
+        ),
         // 48dp minimum touch target; the persona is not a designer with a trackpad.
         minimumSize: const Size.fromHeight(52),
       ),
@@ -162,9 +168,15 @@ ThemeData buildTeraTheme() {
         foregroundColor: TeraColors.brand,
         side: const BorderSide(color: TeraColors.brand),
         shape: RoundedRectangleBorder(borderRadius: TeraRadius.buttonBorder),
-        padding: const EdgeInsets.symmetric(horizontal: TeraSpacing.md, vertical: 14),
+        padding: const EdgeInsets.symmetric(
+          horizontal: TeraSpacing.md,
+          vertical: 14,
+        ),
         minimumSize: const Size.fromHeight(52),
-        textStyle: const TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.w600),
+        textStyle: const TextStyle(
+          fontSize: TeraText.body,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     ),
     inputDecorationTheme: InputDecorationTheme(
@@ -184,10 +196,18 @@ ThemeData buildTeraTheme() {
       ),
       labelStyle: const TextStyle(color: TeraColors.ink),
     ),
-    dividerTheme: const DividerThemeData(color: TeraColors.neutral200, thickness: 1, space: 1),
+    dividerTheme: const DividerThemeData(
+      color: TeraColors.neutral200,
+      thickness: 1,
+      space: 1,
+    ),
     // Base body size for anything that does not ask for a size of its own.
     textTheme: const TextTheme(
-      bodyMedium: TextStyle(fontSize: TeraText.body, color: TeraColors.ink, height: 1.5),
+      bodyMedium: TextStyle(
+        fontSize: TeraText.body,
+        color: TeraColors.ink,
+        height: 1.5,
+      ),
     ),
   );
 }

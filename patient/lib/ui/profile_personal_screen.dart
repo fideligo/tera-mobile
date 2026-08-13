@@ -25,7 +25,11 @@ import 'form_kit.dart';
 import 'tokens.dart';
 
 class ProfilePersonalScreen extends StatefulWidget {
-  const ProfilePersonalScreen({super.key, required this.flow, required this.store});
+  const ProfilePersonalScreen({
+    super.key,
+    required this.flow,
+    required this.store,
+  });
 
   final TeraFlow flow;
   final PhrProfileStore store;
@@ -152,8 +156,10 @@ class _ProfilePersonalScreenState extends State<ProfilePersonalScreen> {
       _existing = updated;
       _busy = false;
       _saved = reached;
-      _error = reached ? null : 'Saved on this phone, but could not reach the server. It will '
-          'sync the next time you save with a connection.';
+      _error = reached
+          ? null
+          : 'Saved on this phone, but could not reach the server. It will '
+                'sync the next time you save with a connection.';
     });
   }
 
@@ -193,16 +199,26 @@ class _ProfilePersonalScreenState extends State<ProfilePersonalScreen> {
                     'Used to put your checks in context, and — only if you consent on a '
                     'result screen — to help write the optional AI paragraph. Tera does not '
                     'calculate a BMI or judge these numbers.',
-                    style: TextStyle(fontSize: TeraText.body, color: TeraColors.neutral700, height: 1.45),
+                    style: TextStyle(
+                      fontSize: TeraText.body,
+                      color: TeraColors.neutral700,
+                      height: 1.45,
+                    ),
                   ),
                   const SizedBox(height: TeraSpacing.xl),
 
-                  const QuestionHeading('What is your date of birth?', required: true),
+                  const QuestionHeading(
+                    'What is your date of birth?',
+                    required: true,
+                  ),
                   const SizedBox(height: TeraSpacing.md),
                   _DateField(value: _dob, onTap: _busy ? () {} : _pickDob),
                   const SizedBox(height: TeraSpacing.xl),
 
-                  const QuestionHeading('What is your sex assigned at birth?', required: true),
+                  const QuestionHeading(
+                    'What is your sex assigned at birth?',
+                    required: true,
+                  ),
                   const SizedBox(height: TeraSpacing.md),
                   for (final option in SexAtBirth.values)
                     AnswerOption(
@@ -213,7 +229,10 @@ class _ProfilePersonalScreenState extends State<ProfilePersonalScreen> {
                     ),
                   const SizedBox(height: TeraSpacing.xl),
 
-                  const QuestionHeading('What is your height?', hint: 'Optional.'),
+                  const QuestionHeading(
+                    'What is your height?',
+                    hint: 'Optional.',
+                  ),
                   const SizedBox(height: TeraSpacing.md),
                   _MeasurementField(
                     controller: _height,
@@ -224,7 +243,10 @@ class _ProfilePersonalScreenState extends State<ProfilePersonalScreen> {
                   ),
                   const SizedBox(height: TeraSpacing.xl),
 
-                  const QuestionHeading('What is your current weight?', hint: 'Optional.'),
+                  const QuestionHeading(
+                    'What is your current weight?',
+                    hint: 'Optional.',
+                  ),
                   const SizedBox(height: TeraSpacing.md),
                   _MeasurementField(
                     controller: _weight,
@@ -245,12 +267,19 @@ class _ProfilePersonalScreenState extends State<ProfilePersonalScreen> {
                       decoration: accentDecoration(),
                       child: const Row(
                         children: [
-                          Icon(Icons.check_circle_outline, color: TeraColors.ink, size: 20),
+                          Icon(
+                            Icons.check_circle_outline,
+                            color: TeraColors.ink,
+                            size: 20,
+                          ),
                           SizedBox(width: TeraSpacing.sm),
                           Expanded(
                             child: Text(
                               'Saved.',
-                              style: TextStyle(color: TeraColors.ink, fontWeight: FontWeight.w600),
+                              style: TextStyle(
+                                color: TeraColors.ink,
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ],
@@ -278,8 +307,18 @@ class _DateField extends StatelessWidget {
   final VoidCallback onTap;
 
   static const _months = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
 
   @override
@@ -304,7 +343,11 @@ class _DateField extends StatelessWidget {
           ),
           child: Row(
             children: [
-              const Icon(Icons.calendar_today_outlined, color: TeraColors.neutral500, size: 22),
+              const Icon(
+                Icons.calendar_today_outlined,
+                color: TeraColors.neutral500,
+                size: 22,
+              ),
               const SizedBox(width: TeraSpacing.md),
               Expanded(
                 child: Text(
@@ -369,7 +412,10 @@ class _MeasurementField extends StatelessWidget {
         ),
       ),
       suffixIconConstraints: const BoxConstraints(minWidth: 56),
-      errorStyle: const TextStyle(fontSize: TeraText.micro, color: TeraColors.plum),
+      errorStyle: const TextStyle(
+        fontSize: TeraText.micro,
+        color: TeraColors.plum,
+      ),
       errorBorder: OutlineInputBorder(
         borderRadius: TeraRadius.fieldBorder,
         borderSide: const BorderSide(color: TeraColors.plum),

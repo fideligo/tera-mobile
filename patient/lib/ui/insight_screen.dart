@@ -56,7 +56,9 @@ class _InsightScreenState extends State<InsightScreen> {
   Future<void> _load() async {
     final id = widget.sessionId;
     if (id == null) {
-      setState(() => _error = 'This check did not produce a result to explain.');
+      setState(
+        () => _error = 'This check did not produce a result to explain.',
+      );
       return;
     }
     try {
@@ -89,7 +91,9 @@ class _InsightScreenState extends State<InsightScreen> {
     final consent = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.card)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(TeraRadius.card),
+        ),
         backgroundColor: TeraColors.paper,
         title: const Text(
           'Data Privacy Notice',
@@ -127,7 +131,9 @@ class _InsightScreenState extends State<InsightScreen> {
     if (id == null || !mounted) return;
     setState(() => _aiLoading = true);
     try {
-      final body = await widget.api.getJson('/v1/check-sessions/$id/insight?ai_consent=true');
+      final body = await widget.api.getJson(
+        '/v1/check-sessions/$id/insight?ai_consent=true',
+      );
       if (!mounted) return;
       // Merge rather than replace: a slow or failed AI call must never take the deterministic
       // block that is already correctly on screen back down to nothing.
@@ -151,7 +157,13 @@ class _InsightScreenState extends State<InsightScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       appBar: AppBar(
-        title: const Text('Insight', style: TextStyle(color: Color(0xFF1E293B), fontWeight: FontWeight.bold)),
+        title: const Text(
+          'Insight',
+          style: TextStyle(
+            color: Color(0xFF1E293B),
+            fontWeight: FontWeight.bold,
+          ),
+        ),
         backgroundColor: Colors.white,
         elevation: 0,
         iconTheme: const IconThemeData(color: Color(0xFF1E293B)),
@@ -168,21 +180,37 @@ class _InsightScreenState extends State<InsightScreen> {
                     if (error != null) ...[
                       Container(
                         padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(color: Colors.red.shade50, borderRadius: BorderRadius.circular(12)),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              _contraindicated ? 'Tera cannot produce a trend' : 'Could not load',
-                              style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.red),
+                              _contraindicated
+                                  ? 'Tera cannot produce a trend'
+                                  : 'Could not load',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.red,
+                              ),
                             ),
                             const SizedBox(height: 8),
-                            Text(error, style: const TextStyle(color: Colors.red)),
+                            Text(
+                              error,
+                              style: const TextStyle(color: Colors.red),
+                            ),
                           ],
                         ),
                       ),
                     ] else if (insight == null) ...[
-                      const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
+                      const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(32),
+                          child: CircularProgressIndicator(),
+                        ),
+                      ),
                     ] else ...[
                       if (widget.uncalibratedDemo) ...[
                         Container(
@@ -237,7 +265,11 @@ class _InsightScreenState extends State<InsightScreen> {
                           color: Colors.white,
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: [
-                            BoxShadow(color: Colors.black.withOpacity(0.02), blurRadius: 10, offset: const Offset(0, 4)),
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.02),
+                              blurRadius: 10,
+                              offset: const Offset(0, 4),
+                            ),
                           ],
                           border: Border.all(color: const Color(0xFFE2E8F0)),
                         ),
@@ -246,7 +278,12 @@ class _InsightScreenState extends State<InsightScreen> {
                           children: [
                             const Text(
                               'BP-RELATED TREND',
-                              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF64748B), letterSpacing: 1.2),
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF64748B),
+                                letterSpacing: 1.2,
+                              ),
                             ),
                             const SizedBox(height: 12),
                             Text(
@@ -254,9 +291,14 @@ class _InsightScreenState extends State<InsightScreen> {
                               // `app/api/v1/phr.py`). This read `hero_result`, a key the
                               // response has never had, so this line always showed its
                               // fallback text — the result of every check, silently blank.
-                              insight['hero'] as String? ?? 'No result',
+                              insight['hero_result'] as String? ?? 'No result',
                               textAlign: TextAlign.center,
-                              style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF0F172A), height: 1.2),
+                              style: const TextStyle(
+                                fontSize: 28,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF0F172A),
+                                height: 1.2,
+                              ),
                             ),
                           ],
                         ),
@@ -281,7 +323,8 @@ class _InsightScreenState extends State<InsightScreen> {
                             ),
                           ),
                         ),
-                      ] else if (insight['ai_commentary'] != null && (insight['ai_commentary'] as String).isNotEmpty) ...[
+                      ] else if (insight['ai_commentary'] != null &&
+                          (insight['ai_commentary'] as String).isNotEmpty) ...[
                         const SizedBox(height: 16),
                         Container(
                           padding: const EdgeInsets.all(16),
@@ -293,7 +336,11 @@ class _InsightScreenState extends State<InsightScreen> {
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Icon(Icons.auto_awesome, size: 20, color: Color(0xFF16A34A)),
+                              const Icon(
+                                Icons.auto_awesome,
+                                size: 20,
+                                color: Color(0xFF16A34A),
+                              ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
@@ -301,12 +348,21 @@ class _InsightScreenState extends State<InsightScreen> {
                                   children: [
                                     const Text(
                                       'AI-GENERATED · NOT REVIEWED BY A CLINICIAN',
-                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF166534), letterSpacing: 0.6),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF166534),
+                                        letterSpacing: 0.6,
+                                      ),
                                     ),
                                     const SizedBox(height: 6),
                                     Text(
                                       insight['ai_commentary'] as String,
-                                      style: const TextStyle(fontSize: 14, color: Color(0xFF15803D), height: 1.4),
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        color: Color(0xFF15803D),
+                                        height: 1.4,
+                                      ),
                                     ),
                                   ],
                                 ),
@@ -323,50 +379,37 @@ class _InsightScreenState extends State<InsightScreen> {
                       // this result, and the two standing disclaimers every insight carries.
                       Builder(
                         builder: (context) {
-                          final chips = (insight['context_chips'] as List?)?.cast<String>() ?? const [];
-                          final notice = insight['notice'] as String?;
-                          final disclaimer = insight['context_disclaimer'] as String?;
-                          if (chips.isEmpty && notice == null) return const SizedBox.shrink();
+                          final whatThisMeans = insight['what_this_means'] as String?;
+                          if (whatThisMeans == null || whatThisMeans.isEmpty)
+                            return const SizedBox.shrink();
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              const Text('What this means', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
+                              const Text(
+                                'What this means',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF1E293B),
+                                ),
+                              ),
                               const SizedBox(height: 12),
                               Container(
                                 padding: const EdgeInsets.all(16),
                                 decoration: BoxDecoration(
                                   color: Colors.white,
                                   borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                  border: Border.all(
+                                    color: const Color(0xFFE2E8F0),
+                                  ),
                                 ),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    if (chips.isNotEmpty) ...[
-                                      Wrap(
-                                        spacing: 8,
-                                        runSpacing: 8,
-                                        children: [
-                                          for (final chip in chips)
-                                            Container(
-                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                                              decoration: BoxDecoration(
-                                                color: const Color(0xFFF1F5F9),
-                                                borderRadius: BorderRadius.circular(TeraRadius.pill),
-                                              ),
-                                              child: Text(chip, style: const TextStyle(fontSize: 13, color: Color(0xFF334155))),
-                                            ),
-                                        ],
-                                      ),
-                                      if (disclaimer != null) ...[
-                                        const SizedBox(height: 8),
-                                        Text(disclaimer, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontStyle: FontStyle.italic)),
-                                      ],
-                                      if (notice != null) const SizedBox(height: 12),
-                                    ],
-                                    if (notice != null)
-                                      Text(notice, style: const TextStyle(fontSize: 14, color: Color(0xFF334155), height: 1.5)),
-                                  ],
+                                child: Text(
+                                  whatThisMeans,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: Color(0xFF334155),
+                                    height: 1.5,
+                                  ),
                                 ),
                               ),
                               const SizedBox(height: 24),
@@ -388,18 +431,32 @@ class _InsightScreenState extends State<InsightScreen> {
                           children: [
                             const Row(
                               children: [
-                                Icon(Icons.directions_walk, color: Color(0xFF2563EB), size: 20),
+                                Icon(
+                                  Icons.directions_walk,
+                                  color: Color(0xFF2563EB),
+                                  size: 20,
+                                ),
                                 SizedBox(width: 8),
                                 Text(
                                   'Your next best step',
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E40AF)),
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF1E40AF),
+                                  ),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              insight['next_best_step'] as String? ?? 'Keep monitoring your blood pressure as usual.',
-                              style: const TextStyle(fontSize: 15, color: Color(0xFF1E3A8A), height: 1.5, fontWeight: FontWeight.w500),
+                              insight['next_best_step'] as String? ??
+                                  'Keep monitoring your blood pressure as usual.',
+                              style: const TextStyle(
+                                fontSize: 15,
+                                color: Color(0xFF1E3A8A),
+                                height: 1.5,
+                                fontWeight: FontWeight.w500,
+                              ),
                             ),
                           ],
                         ),
@@ -414,9 +471,18 @@ class _InsightScreenState extends State<InsightScreen> {
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFF0F172A),
                   padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
-                child: const Text('Done', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white)),
+                child: const Text(
+                  'Done',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
+                  ),
+                ),
               ),
             ],
           ),

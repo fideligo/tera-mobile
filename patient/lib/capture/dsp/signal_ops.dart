@@ -120,7 +120,8 @@ Float64List nanToNum(List<double> x) {
 /// than a nanosecond.
 List<double> uniqueRounded(List<double> x, int decimals) {
   final factor = math.pow(10, decimals).toDouble();
-  final rounded = x.map((v) => (v * factor).roundToDouble() / factor).toList()..sort();
+  final rounded = x.map((v) => (v * factor).roundToDouble() / factor).toList()
+    ..sort();
   final out = <double>[];
   for (final v in rounded) {
     if (out.isEmpty || out.last != v) out.add(v);
@@ -249,7 +250,8 @@ List<int> findPeaks(List<double> x, {int distance = 1, double? prominence}) {
   }
   if (candidates.isEmpty) return const [];
 
-  final order = List<int>.from(candidates)..sort((a, b) => x[b].compareTo(x[a]));
+  final order = List<int>.from(candidates)
+    ..sort((a, b) => x[b].compareTo(x[a]));
   final taken = List<bool>.filled(n, false);
   final keep = <int>[];
   for (final i in order) {

@@ -130,7 +130,10 @@ class _Wordmark extends StatelessWidget {
       SizedBox(height: TeraSpacing.xs),
       Text(
         'Home blood-pressure monitoring',
-        style: TextStyle(fontSize: TeraText.small, color: TeraColors.neutral700),
+        style: TextStyle(
+          fontSize: TeraText.small,
+          color: TeraColors.neutral700,
+        ),
       ),
     ],
   );
@@ -216,9 +219,15 @@ class AuthField extends StatelessWidget {
         style: const TextStyle(fontSize: TeraText.body, color: TeraColors.ink),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: const TextStyle(color: TeraColors.neutral500, fontSize: TeraText.body),
+          hintStyle: const TextStyle(
+            color: TeraColors.neutral500,
+            fontSize: TeraText.body,
+          ),
           helperText: helper,
-          helperStyle: const TextStyle(fontSize: TeraText.micro, color: TeraColors.neutral700),
+          helperStyle: const TextStyle(
+            fontSize: TeraText.micro,
+            color: TeraColors.neutral700,
+          ),
           prefixIcon: Icon(icon, color: TeraColors.neutral500),
           suffixIcon: suffix,
           contentPadding: const EdgeInsets.symmetric(
@@ -227,7 +236,10 @@ class AuthField extends StatelessWidget {
           ),
           // The error rule matches the system-flag rule: this is the form refusing input, which
           // is a system state like any other.
-          errorStyle: const TextStyle(fontSize: TeraText.micro, color: TeraColors.plum),
+          errorStyle: const TextStyle(
+            fontSize: TeraText.micro,
+            color: TeraColors.plum,
+          ),
           errorBorder: OutlineInputBorder(
             borderRadius: TeraRadius.fieldBorder,
             borderSide: const BorderSide(color: TeraColors.plum),
@@ -250,7 +262,11 @@ class AuthField extends StatelessWidget {
 /// in poor light, and a field with no way to check what was typed is how three sign-in attempts
 /// fail in a row over one wrong character.
 class PasswordVisibilityToggle extends StatelessWidget {
-  const PasswordVisibilityToggle({super.key, required this.visible, required this.onPressed});
+  const PasswordVisibilityToggle({
+    super.key,
+    required this.visible,
+    required this.onPressed,
+  });
 
   final bool visible;
   final VoidCallback? onPressed;
@@ -278,7 +294,11 @@ class AuthErrorPanel extends StatelessWidget {
     padding: const EdgeInsets.all(TeraSpacing.md),
     child: Text(
       message,
-      style: const TextStyle(fontSize: TeraText.small, color: TeraColors.ink, height: 1.4),
+      style: const TextStyle(
+        fontSize: TeraText.small,
+        color: TeraColors.ink,
+        height: 1.4,
+      ),
     ),
   );
 }
@@ -317,7 +337,10 @@ class AuthSubmitButton extends StatelessWidget {
         ? const SizedBox(
             height: 22,
             width: 22,
-            child: CircularProgressIndicator(strokeWidth: 2.5, color: TeraColors.paper),
+            child: CircularProgressIndicator(
+              strokeWidth: 2.5,
+              color: TeraColors.paper,
+            ),
           )
         : Text(label),
   );
@@ -342,13 +365,19 @@ class AuthSwitchLink extends StatelessWidget {
     children: [
       Text(
         prompt,
-        style: const TextStyle(fontSize: TeraText.small, color: TeraColors.neutral700),
+        style: const TextStyle(
+          fontSize: TeraText.small,
+          color: TeraColors.neutral700,
+        ),
       ),
       TextButton(
         onPressed: onPressed,
         style: TextButton.styleFrom(
           foregroundColor: TeraColors.baltic,
-          textStyle: const TextStyle(fontSize: TeraText.small, fontWeight: FontWeight.w600),
+          textStyle: const TextStyle(
+            fontSize: TeraText.small,
+            fontWeight: FontWeight.w600,
+          ),
           // A link is still a touch target, and the persona is not aiming carefully.
           minimumSize: const Size(48, 48),
         ),
@@ -372,7 +401,10 @@ void showAuthError(BuildContext context, String message) {
       SnackBar(
         content: Text(
           message,
-          style: const TextStyle(fontSize: TeraText.small, color: TeraColors.paper),
+          style: const TextStyle(
+            fontSize: TeraText.small,
+            color: TeraColors.paper,
+          ),
         ),
         backgroundColor: TeraColors.ink,
         behavior: SnackBarBehavior.floating,
@@ -392,7 +424,8 @@ abstract final class AuthValidators {
   static String? email(String? value) {
     final v = value?.trim() ?? '';
     if (v.isEmpty) return 'Enter your email address.';
-    if (!_email.hasMatch(v)) return 'Enter a valid email address, for example nama@email.com.';
+    if (!_email.hasMatch(v))
+      return 'Enter a valid email address, for example nama@email.com.';
     return null;
   }
 
