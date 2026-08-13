@@ -32,15 +32,16 @@ class CurrentContextSubmitter {
   ///
   /// **Never throws and never gates the check** — the measurement is the point of the flow, and
   /// losing the context should not lose the reading.
-  Future<bool> submitForSession({
+  Future<void> submitForSession({
     required String sessionId,
     required CurrentContext context,
   }) async {
     try {
+      // POST, not PATCH — `session_context` is append-only (invariant 5); the route inserts and
+      // a correction supersedes rather than overwriting.
       await _api.postJson('/v1/check-sessions/$sessionId/context', context.toJson());
-      return true;
     } on Object {
-      return false;
+      // Deliberately swallowed. See the library docstring.
     }
   }
 
@@ -56,7 +57,6 @@ class CurrentContextSubmitter {
         'event_type': 'symptom',
         'occurred_at': (occurredAt ?? DateTime.now()).toUtc().toIso8601String(),
         'payload': context.toJson(),
-        'synthetic': false,
       });
       return true;
     } on Object {

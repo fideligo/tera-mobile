@@ -1789,3 +1789,29 @@ fail, and the failure is the reminder.
 
 `CurrentContextSubmitter.submitForSession` returns `void` rather than `bool` now, so its tests
 assert the route it called and that a failure completes rather than throws.
+
+## The main flow was broken end to end on the mobile side too, matching the backend fix
+
+Same redirect, same trace. Three fixes here, paired with the backend commit that unregisters the
+duplicate routers these were calling into.
+
+- `check_session_client.dart`'s `submitPreconditions` and `current_context_submitter.dart`'s
+  context submission both called `patchJson`. The tested backend routes are POST — these rows are
+  append-only (invariant 5) and the route inserts. Both switched to `postJson`.
+- `phr_submitter.dart` called `patchJson('/v1/profile', ...)`, the untested B2C duplicate with no
+  plausibility bounds and no closed condition-code list. Switched to `postJson` against the tested
+  route, and stopped sending `postpartum`/`postpartum_date`/`rhythm_answer` — the tested schema is
+  `extra="forbid"`, so those three 422'd every onboarding submission that set any of them.
+- `insight_screen.dart` read `insight['hero_result']` and `insight['what_this_means']`, neither of
+  which the response has ever returned (the real keys are `hero`, and no single
+  "what this means" string). The hero result showed its fallback text on every completed check.
+  Fixed to read `hero`; "What this means" now composes from `context_chips` +
+  `context_disclaimer` + `notice`, the fields the response actually has.
+
+Also added: the Phase 4 consent dialog on `InsightScreen`, asked once the deterministic result is
+already showing. "Yes" refetches `.../insight?ai_consent=true` and merges in `ai_commentary` if
+present; "No", an unconfigured server, or a failed call all leave the screen exactly as it already
+was — nothing about the deterministic content is gated behind this.
+
+Full mobile suite unchanged at 244 passing / 20 failing; the 20 are the same pre-existing set
+against screens under active edit elsewhere, not touched here.

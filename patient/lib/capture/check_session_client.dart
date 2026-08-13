@@ -39,6 +39,7 @@ class CheckSessionClient {
     required PrecheckAnswers answers,
   }) async {
     try {
+      // POST, not PATCH — this row is append-only (invariant 5), and the route inserts.
       await _api.postJson('/v1/check-sessions/$checkSessionId/preconditions', {
         'rested_5_min': answers.rested5Min,
         'recent_activity_30_min': answers.recentActivity30Min,

@@ -42,6 +42,11 @@ class _InsightScreenState extends State<InsightScreen> {
   String? _error;
   bool _contraindicated = false;
 
+  /// The consent question is asked once the deterministic result is on screen, and once per
+  /// screen — [_askAiConsent] guards on this so a rebuild does not show the dialog twice.
+  bool _aiConsentAsked = false;
+  bool _aiLoading = false;
+
   @override
   void initState() {
     super.initState();
@@ -58,6 +63,10 @@ class _InsightScreenState extends State<InsightScreen> {
       final body = await widget.api.getJson('/v1/check-sessions/$id/insight');
       if (!mounted) return;
       setState(() => _insight = body);
+      // Asked after the deterministic result is already the thing on screen: declining changes
+      // nothing about what the patient just saw, it only decides whether one more paragraph
+      // gets added underneath it.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _askAiConsent());
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -67,6 +76,69 @@ class _InsightScreenState extends State<InsightScreen> {
     } on Object catch (e) {
       if (!mounted) return;
       setState(() => _error = 'Could not load your result. $e');
+    }
+  }
+
+  /// The consent dialog. Declining, or an unconfigured server, both end in exactly the screen
+  /// this already is — the deterministic block above, unchanged. Nothing here can make the
+  /// result the patient already sees worse or slower.
+  Future<void> _askAiConsent() async {
+    if (_aiConsentAsked || !mounted) return;
+    _aiConsentAsked = true;
+
+    final consent = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(TeraRadius.card)),
+        backgroundColor: TeraColors.paper,
+        title: const Text(
+          'Data privacy notice',
+          style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
+        ),
+        content: const Text(
+          'Your recording result — not the recording itself, and not your name — can be sent '
+          'securely to a public AI API to write one extra paragraph of context. If you say no, '
+          'you keep exactly the result shown above and nothing is sent anywhere.',
+          style: TextStyle(color: TeraColors.ink, height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('No, thanks'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: TeraColors.ink,
+              foregroundColor: TeraColors.paper,
+            ),
+            child: const Text('Yes, send it'),
+          ),
+        ],
+      ),
+    );
+
+    if (consent == true) await _fetchAiCommentary();
+  }
+
+  Future<void> _fetchAiCommentary() async {
+    final id = widget.sessionId;
+    if (id == null || !mounted) return;
+    setState(() => _aiLoading = true);
+    try {
+      final body = await widget.api.getJson('/v1/check-sessions/$id/insight?ai_consent=true');
+      if (!mounted) return;
+      // Merge rather than replace: a slow or failed AI call must never take the deterministic
+      // block that is already correctly on screen back down to nothing.
+      setState(() {
+        _insight = {...?_insight, ...body};
+        _aiLoading = false;
+      });
+    } on Object {
+      // No AI key configured, the provider unreachable, or its answer tripped the invariant-6
+      // filter server-side — all three are the same outcome here: nothing to show, and the
+      // deterministic result stands on its own exactly as if consent had been declined.
+      if (mounted) setState(() => _aiLoading = false);
     }
   }
 
@@ -175,7 +247,11 @@ class _InsightScreenState extends State<InsightScreen> {
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              insight['hero_result'] as String? ?? 'No result',
+                              // The backend's field is `hero` (see `_render()` in
+                              // `app/api/v1/phr.py`). This read `hero_result`, a key the
+                              // response has never had, so this line always showed its
+                              // fallback text — the result of every check, silently blank.
+                              insight['hero'] as String? ?? 'No result',
                               textAlign: TextAlign.center,
                               style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF0F172A), height: 1.2),
                             ),
@@ -184,24 +260,63 @@ class _InsightScreenState extends State<InsightScreen> {
                       ),
 
                       const SizedBox(height: 24),
-                      // 23.3 What This Means
-                      if (insight['what_this_means'] != null && (insight['what_this_means'] as String).isNotEmpty) ...[
-                        const Text('What this means', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
-                        const SizedBox(height: 12),
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFE2E8F0)),
-                          ),
-                          child: Text(
-                            insight['what_this_means'] as String,
-                            style: const TextStyle(fontSize: 15, color: Color(0xFF334155), height: 1.5),
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                      ],
+                      // 23.3 What This Means. The backend has no single "what_this_means"
+                      // string (there never was one to read); this composes the section from
+                      // the fields it actually returns — the context chips CTX-01 fed into
+                      // this result, and the two standing disclaimers every insight carries.
+                      Builder(
+                        builder: (context) {
+                          final chips = (insight['context_chips'] as List?)?.cast<String>() ?? const [];
+                          final notice = insight['notice'] as String?;
+                          final disclaimer = insight['context_disclaimer'] as String?;
+                          if (chips.isEmpty && notice == null) return const SizedBox.shrink();
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const Text('What this means', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                                ),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (chips.isNotEmpty) ...[
+                                      Wrap(
+                                        spacing: 8,
+                                        runSpacing: 8,
+                                        children: [
+                                          for (final chip in chips)
+                                            Container(
+                                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFFF1F5F9),
+                                                borderRadius: BorderRadius.circular(TeraRadius.pill),
+                                              ),
+                                              child: Text(chip, style: const TextStyle(fontSize: 13, color: Color(0xFF334155))),
+                                            ),
+                                        ],
+                                      ),
+                                      if (disclaimer != null) ...[
+                                        const SizedBox(height: 8),
+                                        Text(disclaimer, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B), fontStyle: FontStyle.italic)),
+                                      ],
+                                      if (notice != null) const SizedBox(height: 12),
+                                    ],
+                                    if (notice != null)
+                                      Text(notice, style: const TextStyle(fontSize: 14, color: Color(0xFF334155), height: 1.5)),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 24),
+                            ],
+                          );
+                        },
+                      ),
 
                       // 23.4 Your Next Best Step
                       Container(
@@ -233,7 +348,24 @@ class _InsightScreenState extends State<InsightScreen> {
                         ),
                       ),
 
-                      if (insight['personalized_intervention'] != null && (insight['personalized_intervention'] as String).isNotEmpty) ...[
+                      // The consent-gated AI paragraph (Phase 4). `ai_commentary` is present and
+                      // non-null only when the patient said yes, a key is configured, the call
+                      // succeeded, and the invariant-6 filter passed it — every other outcome
+                      // (declined, unconfigured, unreachable, refused) leaves this whole block
+                      // absent and the deterministic result above stands alone.
+                      if (_aiLoading) ...[
+                        const SizedBox(height: 24),
+                        const Center(
+                          child: Padding(
+                            padding: EdgeInsets.all(16),
+                            child: SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          ),
+                        ),
+                      ] else if (insight['ai_commentary'] != null && (insight['ai_commentary'] as String).isNotEmpty) ...[
                         const SizedBox(height: 24),
                         Container(
                           padding: const EdgeInsets.all(16),
@@ -245,16 +377,19 @@ class _InsightScreenState extends State<InsightScreen> {
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Icon(Icons.favorite, size: 20, color: Color(0xFF16A34A)),
+                              const Icon(Icons.auto_awesome, size: 20, color: Color(0xFF16A34A)),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text('Intervention', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF166534))),
-                                    const SizedBox(height: 4),
+                                    const Text(
+                                      'AI-GENERATED · NOT REVIEWED BY A CLINICIAN',
+                                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: Color(0xFF166534), letterSpacing: 0.6),
+                                    ),
+                                    const SizedBox(height: 6),
                                     Text(
-                                      insight['personalized_intervention'] as String,
+                                      insight['ai_commentary'] as String,
                                       style: const TextStyle(fontSize: 14, color: Color(0xFF15803D), height: 1.4),
                                     ),
                                   ],
