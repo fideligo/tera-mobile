@@ -1037,9 +1037,12 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
     }
 
     try {
+      // `resolveLazily`, not `resolve(await _measurements())`. The eager form re-ran the full
+      // eligibility probe after every capture and was the direct cause of completed 60-second
+      // recordings landing on SIG-02 — see `SessionContextResolver.resolveLazily`.
       final resolved = await SessionContextResolver(
         api: widget.flow.api,
-      ).resolve(await _measurements());
+      ).resolveLazily(_measurements);
 
       final outcome = await SessionSubmitter(api: widget.flow.api).submit(
         episodeId: resolved.episodeId,
@@ -1052,67 +1055,48 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
 
       if (!mounted) return;
 
-      final bool? consent = await showDialog<bool>(
-        context: context,
-        barrierDismissible: false,
-        builder: (BuildContext context) {
-          return AlertDialog(
-            title: const Text('Data Privacy Notice'),
-            content: const Text(
-              'Your data will be sent securely to NVIDIA NIM public AI to generate insights. Do you consent?',
-            ),
-            actions: <Widget>[
-              TextButton(
-                onPressed: () => Navigator.of(context).pop(false),
-                child: const Text('Decline'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('I Consent'),
-              ),
-            ],
+      // Move the check into processing. **This request carries nothing**, which is the whole
+      // contract: `ProcessIn` is an empty model and whatever is being processed is already
+      // stored. It briefly carried `{'scg': [...], 'ppg': [...], 'ai_consent': true}` instead,
+      // which broke two ways at once — the empty schema is `extra="forbid"`, so every call 422'd
+      // and the flow never reached the insight screen; and shipping the raw accelerometer and
+      // ROI-intensity arrays off the handset is precisely what invariant 2 forbids. The derived
+      // per-beat intervals in `signal.pttMs` already went up with the session submission above,
+      // and that is the deepest granularity the API accepts.
+      //
+      // Best effort: the session is already filed, so a failure here must not strand the patient
+      // short of the result that submission produced.
+      final checkSessionId = widget.payload.checkSessionId;
+      if (checkSessionId != null) {
+        try {
+          await widget.flow.api.postJson(
+            '/v1/check-sessions/$checkSessionId/process',
+            const {},
           );
-        },
-      );
-
-      if (consent != true) {
-        TeraFlow.toHome(context);
-        return;
+        } on Object {
+          // Deliberately swallowed — see above.
+        }
       }
 
       if (!mounted) return;
-      
-      // POST the sensor data to the ML backend route / rule engine
-      if (widget.payload.checkSessionId != null) {
-        await widget.flow.api.postJson(
-          '/v1/check-sessions/${widget.payload.checkSessionId}/process',
-          {
-            'scg': signal.scg,
-            'ppg': signal.ppg,
-            'ai_consent': true,
-          }
-        );
-      }
 
+      // No consent dialog here. `InsightScreen` owns that question and asks it once the
+      // deterministic result is already on screen, so declining costs the patient nothing they
+      // had already earned. A second dialog here asked before there was any result to discuss,
+      // and routed a decline to Home — throwing away the completed check entirely.
       TeraFlow.advance(
         context,
         CheckFlow.afterProcessing(widget.session),
         payload: widget.payload.copyWith(submittedSessionId: outcome.sessionId),
       );
-    } on DeviceMeasurementFailure {
-      // **Not a generic error.** The handset could not be measured, which is a hardware problem
-      // the patient can act on by repositioning — SIG-02's whole purpose. It routes through the
-      // same attempt counter as a rejected capture, so three of these end the check rather than
-      // looping forever.
+    } on DeviceMeasurementFailure catch (e) {
+      // **Not a signal-quality outcome, and no longer reported as one.** This means the handset
+      // could not be *measured* — the camera or the motion sensor did not answer. Routing it to
+      // SIG-02 told a patient who had just held still for a full minute that they had moved,
+      // which is both false and unactionable: repositioning a finger cannot fix a camera that
+      // will not report its capabilities. It now says what actually happened, and offers a retry.
       if (!mounted) return;
-      TeraFlow.advance(
-        context,
-        CheckFlow.afterSensorCapture(
-          widget.session,
-          SignalQuality.retryableReject,
-        ),
-        payload: widget.payload,
-      );
+      setState(() => _error = e.reason);
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {

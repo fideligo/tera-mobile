@@ -62,7 +62,10 @@ class SessionSubmitter {
       'n_beats_usable': signal.nBeatsUsable,
       'ptt_ms': signal.pttMs,
       'quality': signal.quality,
-      'synthetic': false,
+      // Was hard-coded `false`, including for sessions whose intervals the pipeline substituted
+      // rather than derived — invariant 9's exact failure mode. It now reports what the pipeline
+      // actually produced, so a substituted session is labelled as one everywhere it lands.
+      'synthetic': signal.synthetic,
     };
 
     try {

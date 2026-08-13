@@ -115,10 +115,21 @@ class SignalResult {
     required this.scg,
     required this.ppg,
     this.rejectionReason,
+    this.synthetic = false,
   }) : assert(
          accepted || rejectionReason != null,
          'a rejected session must carry a reason',
        );
+
+  /// True when [pttMs] does not come from this capture — the demo fallback below substituted it.
+  ///
+  /// **This flag is the difference between a demo and a lie.** Invariant 9 does not forbid
+  /// synthetic data; it forbids synthetic data *presented as real*, and the backend carries a
+  /// `synthetic` boolean on every clinical table for exactly this purpose. The fallback used to
+  /// submit invented intervals with `'synthetic': false` hard-coded beside them, which put
+  /// fabricated measurements into a patient's clinical record indistinguishable from measured
+  /// ones — the one thing this file's own header says an implementation must never do.
+  final bool synthetic;
 
   final bool accepted;
 
@@ -188,8 +199,16 @@ class TeraSignalPipeline implements SignalPipeline {
       // Ignored for demo override
     }
 
-    if (usable.length < minUsableBeats) {
-      // Demo override: Inject fake physiological data to pass backend requirements
+    // Demo fallback: when the chain cannot derive enough intervals from this capture, substitute
+    // a plausible set so the flow completes end to end for a demonstration.
+    //
+    // **Kept, but no longer silent.** The substituted session is marked `synthetic`, which
+    // travels with it into the clinical record and onto the result screen. That is the whole
+    // difference between a demo and a fabricated measurement: invariant 9 permits synthetic data
+    // and forbids only synthetic data presented as real, and the backend already carries a
+    // `synthetic` boolean on every clinical table to hold exactly this.
+    final substituted = usable.length < minUsableBeats;
+    if (substituted) {
       usable = List.generate(40, (i) => 240.0 + (i % 5));
     }
 
@@ -206,6 +225,7 @@ class TeraSignalPipeline implements SignalPipeline {
       scg: scg,
       ppg: ppg,
       rejectionReason: null,
+      synthetic: substituted,
     );
   }
 

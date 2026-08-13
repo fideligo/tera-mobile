@@ -138,18 +138,45 @@ class SessionContextResolver {
 
   /// Resolve the patient, the episode and the device profile, registering the handset if it has
   /// not been registered from this app before.
-  Future<SessionContext> resolve(DeviceMeasurements measurements) async {
+  Future<SessionContext> resolve(DeviceMeasurements measurements) =>
+      resolveLazily(() async => measurements);
+
+  /// [resolve], but the handset is only measured when a measurement is actually *needed*.
+  ///
+  /// **This exists because measuring eagerly was rejecting real captures.** `ProcessingScreen`
+  /// used to call `resolve(await _measurements())`, which re-ran the full eligibility probe —
+  /// `readCameraCapabilities()` plus a six-second accelerometer run — immediately after the
+  /// 60-second capture released the camera. When the camera had not finished releasing, the probe
+  /// failed, `_measurements()` threw `DeviceMeasurementFailure`, and the flow routed to SIG-02
+  /// ("let's adjust your position") — telling a patient who had just held perfectly still for a
+  /// minute that *they* had moved, when what actually happened is that the app could not re-open
+  /// the camera it had just closed.
+  ///
+  /// On the cached path a measurement is not needed at all: the device profile already exists and
+  /// the measurement is used only for the diagnostic threshold cross-check. So the common case —
+  /// every capture after the first — now performs no probe whatsoever. The cross-check still runs
+  /// when a measurement is available, and is skipped, not faked, when it is not.
+  Future<SessionContext> resolveLazily(
+    Future<DeviceMeasurements> Function() measure,
+  ) async {
     final (:patientId, :episodeId) = await resolveEpisode();
 
     final cached = await _profiles.read();
     if (cached != null) {
       final profile = await _api.getJson('/v1/device-profiles/$cached');
-      // Also on the cached path: an override applied to the backend after this handset registered
-      // would otherwise go unnoticed for the life of the install.
-      reportThresholdCrossCheck(
-        accelRateHz: measurements.accelRateHz,
-        deviceProfile: profile,
-      );
+      // Best effort, and deliberately non-fatal: an override applied to the backend after this
+      // handset registered would otherwise go unnoticed for the life of the install. But a
+      // cross-check is a diagnostic, and a diagnostic that cannot run must not discard a capture
+      // the patient already spent a minute producing.
+      try {
+        final measurements = await measure();
+        reportThresholdCrossCheck(
+          accelRateHz: measurements.accelRateHz,
+          deviceProfile: profile,
+        );
+      } on Object {
+        // Skipped, not substituted. Invariant 9: never invent device benchmark results.
+      }
       return SessionContext(
         patientId: patientId,
         episodeId: episodeId,
@@ -158,6 +185,10 @@ class SessionContextResolver {
       );
     }
 
+    // Only here is a real measurement load-bearing: it is the content of the profile being
+    // registered. A failure here still throws, because registering a handset on invented figures
+    // is exactly what invariant 9 forbids.
+    final measurements = await measure();
     final created = await _api.postJson(
       '/v1/device-profiles',
       measurements.toDeviceProfilePayload(patientId),
