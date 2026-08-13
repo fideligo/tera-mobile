@@ -55,6 +55,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
+  /// Skip sign-up entirely, matching the sign-in screen's own guest route.
+  void _continueAsGuest() {
+    widget.auth.continueAsGuest();
+    Navigator.of(context).pushNamedAndRemoveUntil(Routes.home, (r) => false);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -245,6 +251,43 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                   ),
                 ),
+                const SizedBox(height: TeraSpacing.lg),
+
+                // ── Guest ──
+                //
+                // Same option as the sign-in screen, because someone who lands on Register and
+                // does not want an account has otherwise no way forward but the back button.
+                SizedBox(
+                  height: 52,
+                  child: OutlinedButton(
+                    onPressed: _isBusy ? null : _continueAsGuest,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: TeraColors.brand,
+                      side: const BorderSide(color: TeraColors.brand),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(TeraRadius.button),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: TeraText.body,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    child: const Text('Continue as guest'),
+                  ),
+                ),
+                const SizedBox(height: TeraSpacing.sm),
+                const Text(
+                  'A guest check runs entirely on this phone. You get your heart rate and '
+                  'signal quality, but nothing is saved and no blood-pressure trend is '
+                  'produced — a trend needs an account and a cuff reading to compare against.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: TeraText.small,
+                    color: TeraColors.neutral700,
+                    height: 1.4,
+                  ),
+                ),
+
                 const SizedBox(height: TeraSpacing.lg),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,

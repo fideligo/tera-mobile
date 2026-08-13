@@ -632,10 +632,11 @@ class _LocalResultCard extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Your recording finished and was analysed on this phone, but Tera could not '
-                'reach the server. No blood-pressure trend is available for this check: a trend '
-                'is measured against your own cuff baseline, and that comparison happens on the '
-                'server. The heart rate above is from this recording.',
+                'Your recording finished and was analysed on this phone. It was not sent to '
+                'the server — either you are using Tera as a guest, or the server could not be '
+                'reached — so nothing was saved and no blood-pressure trend is available. A '
+                'trend is measured against your own cuff baseline, and that comparison only '
+                'happens server-side. The heart rate above is from this recording.',
                 style: TextStyle(
                   color: TeraColors.ink,
                   fontSize: TeraText.small,

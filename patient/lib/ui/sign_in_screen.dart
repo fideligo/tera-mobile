@@ -290,6 +290,11 @@ class _SignInScreenState extends State<SignInScreen> {
                   const SizedBox(height: TeraSpacing.lg),
 
                   // ── Divider ──
+                  //
+                  // The Google button that sat below this was removed: it had `onPressed: () {}`,
+                  // an empty callback, so it looked like a working sign-in route and silently did
+                  // nothing. On an auth screen that is worse than absent — someone tries it,
+                  // nothing happens, and they have no idea whether they are signed in.
                   Row(
                     children: [
                       Expanded(child: Divider(color: TeraColors.neutral300)),
@@ -298,7 +303,7 @@ class _SignInScreenState extends State<SignInScreen> {
                           horizontal: TeraSpacing.md,
                         ),
                         child: Text(
-                          'Atau lanjut dengan',
+                          'or',
                           style: TextStyle(
                             fontSize: TeraText.small,
                             color: TeraColors.neutral700,
@@ -310,23 +315,14 @@ class _SignInScreenState extends State<SignInScreen> {
                   ),
                   const SizedBox(height: TeraSpacing.lg),
 
-                  // ── Google button ──
+                  // ── Guest ──
                   SizedBox(
                     height: 52,
-                    child: OutlinedButton.icon(
-                      onPressed: _busy ? null : () {},
-                      icon: const Text(
-                        'G',
-                        style: TextStyle(
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          color: Color(0xFF4285F4),
-                        ),
-                      ),
-                      label: const Text('Google'),
+                    child: OutlinedButton(
+                      onPressed: _busy ? null : _continueAsGuest,
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: TeraColors.ink,
-                        side: const BorderSide(color: TeraColors.neutral300),
+                        foregroundColor: TeraColors.brand,
+                        side: const BorderSide(color: TeraColors.brand),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(
                             TeraRadius.button,
@@ -337,23 +333,19 @@ class _SignInScreenState extends State<SignInScreen> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                      child: const Text('Continue as guest'),
                     ),
                   ),
-                  const SizedBox(height: TeraSpacing.md),
-
-                  // ── Guest ──
-                  SizedBox(
-                    height: 52,
-                    child: TextButton(
-                      onPressed: _busy ? null : _continueAsGuest,
-                      style: TextButton.styleFrom(
-                        foregroundColor: TeraColors.neutral700,
-                        textStyle: const TextStyle(
-                          fontSize: TeraText.body,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      child: const Text('Continue as guest'),
+                  const SizedBox(height: TeraSpacing.sm),
+                  const Text(
+                    'A guest check runs entirely on this phone. You get your heart rate and '
+                    'signal quality, but nothing is saved and no blood-pressure trend is '
+                    'produced — a trend needs an account and a cuff reading to compare against.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: TeraText.small,
+                      color: TeraColors.neutral700,
+                      height: 1.4,
                     ),
                   ),
                   const SizedBox(height: TeraSpacing.lg),

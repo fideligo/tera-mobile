@@ -1205,6 +1205,27 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
       // will not report its capabilities. It now says what actually happened, and offers a retry.
       if (!mounted) return;
       setState(() => _error = e.reason);
+    } on SessionExpiredException {
+      // **A guest, or a lapsed session — not an error worth stopping for.**
+      //
+      // Must be caught above `ApiException`, which it extends: as a plain 401 it was landing in
+      // the generic branch below and stranding the patient on this screen with an error, after a
+      // full minute of recording. Nothing about the capture failed. It ran, it was analysed on
+      // this handset, and the result screen can show what was measured — so the flow continues
+      // there and renders the offline card from `payload.signal`.
+      //
+      // Nothing was submitted, and nothing downstream claims otherwise: there is no check session
+      // id, so `InsightScreen` never asks the server for a trend it could not produce anyway.
+      debugPrint('[TERA] not authenticated — routing to the local-only result');
+      if (!mounted) return;
+      TeraFlow.advance(
+        context,
+        CheckFlow.afterProcessing(widget.session),
+        // Consent is recorded as declined rather than left null: with no session there is nothing
+        // to send, and leaving it null would make the result screen ask a question whose answer
+        // cannot change anything.
+        payload: _payload.copyWith(aiConsent: false),
+      );
     } on ApiException catch (e) {
       debugPrint('[TERA] API FAILED ${e.statusCode}: ${e.message}');
       if (!mounted) return;
