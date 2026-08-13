@@ -17,6 +17,7 @@ import '../routing/routes.dart';
 import 'capture_screen.dart';
 import 'context_intake_screen.dart';
 import 'cuff_reading_screen.dart';
+import 'guest_gate_screen.dart';
 import 'symptom_triage_screen.dart';
 import 'session_result_screen.dart';
 import 'tokens.dart';
@@ -419,14 +420,26 @@ class _HomeScreenState extends State<HomeScreen> {
                 Text(time, style: const TextStyle(fontSize: 12, color: TeraColors.neutral500)),
                 const SizedBox(height: 4),
                 Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: TeraColors.ink)),
-                const SizedBox(height: 4),
-                Text(subtitle, style: const TextStyle(fontSize: 13, color: TeraColors.neutral600)),
+                const SizedBox(height: 2),
+                Text(subtitle, style: const TextStyle(fontSize: 13, color: TeraColors.neutral500)),
               ],
             ),
           ),
         ],
       ),
     );
+  }
+
+  /// History and Profile both need a token; a guest has none. Caught here, at the tap, rather
+  /// than let the screen's own request fail and show a generic error.
+  void _openGuarded(BuildContext context, String route, String feature) {
+    if (auth.isGuest) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(builder: (_) => GuestGateScreen(feature: feature)),
+      );
+      return;
+    }
+    Navigator.of(context).pushNamed(route);
   }
 
   Widget _buildBottomNav(BuildContext context) {
@@ -440,8 +453,8 @@ class _HomeScreenState extends State<HomeScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceEvenly,
         children: [
           _buildNavItem(context, Icons.home, 'Home', true, () {}),
-          _buildNavItem(context, Icons.history, 'History', false, () => Navigator.of(context).pushNamed(Routes.history)),
-          _buildNavItem(context, Icons.person_outline, 'Profile', false, () => Navigator.of(context).pushNamed(Routes.profile)),
+          _buildNavItem(context, Icons.history, 'History', false, () => _openGuarded(context, Routes.history, 'History')),
+          _buildNavItem(context, Icons.person_outline, 'Profile', false, () => _openGuarded(context, Routes.profile, 'Profile')),
         ],
       ),
     );
@@ -464,15 +477,6 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-                ],
-              ),
-            ),
-
-          ],
-        ),
       ),
     );
   }

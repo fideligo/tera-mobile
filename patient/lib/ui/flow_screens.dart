@@ -24,6 +24,7 @@ import '../signal/signal_pipeline.dart';
 import 'capture_screen.dart';
 import 'cuff_reading_screen.dart';
 import 'flow_stub_screen.dart';
+import 'tokens.dart';
 
 /// AUTH-00. Checks auth, then device eligibility, then onboarding, and routes once.
 class SplashScreen extends StatefulWidget {
@@ -59,11 +60,28 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => const Scaffold(
+  Widget build(BuildContext context) => Scaffold(
+    backgroundColor: TeraColors.page,
     body: Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
-        children: [Text('Tera'), SizedBox(height: 16), CircularProgressIndicator()],
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(TeraRadius.card),
+            child: Image.asset('assets/logo.jpeg', width: 96, height: 96, fit: BoxFit.cover),
+          ),
+          const SizedBox(height: TeraSpacing.md),
+          const Text(
+            'Tera',
+            style: TextStyle(
+              fontSize: TeraText.section,
+              fontWeight: FontWeight.w700,
+              color: TeraColors.ink,
+            ),
+          ),
+          const SizedBox(height: TeraSpacing.lg),
+          const CircularProgressIndicator(color: TeraColors.brand),
+        ],
       ),
     ),
   );
@@ -306,7 +324,7 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
     final checkSessionId = widget.payload.checkSessionId;
     if (checkSessionId != null) {
       try {
-        await CurrentContextSubmitter(api: widget.flow.api).submit(checkSessionId: checkSessionId, context: collected);
+        await CurrentContextSubmitter(api: widget.flow.api).submitForSession(sessionId: checkSessionId, context: collected);
       } on Object {
         // Fallback local if network fails.
       }
@@ -471,6 +489,7 @@ class BpInputScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => CuffReadingScreen(
     api: flow.api,
+    checkSessionId: payload.checkSessionId,
     onDone: () async {
       // A saved reading is a reference for the sensor path and the measurement itself for the
       // BP-only path. Either way it refreshes the reference clock.
@@ -1018,121 +1037,3 @@ class ProfileIndexScreen extends StatelessWidget {
   }
 }
 
-class HistoryScreen extends StatelessWidget {
-  const HistoryScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        title: const Text('History', style: TextStyle(color: Color(0xFF1E293B), fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Color(0xFF1E293B)),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Filters
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _buildFilterChip('7D', true),
-                const SizedBox(width: 8),
-                _buildFilterChip('30D', false),
-                const SizedBox(width: 8),
-                _buildFilterChip('3M', false),
-                const SizedBox(width: 8),
-                _buildFilterChip('All', false),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          // Trend View
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16), border: Border.all(color: const Color(0xFFE2E8F0))),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('BP-Related Pattern', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
-                const SizedBox(height: 24),
-                // Mock chart
-                SizedBox(
-                  height: 120,
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: const [
-                        Icon(Icons.show_chart, color: Color(0xFFCBD5E1), size: 48),
-                        SizedBox(height: 8),
-                        Text('Trend visualization', style: TextStyle(color: Color(0xFF94A3B8))),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-          const Text('Timeline', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1E293B))),
-          const SizedBox(height: 12),
-          _buildActivityTimelineItem('Aug 12 · 09:20', 'Persistent BP-related change', 'Phone check · Good signal'),
-          _buildActivityTimelineItem('Aug 11 · 08:50', 'BP-related change', 'Phone check · Good signal'),
-          _buildActivityTimelineItem('Aug 10 · 09:05', '138 / 86 mmHg', 'Confirmed BP · Manual input'),
-          _buildActivityTimelineItem('Aug 9 · 08:45', 'Within recent pattern', 'Phone check'),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFilterChip(String label, bool isSelected) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      decoration: BoxDecoration(
-        color: isSelected ? const Color(0xFF0F172A) : Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: isSelected ? const Color(0xFF0F172A) : const Color(0xFFE2E8F0)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: isSelected ? Colors.white : const Color(0xFF64748B),
-          fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActivityTimelineItem(String time, String title, String subtitle) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            margin: const EdgeInsets.only(top: 4),
-            width: 12,
-            height: 12,
-            decoration: const BoxDecoration(color: Color(0xFF2563EB), shape: BoxShape.circle),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(time, style: const TextStyle(fontSize: 12, color: Color(0xFF64748B))),
-                const SizedBox(height: 4),
-                Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1E293B))),
-                const SizedBox(height: 2),
-                Text(subtitle, style: const TextStyle(fontSize: 13, color: Color(0xFF64748B))),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}

@@ -10,7 +10,7 @@ import 'package:flutter/foundation.dart';
 import '../api/api_client.dart';
 import 'token_store.dart';
 
-enum AuthStatus { checking, signedOut, signedIn }
+enum AuthStatus { checking, signedOut, signedIn, guest }
 
 class AuthController extends ChangeNotifier {
   AuthController({required ApiClient api}) : _api = api;
@@ -31,6 +31,15 @@ class AuthController extends ChangeNotifier {
   /// client in the app and therefore exactly one refresh-in-flight guard.
   ApiClient get api => _api;
   bool get isSignedIn => _status == AuthStatus.signedIn;
+
+  /// Browsing without an account. No token exists, so nothing that requires one — a check
+  /// submission, History, Profile — can actually reach the backend; this flag is what lets the
+  /// UI head that off with an explanation instead of a request that fails.
+  bool get isGuest => _status == AuthStatus.guest;
+
+  /// Home and the check flow read this rather than [isSignedIn] directly, so a guest reaches the
+  /// same screens a signed-in patient does.
+  bool get canUseApp => _status == AuthStatus.signedIn || _status == AuthStatus.guest;
 
   /// Restore a session from secure storage at launch.
   ///
@@ -86,6 +95,18 @@ class AuthController extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  /// Skip authentication entirely.
+  ///
+  /// Deliberately not persisted: there is no token to store, so a relaunch finds
+  /// [TokenStore] empty and lands back on [AuthStatus.signedOut] — the splash re-running AUTH-00
+  /// is the correct behaviour for a guest, not a bug, since a guest has nothing to resume.
+  void continueAsGuest() {
+    _session = null;
+    _error = null;
+    _status = AuthStatus.guest;
+    notifyListeners();
   }
 
   Future<void> signOut() async {

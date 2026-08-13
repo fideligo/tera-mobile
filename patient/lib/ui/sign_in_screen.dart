@@ -57,6 +57,14 @@ class _SignInScreenState extends State<SignInScreen> {
     }
   }
 
+  /// Skip sign-in entirely. Home and the check flow read [AuthController.canUseApp], which a
+  /// guest satisfies; History and Profile gate themselves separately, at the tap, because
+  /// nothing backing either can work without a token to send.
+  void _continueAsGuest() {
+    widget.auth.continueAsGuest();
+    Navigator.of(context).pushNamedAndRemoveUntil(Routes.home, (r) => false);
+  }
+
   @override
   Widget build(BuildContext context) {
     final error = widget.auth.error;
@@ -72,7 +80,21 @@ class _SignInScreenState extends State<SignInScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  const SizedBox(height: TeraSpacing.xxl),
+                  const SizedBox(height: TeraSpacing.xl),
+
+                  // ── Logo ──
+                  Center(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(TeraRadius.card),
+                      child: Image.asset(
+                        'assets/logo.jpeg',
+                        width: 72,
+                        height: 72,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: TeraSpacing.lg),
 
                   // ── Title ──
                   const Text(
@@ -291,6 +313,23 @@ class _SignInScreenState extends State<SignInScreen> {
                           fontWeight: FontWeight.w600,
                         ),
                       ),
+                    ),
+                  ),
+                  const SizedBox(height: TeraSpacing.md),
+
+                  // ── Guest ──
+                  SizedBox(
+                    height: 52,
+                    child: TextButton(
+                      onPressed: _busy ? null : _continueAsGuest,
+                      style: TextButton.styleFrom(
+                        foregroundColor: TeraColors.neutral700,
+                        textStyle: const TextStyle(
+                          fontSize: TeraText.body,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      child: const Text('Continue as guest'),
                     ),
                   ),
                   const SizedBox(height: TeraSpacing.lg),

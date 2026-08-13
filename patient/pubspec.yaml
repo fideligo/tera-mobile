@@ -20,6 +20,12 @@ dependencies:
   flutter_secure_storage: ^9.2.2
   meta: ^1.15.0
 
+  # PROF-08 / HIST export: a clinician summary the patient can save or share from their own
+  # phone. `pdf` composes the document; `printing` is the share/save/print sheet for it, and
+  # its own PDF preview never touches the network.
+  pdf: ^3.11.1
+  printing: ^5.13.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -27,3 +33,5 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/logo.jpeg
