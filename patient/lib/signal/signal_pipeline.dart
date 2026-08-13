@@ -116,6 +116,8 @@ class SignalResult {
     required this.ppg,
     this.rejectionReason,
     this.synthetic = false,
+    this.heartRateBpm,
+    this.pttMedianMs,
   }) : assert(
          accepted || rejectionReason != null,
          'a rejected session must carry a reason',
@@ -130,6 +132,22 @@ class SignalResult {
   /// fabricated measurements into a patient's clinical record indistinguishable from measured
   /// ones — the one thing this file's own header says an implementation must never do.
   final bool synthetic;
+
+  /// Heart rate derived on this handset from the PPG (camera) signal, beats per minute.
+  ///
+  /// Kept separate from everything the backend computes, because it is the one clinically
+  /// meaningful figure this app can stand behind **without a server**: a 30 fps camera resolves a
+  /// 0.8-2 Hz pulse comfortably. Null when the chain could not derive it.
+  ///
+  /// It is a heart rate and nothing more. It is not a blood pressure, and no trend can be built
+  /// from it — a trend needs the patient's cuff baseline, which lives server-side.
+  final double? heartRateBpm;
+
+  /// Median pulse transit time from this capture, milliseconds. Null when not derivable.
+  ///
+  /// Only trustworthy when the accelerometer actually ran fast enough; `quality['accel_rate_hz']`
+  /// is what says whether it did.
+  final double? pttMedianMs;
 
   final bool accepted;
 
@@ -182,7 +200,9 @@ class TeraSignalPipeline implements SignalPipeline {
 
     List<double> usable = [];
     int nBeatsTotal = 60;
-    
+    double? heartRateBpm;
+    double? pttMedianMs;
+
     try {
       final analysis = analyseCapture(
         scg: scg,
@@ -191,6 +211,14 @@ class TeraSignalPipeline implements SignalPipeline {
         fsPpg: frameStats?.meanRateHz ?? 30.0,
       );
       nBeatsTotal = analysis.nScgBeats;
+      // The PPG heart rate survives even when the SCG side is too slow to pair beats against,
+      // which is what makes it usable as an offline result on its own.
+      if (analysis.ppgHr.isFinite && analysis.ppgHr > 0) {
+        heartRateBpm = analysis.ppgHr;
+      }
+      if (analysis.summary.median.isFinite && analysis.summary.median > 0) {
+        pttMedianMs = analysis.summary.median;
+      }
       usable = [
         for (final v in analysis.pttMs)
           if (v >= pttMinMs && v <= pttMaxMs) v,
@@ -226,6 +254,8 @@ class TeraSignalPipeline implements SignalPipeline {
       ppg: ppg,
       rejectionReason: null,
       synthetic: substituted,
+      heartRateBpm: heartRateBpm,
+      pttMedianMs: pttMedianMs,
     );
   }
 

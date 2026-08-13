@@ -367,6 +367,9 @@ class TeraRouter {
           sessionId: payload.checkSessionId,
           uncalibratedDemo: payload.uncalibratedDemo,
           aiConsent: payload.aiConsent,
+          // So the screen can fall back to what the handset measured when the server cannot be
+          // reached, instead of showing nothing.
+          localSignal: payload.signal,
         ),
       ),
 

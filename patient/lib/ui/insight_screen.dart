@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
 import '../routing/app_router.dart';
+import '../signal/signal_pipeline.dart';
 import 'tokens.dart';
 
 class InsightScreen extends StatefulWidget {
@@ -22,6 +23,7 @@ class InsightScreen extends StatefulWidget {
     required this.sessionId,
     this.uncalibratedDemo = false,
     this.aiConsent,
+    this.localSignal,
   });
 
   final ApiClient api;
@@ -42,6 +44,16 @@ class InsightScreen extends StatefulWidget {
   /// never asked — the submission failed before the question could be put — and only then does
   /// this screen ask for itself.
   final bool? aiConsent;
+
+  /// What this handset derived on its own, kept so the screen has something true to show when the
+  /// server cannot be reached at all.
+  ///
+  /// **This is the offline result, not a placeholder for the online one.** The two are different
+  /// in kind: the server compares this check against the patient's cuff baseline and produces a
+  /// *trend*; the handset has no baseline and can only report what it just measured. Presenting
+  /// the second as though it were the first is the one thing this screen must not do, so the
+  /// offline card shows a heart rate and signal figures and explicitly says no trend is available.
+  final SignalResult? localSignal;
 
   @override
   State<InsightScreen> createState() => _InsightScreenState();
@@ -184,6 +196,7 @@ class _InsightScreenState extends State<InsightScreen> {
   Widget build(BuildContext context) {
     final insight = _insight;
     final error = _error;
+    final local = widget.localSignal;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
@@ -208,7 +221,13 @@ class _InsightScreenState extends State<InsightScreen> {
               Expanded(
                 child: ListView(
                   children: [
-                    if (error != null) ...[
+                    // Server unreachable, not signed in, timed out, refused — every one of them
+                    // lands here, and every one of them still has the on-device result behind it.
+                    // Task 1's requirement, met with real measured values rather than invented
+                    // ones: the card below is built from what this capture actually produced.
+                    if (error != null && !_contraindicated && local != null) ...[
+                      _LocalResultCard(signal: local, onRetry: _load),
+                    ] else if (error != null) ...[
                       // The system-state treatment, not a red alarm. Red is not in this palette
                       // (working root `CLAUDE.md`, standing constraint 5) and, more to the point,
                       // an unreachable server is something *the system* failed at — it says
@@ -532,6 +551,128 @@ class _InsightScreenState extends State<InsightScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// The offline result: what this handset measured, when the server could not be asked.
+///
+/// Everything on this card is a real figure out of the capture that just ran. There is
+/// deliberately **no trend and no direction** here, not even a neutral-looking one: a trend is
+/// defined against the patient's own cuff baseline, that baseline lives server-side, and inventing
+/// a "stable" to fill the space would be asserting the one thing this screen cannot know. Saying
+/// "no comparison available" is both true and, on a result screen someone may act on, safer.
+class _LocalResultCard extends StatelessWidget {
+  const _LocalResultCard({required this.signal, required this.onRetry});
+
+  final SignalResult signal;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final hr = signal.heartRateBpm;
+    final accelHz = (signal.quality['accel_rate_hz'] as num?)?.toDouble();
+    final cameraFps = (signal.quality['camera_fps'] as num?)?.toDouble();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(TeraSpacing.lg),
+          decoration: BoxDecoration(
+            color: TeraColors.paper,
+            borderRadius: BorderRadius.circular(TeraRadius.card),
+            border: Border.all(color: TeraColors.neutral300),
+          ),
+          child: Column(
+            children: [
+              const Text(
+                'MEASURED ON THIS PHONE',
+                style: TextStyle(
+                  fontSize: TeraText.micro,
+                  fontWeight: FontWeight.w700,
+                  color: TeraColors.neutral700,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              const SizedBox(height: TeraSpacing.md),
+              Text(
+                hr == null ? '--' : hr.round().toString(),
+                style: const TextStyle(
+                  fontSize: 56,
+                  fontWeight: FontWeight.w700,
+                  color: TeraColors.ink,
+                  height: 1.0,
+                ),
+              ),
+              const Text(
+                'beats per minute',
+                style: TextStyle(
+                  fontSize: TeraText.body,
+                  color: TeraColors.neutral700,
+                ),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: TeraSpacing.md),
+        Container(
+          padding: const EdgeInsets.all(TeraSpacing.md),
+          decoration: systemFlagDecoration(),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Local analysis only',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: TeraColors.ink,
+                  fontSize: TeraText.body,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Your recording finished and was analysed on this phone, but Tera could not '
+                'reach the server. No blood-pressure trend is available for this check: a trend '
+                'is measured against your own cuff baseline, and that comparison happens on the '
+                'server. The heart rate above is from this recording.',
+                style: TextStyle(
+                  color: TeraColors.ink,
+                  fontSize: TeraText.small,
+                  height: 1.45,
+                ),
+              ),
+              const SizedBox(height: TeraSpacing.md),
+              Text(
+                'Signal: ${signal.nBeatsUsable} usable beats'
+                '${cameraFps == null ? '' : ' · camera ${cameraFps.toStringAsFixed(0)} fps'}'
+                '${accelHz == null ? '' : ' · motion ${accelHz.toStringAsFixed(0)} Hz'}',
+                style: const TextStyle(
+                  fontSize: TeraText.micro,
+                  color: TeraColors.neutral700,
+                ),
+              ),
+              if (accelHz != null && accelHz < 200) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Motion sensor ran at ${accelHz.toStringAsFixed(0)} Hz, below the 200 Hz this '
+                  'method needs. Transit-time figures from this capture are not reliable.',
+                  style: const TextStyle(
+                    fontSize: TeraText.micro,
+                    color: TeraColors.ink,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+              const SizedBox(height: TeraSpacing.md),
+              OutlinedButton(
+                onPressed: onRetry,
+                child: const Text('Try the server again'),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

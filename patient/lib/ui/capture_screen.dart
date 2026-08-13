@@ -208,17 +208,25 @@ class _CaptureScreenState extends State<CaptureScreen> {
 
     _recordingStartTime = DateTime.now();
 
-    _accelSub = accelerometerEventStream().listen((AccelerometerEvent event) {
-      if (!_isRecording) return;
-      _accelSamples.add(AccelSample(
-        x: event.x,
-        y: event.y,
-        z: event.z,
-        timestampNanos: DateTime.now().microsecondsSinceEpoch * 1000,
-        realtimeAtDeliveryNanos: 0,
-        uptimeAtDeliveryNanos: 0,
-      ));
-    });
+    // **`samplingPeriod` is not optional here.** The default interval delivered 1027 samples in
+    // 60 s on the test handset — about 17 Hz. Seismocardiography needs the aortic-valve-opening
+    // fiducial resolved to a few milliseconds, and the proposal's device floor is 200 Hz for
+    // exactly that reason: at 17 Hz the sample spacing (~58 ms) is larger than the entire
+    // transit-time interval being measured, so no amount of downstream DSP can recover it.
+    _accelSub =
+        accelerometerEventStream(
+          samplingPeriod: SensorInterval.fastestInterval,
+        ).listen((AccelerometerEvent event) {
+          if (!_isRecording) return;
+          _accelSamples.add(AccelSample(
+            x: event.x,
+            y: event.y,
+            z: event.z,
+            timestampNanos: DateTime.now().microsecondsSinceEpoch * 1000,
+            realtimeAtDeliveryNanos: 0,
+            uptimeAtDeliveryNanos: 0,
+          ));
+        });
 
     _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
