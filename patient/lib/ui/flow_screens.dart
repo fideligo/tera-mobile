@@ -5,6 +5,7 @@
 /// [FlowStubScreen] naming the spec section it stands for.
 library;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/auth_controller.dart';
@@ -1058,8 +1059,10 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
         episodeId: resolved.episodeId,
         mode: widget.session.mode,
       );
+      debugPrint('[TERA] check session recovered late: $id');
       if (mounted) setState(() => _recoveredCheckSessionId = id);
-    } on Object {
+    } on Object catch (e) {
+      debugPrint('[TERA] check session STILL unreachable: $e');
       // Still unreachable. The insight screen reports that honestly rather than inventing a
       // result; see its own fallback.
     }
@@ -1140,6 +1143,10 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
         api: widget.flow.api,
       ).resolveLazily(_measurements);
 
+      debugPrint(
+        '[TERA] submitting: checkSessionId=${_payload.checkSessionId} '
+        'ptt=${signal.pttMs.length} synthetic=${signal.synthetic}',
+      );
       final outcome = await SessionSubmitter(api: widget.flow.api).submit(
         episodeId: resolved.episodeId,
         deviceProfileId: resolved.deviceProfileId,
@@ -1199,6 +1206,7 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
       if (!mounted) return;
       setState(() => _error = e.reason);
     } on ApiException catch (e) {
+      debugPrint('[TERA] API FAILED ${e.statusCode}: ${e.message}');
       if (!mounted) return;
       setState(() {
         // 403 is the server-side contraindication gate. It is not a network problem and retrying
@@ -1207,6 +1215,7 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
         _error = e.message;
       });
     } on Object catch (e) {
+      debugPrint('[TERA] SUBMIT FAILED: $e');
       if (!mounted) return;
       setState(() => _error = 'The check could not be sent. $e');
     }

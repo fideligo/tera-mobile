@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:sensors_plus/sensors_plus.dart';
@@ -89,6 +90,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
 
     await _cameraController!.initialize();
     await _cameraController!.setFlashMode(FlashMode.torch);
+    debugPrint('[TERA] camera ready, torch on');
 
     if (!mounted) return;
 
@@ -105,24 +107,42 @@ class _CaptureScreenState extends State<CaptureScreen> {
     });
   }
 
-  void _checkFingerLock(CameraImage image) {
-    int ySum = 0;
-    final int width = image.width;
-    final int height = image.height;
-    final int cx = width ~/ 2;
-    final int cy = height ~/ 2;
+  /// Mean luma over a small centred patch of the Y plane.
+  ///
+  /// Two fixes over the inline arithmetic this replaces, both visible in the device logs:
+  ///
+  /// * **Row stride.** Y-plane rows are `bytesPerRow` apart, which is *not* `width` — Android
+  ///   pads rows for alignment. Indexing by `width` walks a diagonal through the frame and reads
+  ///   padding bytes, so the "brightness" being thresholded was partly noise.
+  /// * **Cost.** It samples every second pixel rather than all 441. Running the full loop on
+  ///   every delivered frame is what produced `ImageReader_JNI: Unable to acquire a buffer item`
+  ///   — the callback did not return before the next frame arrived, the pool drained, and the
+  ///   stream died mid-recording.
+  static double _meanLuma(CameraImage image) {
+    final plane = image.planes[0];
+    final bytes = plane.bytes;
+    final stride = plane.bytesPerRow;
+    final cx = image.width ~/ 2;
+    final cy = image.height ~/ 2;
 
-    for (int dy = -10; dy <= 10; dy++) {
-      for (int dx = -10; dx <= 10; dx++) {
-        int index = (cy + dy) * width + (cx + dx);
-        if (index >= 0 && index < image.planes[0].bytes.length) {
-          ySum += image.planes[0].bytes[index];
+    int sum = 0;
+    int n = 0;
+    for (int dy = -10; dy <= 10; dy += 2) {
+      final row = (cy + dy) * stride;
+      for (int dx = -10; dx <= 10; dx += 2) {
+        final i = row + cx + dx;
+        if (i >= 0 && i < bytes.length) {
+          sum += bytes[i];
+          n++;
         }
       }
     }
+    return n == 0 ? 0.0 : sum / n;
+  }
 
-    int avgLuma = ySum ~/ 441;
-    _redIntensity = avgLuma;
+  void _checkFingerLock(CameraImage image) {
+    final avgLuma = _meanLuma(image);
+    _redIntensity = avgLuma.round();
 
     final detected = avgLuma > 100;
     if (detected) {
@@ -150,6 +170,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
   }
 
   void _lockFinger() {
+    debugPrint('[TERA] finger locked -> 5s countdown');
     setState(() {
       _isFingerLocked = true;
       _isCountingDown = true;
@@ -179,6 +200,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
   Timer? _recordingTimer;
 
   void _startRecording() {
+    debugPrint('[TERA] recording started (60s)');
     setState(() {
       _isCountingDown = false;
       _isRecording = true;
@@ -218,22 +240,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
   void _processRecordingFrame(CameraImage image) {
     if (_recordingStartTime == null) return;
 
-    int ySum = 0;
-    final int width = image.width;
-    final int height = image.height;
-    final int cx = width ~/ 2;
-    final int cy = height ~/ 2;
-
-    for (int dy = -10; dy <= 10; dy++) {
-      for (int dx = -10; dx <= 10; dx++) {
-        int index = (cy + dy) * width + (cx + dx);
-        if (index >= 0 && index < image.planes[0].bytes.length) {
-          ySum += image.planes[0].bytes[index];
-        }
-      }
-    }
-
-    int avgLuma = ySum ~/ 441;
+    final avgLuma = _meanLuma(image);
 
     // Actively monitor finger presence during recording.
     //
@@ -267,6 +274,10 @@ class _CaptureScreenState extends State<CaptureScreen> {
     // dismissal restarted the image stream again on top of the last.
     if (_fingerLossHandled || !_isRecording) return;
     _fingerLossHandled = true;
+    debugPrint(
+      '[TERA] ABORT: finger lost at ${60 - _recordingSeconds}s '
+      '(frames=${_frameSamples.length}, accel=${_accelSamples.length})',
+    );
 
     _recordingTimer?.cancel();
     _accelSub?.cancel();
@@ -311,6 +322,10 @@ class _CaptureScreenState extends State<CaptureScreen> {
   }
 
   void _finishRecording() async {
+    debugPrint(
+      '[TERA] recording finished: frames=${_frameSamples.length} '
+      'accel=${_accelSamples.length}',
+    );
     setState(() {
       _isRecording = false;
     });
