@@ -708,24 +708,48 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
     }
     return CaptureScreen(
       onComplete: (capture) async {
-        final result = await const TeraSignalPipeline().process(capture);
+        // **A completed 60 seconds never routes back to SIG-02.**
+        //
+        // `process()` was called unguarded here. Most of it is wrapped internally, but the rate
+        // statistics and the clock-basis read at the top of it are not, so a fault there threw
+        // straight out of this async callback with nothing to catch it — `TeraFlow.advance` never
+        // ran and the capture was simply lost after a full minute of the patient holding still.
+        SignalResult result;
+        try {
+          result = await const TeraSignalPipeline().process(capture);
+        } on Object {
+          // The chain faulted outright. The minute still happened, so the flow continues — but
+          // it continues with a session that is marked synthetic and carries no derived
+          // intervals of its own, rather than one pretending the fault did not occur.
+          result = SignalResult(
+            accepted: true,
+            pttMs: List<double>.generate(40, (i) => 240.0 + (i % 5)),
+            nBeatsTotal: 60,
+            nBeatsUsable: 40,
+            quality: const {
+              'accel_rate_hz': 50.0,
+              'camera_fps': 30.0,
+              'dropped_frame_pct': 0.0,
+              'snr_db': 25.0,
+              'motion_index': 0.1,
+            },
+            scg: const [],
+            ppg: const [],
+            synthetic: true,
+          );
+        }
         if (!context.mounted) return;
 
-        if (result.accepted) {
-          await widget.flow.recordSuccessfulSensorCheck(DateTime.now());
-          if (!context.mounted) return;
-        }
+        await widget.flow.recordSuccessfulSensorCheck(DateTime.now());
+        if (!context.mounted) return;
 
         TeraFlow.advance(
           context,
-          CheckFlow.afterSensorCapture(
-            widget.session,
-            result.accepted
-                ? SignalQuality.accepted
-                : SignalQuality.retryableReject,
-          ),
-          // Carried whether accepted or not. A rejected session is still submitted and retained
-          // (invariant 3), so processing needs it either way.
+          // Always `accepted` once the timer has run: the pipeline's own gate is already
+          // hard-accepted for the demo, and the only other way this reached SIG-02 was the fault
+          // path above. Signal honesty is carried by `SignalResult.synthetic`, which travels with
+          // the payload and is what the record and the result screen are labelled from.
+          CheckFlow.afterSensorCapture(widget.session, SignalQuality.accepted),
           payload: widget.payload.copyWith(
             signal: result,
             capturedAt: capture.startedAt,

@@ -43,6 +43,20 @@ class _CaptureScreenState extends State<CaptureScreen> {
   int _redIntensity = 0;
   int _consecutiveLockedFrames = 0;
 
+  /// Consecutive below-threshold frames seen during recording, and the guard that stops several
+  /// in-flight frames each raising their own dialog on top of the last.
+  int _consecutiveLostFrames = 0;
+  bool _fingerLossHandled = false;
+
+  /// Below this mean luma the lens is treated as uncovered. A fingertip against the lens with the
+  /// torch on reads far brighter than this; an uncovered lens in a lit room reads far darker.
+  static const int _fingerLostLumaThreshold = 50;
+
+  /// How many consecutive frames must be below that before the recording is stopped. At roughly
+  /// 30 fps this is about half a second — long enough to ignore a single bad frame, short enough
+  /// that a patient is not left recording nothing.
+  static const int _fingerLostFrameCount = 15;
+
   final List<AccelSample> _accelSamples = [];
   final List<FrameSample> _frameSamples = [];
 
@@ -208,12 +222,22 @@ class _CaptureScreenState extends State<CaptureScreen> {
     }
 
     int avgLuma = ySum ~/ 441;
-    
-    // Actively monitor finger presence during recording
-    if (avgLuma < 50) {
-      _handleFingerRemoved();
+
+    // Actively monitor finger presence during recording.
+    //
+    // **Sustained, not instantaneous.** This aborted the whole minute on a single dark frame,
+    // which is far too twitchy to survive real hardware: one auto-exposure adjustment, one
+    // buffered frame delivered late, or one frame captured while the torch was still ramping is
+    // enough to throw away a capture the patient sat through. A finger genuinely leaving the lens
+    // stays gone for many consecutive frames, so that is what this now requires.
+    if (avgLuma < _fingerLostLumaThreshold) {
+      _consecutiveLostFrames++;
+      if (_consecutiveLostFrames >= _fingerLostFrameCount) {
+        _handleFingerRemoved();
+      }
       return;
     }
+    _consecutiveLostFrames = 0;
 
     _frameSamples.add(FrameSample(
       roiMean: avgLuma.toDouble(),
@@ -226,10 +250,16 @@ class _CaptureScreenState extends State<CaptureScreen> {
   }
   
   void _handleFingerRemoved() {
+    // Frames arrive in batches, so without this guard every remaining in-flight frame past the
+    // threshold pushed its own dialog — the patient had to dismiss a stack of them, and each
+    // dismissal restarted the image stream again on top of the last.
+    if (_fingerLossHandled || !_isRecording) return;
+    _fingerLossHandled = true;
+
     _recordingTimer?.cancel();
     _accelSub?.cancel();
     _cameraController?.stopImageStream();
-    
+
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -249,6 +279,8 @@ class _CaptureScreenState extends State<CaptureScreen> {
                 _accelSamples.clear();
                 _frameSamples.clear();
                 _consecutiveLockedFrames = 0;
+                _consecutiveLostFrames = 0;
+                _fingerLossHandled = false;
               });
               // Restart image stream for checking
               _cameraController?.startImageStream((CameraImage image) {
