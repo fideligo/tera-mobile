@@ -19,6 +19,7 @@ class CheckPayload {
     this.cuffReadingSaved = false,
     this.submittedSessionId,
     this.checkSessionId,
+    this.uncalibratedDemo = false,
   });
 
   /// CTX-01. Collected on both paths, before the fork.
@@ -40,6 +41,12 @@ class CheckPayload {
   /// insight all attach to this rather than to a capture that may never exist.
   final String? checkSessionId;
 
+  /// BPREF-01 was skipped rather than completed — the demo bypass for a patient with no cuff at
+  /// hand. Nothing about the capture or the backend's own gating changes: this only tells the
+  /// insight screen to show the uncalibrated warning banner up front, before whatever the
+  /// deterministic engine itself decides about confidence.
+  final bool uncalibratedDemo;
+
   CheckPayload copyWith({
     CurrentContext? context,
     SignalResult? signal,
@@ -47,6 +54,7 @@ class CheckPayload {
     bool? cuffReadingSaved,
     String? submittedSessionId,
     String? checkSessionId,
+    bool? uncalibratedDemo,
   }) => CheckPayload(
     context: context ?? this.context,
     signal: signal ?? this.signal,
@@ -54,5 +62,6 @@ class CheckPayload {
     cuffReadingSaved: cuffReadingSaved ?? this.cuffReadingSaved,
     submittedSessionId: submittedSessionId ?? this.submittedSessionId,
     checkSessionId: checkSessionId ?? this.checkSessionId,
+    uncalibratedDemo: uncalibratedDemo ?? this.uncalibratedDemo,
   );
 }

@@ -13,14 +13,25 @@ import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
 import '../routing/app_router.dart';
+import 'tokens.dart';
 
 class InsightScreen extends StatefulWidget {
-  const InsightScreen({super.key, required this.api, required this.sessionId});
+  const InsightScreen({
+    super.key,
+    required this.api,
+    required this.sessionId,
+    this.uncalibratedDemo = false,
+  });
 
   final ApiClient api;
 
   /// Null when the check produced no session — BP-only, or a submission that never landed.
   final String? sessionId;
+
+  /// BPREF-01 was skipped for this session (the no-cuff demo bypass). The backend's own
+  /// confidence gating runs regardless; this only adds a standing warning above whatever it
+  /// decides, so the missing reference is never silently absent from the screen a patient reads.
+  final bool uncalibratedDemo;
 
   @override
   State<InsightScreen> createState() => _InsightScreenState();
@@ -100,6 +111,50 @@ class _InsightScreenState extends State<InsightScreen> {
                     ] else if (insight == null) ...[
                       const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
                     ] else ...[
+                      if (widget.uncalibratedDemo) ...[
+                        Container(
+                          padding: const EdgeInsets.all(TeraSpacing.md),
+                          decoration: systemFlagDecoration(),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(
+                                Icons.warning_amber_rounded,
+                                color: TeraColors.plum,
+                                size: 20,
+                              ),
+                              const SizedBox(width: TeraSpacing.sm),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text(
+                                      'Uncalibrated estimate',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w700,
+                                        color: TeraColors.ink,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    const Text(
+                                      'Calibration was skipped for this check (demo mode, no '
+                                      'cuff reading). Nothing below is a blood-pressure value — '
+                                      'it is a rough directional estimate only, with no '
+                                      'personal reference to compare against.',
+                                      style: TextStyle(
+                                        color: TeraColors.ink,
+                                        fontSize: TeraText.small,
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: TeraSpacing.md),
+                      ],
                       // 23.1 Hero Result
                       Container(
                         padding: const EdgeInsets.all(24),
@@ -120,62 +175,31 @@ class _InsightScreenState extends State<InsightScreen> {
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              insight['hero'] as String? ?? 'No result',
+                              insight['hero_result'] as String? ?? 'No result',
                               textAlign: TextAlign.center,
                               style: const TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Color(0xFF0F172A), height: 1.2),
                             ),
-                            if (insight['reference_systolic'] != null) ...[
-                              const SizedBox(height: 16),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                                decoration: BoxDecoration(color: const Color(0xFFF1F5F9), borderRadius: BorderRadius.circular(20)),
-                                child: Text(
-                                  'BP reference — ${insight['reference_systolic']}/${insight['reference_diastolic']} mmHg',
-                                  style: const TextStyle(fontSize: 13, color: Color(0xFF475569), fontWeight: FontWeight.w500),
-                                ),
-                              ),
-                            ],
                           ],
                         ),
                       ),
 
                       const SizedBox(height: 24),
-                      // 23.3 Around This Check
-                      if ((insight['context_chips'] as List?)?.isNotEmpty ?? false) ...[
-                        const Text('Around this check', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
+                      // 23.3 What This Means
+                      if (insight['what_this_means'] != null && (insight['what_this_means'] as String).isNotEmpty) ...[
+                        const Text('What this means', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1E293B))),
                         const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            for (final chip in (insight['context_chips'] as List))
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                                ),
-                                child: Text(chip as String, style: const TextStyle(fontSize: 14, color: Color(0xFF334155))),
-                              ),
-                          ],
-                        ),
-                        if (insight['context_disclaimer'] != null) ...[
-                          const SizedBox(height: 12),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Icon(Icons.info_outline, size: 16, color: Color(0xFF64748B)),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  insight['context_disclaimer'] as String,
-                                  style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), height: 1.4),
-                                ),
-                              ),
-                            ],
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
                           ),
-                        ],
+                          child: Text(
+                            insight['what_this_means'] as String,
+                            style: const TextStyle(fontSize: 15, color: Color(0xFF334155), height: 1.5),
+                          ),
+                        ),
                         const SizedBox(height: 24),
                       ],
 
@@ -209,11 +233,35 @@ class _InsightScreenState extends State<InsightScreen> {
                         ),
                       ),
 
-                      if (insight['notice'] != null) ...[
+                      if (insight['personalized_intervention'] != null && (insight['personalized_intervention'] as String).isNotEmpty) ...[
                         const SizedBox(height: 24),
-                        Text(
-                          insight['notice'] as String,
-                          style: const TextStyle(fontSize: 13, color: Color(0xFF64748B), height: 1.5, fontStyle: FontStyle.italic),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0FDF4),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFBBF7D0)),
+                          ),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Icon(Icons.favorite, size: 20, color: Color(0xFF16A34A)),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('Intervention', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF166534))),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      insight['personalized_intervention'] as String,
+                                      style: const TextStyle(fontSize: 14, color: Color(0xFF15803D), height: 1.4),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ],

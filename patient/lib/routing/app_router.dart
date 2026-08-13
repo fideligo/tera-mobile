@@ -10,8 +10,10 @@ import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
 import '../auth/auth_controller.dart';
+import '../ui/bp_reference_screen.dart';
 import '../ui/device_check_screens.dart';
 import '../ui/flow_screens.dart';
+import '../ui/history_screen.dart';
 import '../ui/flow_stub_screen.dart';
 import '../capture/phr_profile.dart';
 import '../ui/home_screen.dart';
@@ -21,6 +23,7 @@ import '../ui/register_screen.dart';
 import '../ui/safety_onboarding_screen.dart';
 import '../ui/sign_in_screen.dart';
 import '../ui/signal_quality_screens.dart';
+import '../ui/walkthrough_screen.dart';
 import 'app_flow_state.dart';
 import 'check_payload.dart';
 import 'check_session.dart';
@@ -227,19 +230,7 @@ class TeraRouter {
       // -------------------------------------------------------------- check flow
       Routes.checkBpReference => _page(
         settings,
-        (context) => FlowStubScreen(
-          specId: 'BPREF-01',
-          title: 'Set your blood pressure reference',
-          body:
-              'Tera uses a recent blood pressure reading as a personal reference for your '
-              'BP-related trend. Rest quietly for 5 minutes first.',
-          onNext: () => Navigator.of(
-            context,
-          ).pushReplacementNamed(
-            Routes.checkBpInput,
-            arguments: CheckArgs(session, payload),
-          ),
-        ),
+        (_) => BpReferenceScreen(flow: flow, session: session, payload: payload),
       ),
 
       // BPREF-02 and BP-only entry. The screen already carries scan, manual entry and the explicit
@@ -271,7 +262,10 @@ class TeraRouter {
         (_) => CurrentContextScreen(flow: flow, session: session, payload: payload),
       ),
 
-      Routes.checkWalkthrough1 => _walkthrough(settings, session, payload, 1, 'Sit comfortably'),
+      Routes.checkWalkthrough1 => _page(
+        settings,
+        (_) => WalkthroughScreen(session: session, payload: payload),
+      ),
       Routes.checkWalkthrough2 => _walkthrough(
         settings,
         session,
@@ -327,13 +321,17 @@ class TeraRouter {
         settings,
         // The check session, not the capture: a BP-only check has the first and never the
         // second, and the insight is defined over the check.
-        (_) => InsightScreen(api: flow.api, sessionId: payload.checkSessionId),
+        (_) => InsightScreen(
+          api: flow.api,
+          sessionId: payload.checkSessionId,
+          uncalibratedDemo: payload.uncalibratedDemo,
+        ),
       ),
 
       // ------------------------------------------------------------------ history
       Routes.history => _page(
         settings,
-        (_) => const HistoryScreen(),
+        (_) => HistoryScreen(api: flow.api),
       ),
 
       // ------------------------------------------------------------------ profile
