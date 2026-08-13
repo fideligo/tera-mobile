@@ -54,10 +54,23 @@ class _InsightScreenState extends State<InsightScreen> {
   }
 
   Future<void> _load() async {
+    setState(() {
+      _error = null;
+      _contraindicated = false;
+    });
+
     final id = widget.sessionId;
     if (id == null) {
+      // Reworded because the old text described the wrong thing. A null id does not mean the
+      // check produced nothing — the capture ran and the session was submitted. It means the
+      // check session could not be opened against the server, so there is nothing to *ask* about.
+      // `ProcessingScreen` now retries opening one before reaching this screen; if it is still
+      // null the server was unreachable for the whole check, and saying so is what lets someone
+      // fix it in the next minute rather than wonder why the result is blank.
       setState(
-        () => _error = 'This check did not produce a result to explain.',
+        () => _error =
+            'Your check was recorded on this phone, but Tera could not reach the server to '
+            'explain it. Check the connection and try again.',
       );
       return;
     }
@@ -178,29 +191,42 @@ class _InsightScreenState extends State<InsightScreen> {
                 child: ListView(
                   children: [
                     if (error != null) ...[
+                      // The system-state treatment, not a red alarm. Red is not in this palette
+                      // (working root `CLAUDE.md`, standing constraint 5) and, more to the point,
+                      // an unreachable server is something *the system* failed at — it says
+                      // nothing about the patient, and colouring it like a medical warning
+                      // implies it does.
                       Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: Colors.red.shade50,
-                          borderRadius: BorderRadius.circular(12),
-                        ),
+                        padding: const EdgeInsets.all(TeraSpacing.md),
+                        decoration: systemFlagDecoration(),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               _contraindicated
                                   ? 'Tera cannot produce a trend'
-                                  : 'Could not load',
+                                  : 'Your check was saved',
                               style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.red,
+                                fontWeight: FontWeight.w700,
+                                color: TeraColors.ink,
+                                fontSize: TeraText.body,
                               ),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(height: TeraSpacing.sm),
                             Text(
                               error,
-                              style: const TextStyle(color: Colors.red),
+                              style: const TextStyle(
+                                color: TeraColors.ink,
+                                height: 1.4,
+                              ),
                             ),
+                            if (!_contraindicated) ...[
+                              const SizedBox(height: TeraSpacing.md),
+                              OutlinedButton(
+                                onPressed: _load,
+                                child: const Text('Try again'),
+                              ),
+                            ],
                           ],
                         ),
                       ),

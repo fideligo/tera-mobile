@@ -1034,14 +1034,54 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
   /// a failure to retry — it is the contraindication gate doing its job.
   bool _contraindicated = false;
 
+  /// A check session opened late, here, because the one at the start of the flow could not be.
+  String? _recoveredCheckSessionId;
+
+  /// The payload as it now stands, including any late-opened check session.
+  CheckPayload get _payload => _recoveredCheckSessionId == null
+      ? widget.payload
+      : widget.payload.copyWith(checkSessionId: _recoveredCheckSessionId);
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _run());
   }
 
+  /// Open a check session now, if the one at the start of the flow never opened.
+  ///
+  /// **This is why the insight screen said "this check did not produce a result to explain".**
+  /// `HomeScreen` opens the check session before the first question, and swallows the failure so
+  /// the flow can still run offline — but nothing ever tried again. A single failed request at the
+  /// door (an unreachable API is the usual cause: without `TERA_API_URL` the app talks to
+  /// `10.0.2.2`, which resolves to nothing from a physical handset) left `checkSessionId` null for
+  /// the whole check. The capture still ran, because capture is entirely on-device, and then the
+  /// insight had no session to ask about and bailed before making a single call.
+  ///
+  /// Retrying here costs one request and recovers the entire result path whenever the connection
+  /// came back during the minute of capture.
+  Future<void> _ensureCheckSession() async {
+    if (widget.payload.checkSessionId != null) return;
+    try {
+      final resolved = await SessionContextResolver(
+        api: widget.flow.api,
+      ).resolveEpisode();
+      final id = await CheckSessionClient(api: widget.flow.api).open(
+        episodeId: resolved.episodeId,
+        mode: widget.session.mode,
+      );
+      if (mounted) setState(() => _recoveredCheckSessionId = id);
+    } on Object {
+      // Still unreachable. The insight screen reports that honestly rather than inventing a
+      // result; see its own fallback.
+    }
+  }
+
   Future<void> _run() async {
-    final signal = widget.payload.signal;
+    final signal = _payload.signal;
+
+    await _ensureCheckSession();
+    if (!mounted) return;
 
     // **BP-only never touches the hardware.** The confirmed reading is the measurement and
     // `CuffReadingScreen` already filed it, so there is no capture to submit and no device to
@@ -1055,7 +1095,7 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
       TeraFlow.advance(
         context,
         CheckFlow.afterProcessing(widget.session),
-        payload: widget.payload,
+        payload: _payload,
       );
       return;
     }
@@ -1071,7 +1111,7 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
       final outcome = await SessionSubmitter(api: widget.flow.api).submit(
         episodeId: resolved.episodeId,
         deviceProfileId: resolved.deviceProfileId,
-        startedAt: widget.payload.capturedAt ?? DateTime.now(),
+        startedAt: _payload.capturedAt ?? DateTime.now(),
         signal: signal,
       );
 
@@ -1090,7 +1130,7 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
       //
       // Best effort: the session is already filed, so a failure here must not strand the patient
       // short of the result that submission produced.
-      final checkSessionId = widget.payload.checkSessionId;
+      final checkSessionId = _payload.checkSessionId;
       if (checkSessionId != null) {
         try {
           await widget.flow.api.postJson(
@@ -1111,7 +1151,7 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
       TeraFlow.advance(
         context,
         CheckFlow.afterProcessing(widget.session),
-        payload: widget.payload.copyWith(submittedSessionId: outcome.sessionId),
+        payload: _payload.copyWith(submittedSessionId: outcome.sessionId),
       );
     } on DeviceMeasurementFailure catch (e) {
       // **Not a signal-quality outcome, and no longer reported as one.** This means the handset
@@ -1140,8 +1180,8 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
   ///
   /// Best effort. Losing the context must not lose the reading.
   Future<void> _fileContext() async {
-    final collected = widget.payload.context;
-    final checkSessionId = widget.payload.checkSessionId;
+    final collected = _payload.context;
+    final checkSessionId = _payload.checkSessionId;
     if (collected == null || checkSessionId == null) return;
 
     await CurrentContextSubmitter(
