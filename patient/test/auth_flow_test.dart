@@ -387,14 +387,34 @@ void main() {
   });
 
   group('signing in navigates', () {
-    Future<TeraFlow> signInWith(WidgetTester tester, AppFlowState state) async {
+    Future<TeraFlow> signInWith(
+      WidgetTester tester,
+      AppFlowState state, {
+      bool profileComplete = true,
+    }) async {
       final harness = _flow(
-        respond: (_) async => _json({
-          'access_token': 'a',
-          'refresh_token': 'r',
-          'role': 'patient',
-          'expires_in': 900,
-        }),
+        // `resumeRouteAfterAuth` asks the server whether this account has a profile before
+        // letting anyone reach Home, so the fake has to answer two different questions now.
+        // Returning the token body for every path made `/v1/profile` look like a profile with
+        // no date of birth, which is exactly what the gate is meant to catch.
+        respond: (request) async {
+          if (request.url.path.endsWith('/v1/profile')) {
+            return _json(
+              profileComplete
+                  ? {
+                      'date_of_birth': '1972-04-11',
+                      'sex_assigned_at_birth': 'female',
+                    }
+                  : {'date_of_birth': null, 'sex_assigned_at_birth': null},
+            );
+          }
+          return _json({
+            'access_token': 'a',
+            'refresh_token': 'r',
+            'role': 'patient',
+            'expires_in': 900,
+          });
+        },
         state: state,
       );
       await _pump(tester, harness.flow, initialRoute: Routes.login);
@@ -419,6 +439,25 @@ void main() {
       expect(find.text('Start Check-In'), findsOneWidget);
       // And the sign-in screen is gone from under it, not merely covered.
       expect(find.text('Selamat Datang'), findsNothing);
+    });
+
+    testWidgets('an account with no health profile is sent to ONB-01, not Home', (
+      tester,
+    ) async {
+      // The point of the gate: local state says setup finished on this handset, but the account
+      // itself has no date of birth or sex on file — which is what `read_insight` needs before
+      // the AI paragraph has any context to work from. The server's answer wins.
+      await signInWith(
+        tester,
+        const AppFlowState(
+          deviceEligibility: DeviceEligibility.eligible,
+          onboardingStep: OnboardingStep.complete,
+        ),
+        profileComplete: false,
+      );
+
+      expect(find.text('ONB-01'), findsOneWidget);
+      expect(find.text('Start Check-In'), findsNothing);
     });
 
     testWidgets('an unfinished onboarding resumes at its own step', (tester) async {
@@ -471,12 +510,20 @@ void main() {
       // An account created before the minimum changed still has to be able to get in.
       final requests = <http.Request>[];
       final harness = _flow(
-        respond: (_) async => _json({
-          'access_token': 'a',
-          'refresh_token': 'r',
-          'role': 'patient',
-          'expires_in': 900,
-        }),
+        respond: (request) async {
+          if (request.url.path.endsWith('/v1/profile')) {
+            return _json({
+              'date_of_birth': '1972-04-11',
+              'sex_assigned_at_birth': 'female',
+            });
+          }
+          return _json({
+            'access_token': 'a',
+            'refresh_token': 'r',
+            'role': 'patient',
+            'expires_in': 900,
+          });
+        },
         requests: requests,
         state: const AppFlowState(
           deviceEligibility: DeviceEligibility.eligible,
@@ -490,7 +537,13 @@ void main() {
       await tester.tap(find.text('Login'));
       await tester.pumpAndSettle();
 
-      expect(requests, hasLength(1));
+      // Counted by path rather than in total: the point of this test is that the short password
+      // was not refused on the handset, so exactly one *token* request must have gone out.
+      // Sign-in now also asks `/v1/profile` for the EMR gate, which is not what is under test.
+      expect(
+        requests.where((r) => r.url.path.endsWith('/v1/auth/token')),
+        hasLength(1),
+      );
       expect(harness.flow.auth.status, AuthStatus.signedIn);
     });
   });
