@@ -12,6 +12,7 @@ import '../auth/auth_controller.dart';
 import '../capture/check_session_client.dart';
 import '../capture/current_context.dart';
 import '../capture/current_context_submitter.dart';
+import '../capture/phr_profile.dart';
 import '../api/api_client.dart';
 import '../capture/device_measurement.dart';
 import '../capture/eligibility_check.dart';
@@ -1374,11 +1375,76 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
   }
 }
 
-class ProfileIndexScreen extends StatelessWidget {
-  const ProfileIndexScreen({super.key, this.auth});
+class ProfileIndexScreen extends StatefulWidget {
+  const ProfileIndexScreen({super.key, this.auth, this.profileStore});
 
   /// Null only in tests that render this screen in isolation; the router always supplies it.
   final AuthController? auth;
+
+  /// Injectable for tests; the real store otherwise.
+  final PhrProfileStore? profileStore;
+
+  @override
+  State<ProfileIndexScreen> createState() => _ProfileIndexScreenState();
+}
+
+class _ProfileIndexScreenState extends State<ProfileIndexScreen> {
+  late final PhrProfileStore _store =
+      widget.profileStore ?? SecurePhrProfileStore();
+
+  PhrProfile _profile = const PhrProfile();
+  bool _loading = true;
+
+  AuthController? get auth => widget.auth;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final profile = await _store.read();
+    if (!mounted) return;
+    setState(() {
+      _profile = profile;
+      _loading = false;
+    });
+  }
+
+  /// How much of the health profile is actually filled in.
+  ///
+  /// **Counted, not hard-coded.** This card read "65% complete" (and 10% on the dashboard) as a
+  /// literal, so it never moved however much a patient filled in — which made it read as broken
+  /// and made "Complete" look like it had done nothing. Six fields, each worth the same.
+  bool get _isGuest => auth?.isGuest ?? false;
+
+  String get _displayName {
+    if (_isGuest) return 'Guest';
+    final name = _profile.displayName;
+    return (name == null || name.trim().isEmpty) ? 'Your profile' : name;
+  }
+
+  String get _subtitle => _isGuest
+      ? 'Not signed in — nothing is saved'
+      : 'Signed in';
+
+  String get _initial {
+    final n = _displayName.trim();
+    return n.isEmpty ? 'T' : n[0].toUpperCase();
+  }
+
+  int get _completionPercent {
+    final filled = [
+      _profile.dateOfBirth != null,
+      _profile.sexAtBirth != null,
+      _profile.heightCm != null,
+      _profile.weightKg != null,
+      _profile.hypertension != null,
+      _profile.takesBpMedication != null,
+    ].where((f) => f).length;
+    return (filled * 100 / 6).round();
+  }
 
   /// Clear the session and go back to the door.
   ///
@@ -1468,15 +1534,17 @@ class ProfileIndexScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Header
+          // Header. Real identity where there is one; an explicit guest state otherwise,
+          // rather than the "Tera User / user@example.com" placeholder that used to sit here and
+          // read as a real signed-in account.
           Row(
             children: [
-              const CircleAvatar(
+              CircleAvatar(
                 radius: 32,
-                backgroundColor: Color(0xFF0F172A),
+                backgroundColor: TeraColors.ink,
                 child: Text(
-                  'T',
-                  style: TextStyle(
+                  _initial,
+                  style: const TextStyle(
                     color: Colors.white,
                     fontSize: 24,
                     fontWeight: FontWeight.bold,
@@ -1484,23 +1552,32 @@ class ProfileIndexScreen extends StatelessWidget {
                 ),
               ),
               const SizedBox(width: 16),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  Text(
-                    'Tera User',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1E293B),
+              // Expanded, because a long name in an unbounded Row is the same overflow that
+              // blanked this screen.
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _displayName,
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: TeraColors.ink,
+                      ),
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    'user@example.com',
-                    style: TextStyle(fontSize: 14, color: Color(0xFF64748B)),
-                  ),
-                ],
+                    const SizedBox(height: 4),
+                    Text(
+                      _subtitle,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: TeraColors.neutral700,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1509,43 +1586,67 @@ class ProfileIndexScreen extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white,
+              color: TeraColors.paper,
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
+              border: Border.all(color: TeraColors.neutral200),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: const [
-                    Text(
-                      'Health Profile',
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF1E293B),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Health Profile',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: TeraColors.ink,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _loading
+                            ? 'Checking...'
+                            : '$_completionPercent% complete',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: TeraColors.neutral700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: TeraSpacing.md),
+                // **This button is why the Profile page was blank.** With no `minimumSize`
+                // override it inherited the theme's `Size.fromHeight(52)` — width `infinity` —
+                // and a Row hands its children an unbounded width. The resulting
+                // `BoxConstraints(w=Infinity)` failed layout, and a failed layout in a ListView
+                // child takes the whole screen down with it. Every FilledButton placed in a Row
+                // needs a finite minimum width.
+                if (_completionPercent < 100)
+                  FilledButton(
+                    onPressed: () => Navigator.of(
+                      context,
+                    ).pushNamed(Routes.profilePersonal).then((_) => _load()),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: TeraColors.brand,
+                      minimumSize: const Size(0, 40),
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    SizedBox(height: 4),
-                    Text(
-                      '65% complete',
-                      style: TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+                    child: const Text(
+                      'Complete',
+                      style: TextStyle(fontWeight: FontWeight.w600),
                     ),
-                  ],
-                ),
-                FilledButton(
-                  onPressed: () {},
-                  style: FilledButton.styleFrom(
-                    backgroundColor: const Color(0xFF2563EB),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                  )
+                else
+                  const Icon(
+                    Icons.check_circle_outline,
+                    color: TeraColors.brand,
                   ),
-                  child: const Text(
-                    'Complete',
-                    style: TextStyle(fontWeight: FontWeight.w600),
-                  ),
-                ),
               ],
             ),
           ),

@@ -409,7 +409,10 @@ class TeraRouter {
       // ------------------------------------------------------------------ profile
       Routes.profile => _page(
         settings,
-        (_) => ProfileIndexScreen(auth: flow.auth),
+        (_) => ProfileIndexScreen(
+          auth: flow.auth,
+          profileStore: SecurePhrProfileStore(),
+        ),
       ),
       Routes.profilePersonal => _page(
         settings,

@@ -66,6 +66,24 @@ class _HomeScreenState extends State<HomeScreen> {
 
   AuthController get auth => widget.auth;
 
+  /// The stored health profile, for the completion card.
+  PhrProfile _profile = const PhrProfile();
+
+  /// Six fields, each worth the same. Was the literal "10% Complete", which never moved however
+  /// much a patient filled in — so finishing onboarding changed nothing on screen and the card
+  /// looked broken. At 100% the card is removed entirely rather than sitting there at full.
+  int get _profileCompletion {
+    final filled = [
+      _profile.dateOfBirth != null,
+      _profile.sexAtBirth != null,
+      _profile.heightCm != null,
+      _profile.weightKg != null,
+      _profile.hypertension != null,
+      _profile.takesBpMedication != null,
+    ].where((f) => f).length;
+    return (filled * 100 / 6).round();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -123,11 +141,15 @@ class _HomeScreenState extends State<HomeScreen> {
     setState(() => _intake = intake);
   }
 
-  /// The name given at sign-up. Handset-only — see [PhrProfile.displayName].
+  /// The name given at sign-up, and the completeness the card reports.
+  /// Handset-only — see [PhrProfile.displayName].
   Future<void> _loadName() async {
     final profile = await _profileStore.read();
     if (!mounted) return;
-    setState(() => _displayName = profile.displayName);
+    setState(() {
+      _displayName = profile.displayName;
+      _profile = profile;
+    });
   }
 
   /// Morning, afternoon or evening by the handset clock.
@@ -246,6 +268,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                     const SizedBox(height: TeraSpacing.md),
                   ],
+                  if (_profileCompletion < 100)
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
@@ -289,8 +312,8 @@ class _HomeScreenState extends State<HomeScreen> {
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Text(
-                                  '10% Complete',
+                                Text(
+                                  '$_profileCompletion% Complete',
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w700,
@@ -307,7 +330,8 @@ class _HomeScreenState extends State<HomeScreen> {
                                   ),
                                   child: FractionallySizedBox(
                                     alignment: Alignment.centerLeft,
-                                    widthFactor: 0.1,
+                                    // Was a literal 0.1, beside the literal "10%".
+                                    widthFactor: _profileCompletion / 100,
                                     child: Container(
                                       decoration: BoxDecoration(
                                         color: TeraColors.brand,
@@ -830,8 +854,15 @@ class _HomeScreenState extends State<HomeScreen> {
               var isFirstTime = false;
               if (auth.isSignedIn) {
                 try {
+                  // `type=cuff_reading`, not every entry.
+                  //
+                  // "Has this person ever calibrated" is a question about cuff readings
+                  // specifically. Asking for any history at all counted a rejected capture, or a
+                  // trend from a check that was never calibrated, as evidence of calibration —
+                  // so the very first check would file *something*, and every check after it
+                  // skipped the cuff step forever on that basis.
                   final history = await auth.api.getJson(
-                    '/v1/history?range=all&limit=1',
+                    '/v1/history?range=all&type=cuff_reading&limit=1',
                   );
                   final entries = history['entries'] as List<dynamic>? ?? [];
                   isFirstTime = entries.isEmpty;
