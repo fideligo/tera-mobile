@@ -816,6 +816,30 @@ class _HomeScreenState extends State<HomeScreen> {
             if (flow != null) {
               // Section 38: eligible + needs reference -> BPREF, otherwise PRECHECK; not
               // eligible -> PRECHECK in BP-only mode.
+              // **First-time calibration is decided by the record, not by local state.**
+              //
+              // `flow.startCheck()` consults `BpReferenceStatus`, which lives in this install's
+              // storage — so a reinstall or a second handset would walk a patient with months of
+              // history back through first-time calibration, and a cleared server account would
+              // skip it for someone who has never calibrated. The server's own count is the only
+              // thing that answers "has this person ever recorded a reading".
+              //
+              // Unreachable is treated as "not first time": the calibration path needs the
+              // network anyway to be worth anything, and sending someone down it on a failed
+              // request would be the worse of the two guesses.
+              var isFirstTime = false;
+              if (auth.isSignedIn) {
+                try {
+                  final history = await auth.api.getJson(
+                    '/v1/history?range=all&limit=1',
+                  );
+                  final entries = history['entries'] as List<dynamic>? ?? [];
+                  isFirstTime = entries.isEmpty;
+                } on Object {
+                  isFirstTime = false;
+                }
+              }
+
               final step = flow.startCheck();
 
               // The check session is opened here, before the first screen that collects anything,
@@ -835,10 +859,16 @@ class _HomeScreenState extends State<HomeScreen> {
               }
 
               navigator.pushReplacementNamed(
-                step.route,
+                // History exists, so this is not a first run: go straight into the check the
+                // state machine chose. No history, and the calibration intro explains recording
+                // with a cuff alongside the phone before it hands over to that same flow.
+                isFirstTime ? Routes.checkCalibrationIntro : step.route,
                 arguments: CheckArgs(
                   step.session,
-                  CheckPayload(checkSessionId: checkSessionId),
+                  CheckPayload(
+                    checkSessionId: checkSessionId,
+                    firstTimeCalibration: isFirstTime,
+                  ),
                 ),
               );
               return;

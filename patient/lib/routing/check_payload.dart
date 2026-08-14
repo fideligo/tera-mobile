@@ -21,6 +21,9 @@ class CheckPayload {
     this.checkSessionId,
     this.uncalibratedDemo = false,
     this.aiConsent,
+    this.firstTimeCalibration = false,
+    this.calibrationSystolic,
+    this.calibrationDiastolic,
   });
 
   /// CTX-01. Collected on both paths, before the fork.
@@ -57,6 +60,21 @@ class CheckPayload {
   /// stop [InsightScreen] from asking later when it legitimately still could.
   final bool? aiConsent;
 
+  /// This account has no recorded history, so the check is running as a first-time calibration:
+  /// the cuff reading is taken alongside the phone recording rather than being skippable.
+  ///
+  /// Decided from the server's own history count at the start of the flow, not from local state
+  /// — see `HomeScreen._startCheck`.
+  final bool firstTimeCalibration;
+
+  /// The cuff reading entered after a first-time calibration capture, mmHg.
+  ///
+  /// Held here only long enough to be filed as a real `cuff_reading`. These are the **only**
+  /// pressure numbers anywhere in this payload, and they came off a cuff the patient read —
+  /// nothing derived from SCG or PPG may ever populate them (invariant 1).
+  final int? calibrationSystolic;
+  final int? calibrationDiastolic;
+
   CheckPayload copyWith({
     CurrentContext? context,
     SignalResult? signal,
@@ -66,6 +84,9 @@ class CheckPayload {
     String? checkSessionId,
     bool? uncalibratedDemo,
     bool? aiConsent,
+    bool? firstTimeCalibration,
+    int? calibrationSystolic,
+    int? calibrationDiastolic,
   }) => CheckPayload(
     context: context ?? this.context,
     signal: signal ?? this.signal,
@@ -75,5 +96,8 @@ class CheckPayload {
     checkSessionId: checkSessionId ?? this.checkSessionId,
     uncalibratedDemo: uncalibratedDemo ?? this.uncalibratedDemo,
     aiConsent: aiConsent ?? this.aiConsent,
+    firstTimeCalibration: firstTimeCalibration ?? this.firstTimeCalibration,
+    calibrationSystolic: calibrationSystolic ?? this.calibrationSystolic,
+    calibrationDiastolic: calibrationDiastolic ?? this.calibrationDiastolic,
   );
 }

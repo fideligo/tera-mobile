@@ -76,7 +76,37 @@ class TeraFlow extends ChangeNotifier {
   /// unfinished onboarding step, then home" has one definition.
   Future<String> resumeRouteAfterAuth() async {
     await load();
-    return _state.resumeRoute;
+    final local = _state.resumeRoute;
+    if (local != Routes.home) return local;
+
+    // Past the local table, one server-backed question: does this account actually have a health
+    // profile?
+    //
+    // **The local onboarding flag is not sufficient evidence.** `AppFlowState` lives in this
+    // install's secure storage, so it says "this handset finished onboarding", not "this account
+    // has a profile". Signing in on a second device, or after a reinstall, leaves the flag unset
+    // while the profile exists; the reverse — flag set, profile missing — happens whenever
+    // onboarding's upload failed, which it is explicitly designed to survive. Only the server
+    // knows.
+    //
+    // A profile is required before capture because it is what `read_insight` sends to the LLM.
+    // Without a date of birth and sex there is no context for the commentary to be about.
+    try {
+      final profile = await api.getJson('/v1/profile');
+      final complete =
+          profile['date_of_birth'] != null &&
+          profile['sex_assigned_at_birth'] != null;
+      if (!complete) return Routes.onboardingAboutYou;
+    } on ApiException catch (e) {
+      // 404 is the documented "no profile has been recorded yet" — send them to create one.
+      // Anything else (offline, 500) is not evidence of an incomplete profile, and blocking a
+      // patient out of their own app because the network blinked would be worse than letting
+      // them through with whatever the server already has.
+      if (e.statusCode == 404) return Routes.onboardingAboutYou;
+    } on Object {
+      // As above: not evidence. Fall through.
+    }
+    return Routes.home;
   }
 
   /// A newly registered account starts setup from the beginning.

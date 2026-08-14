@@ -700,8 +700,53 @@ class CaptureRouteScreen extends StatefulWidget {
 class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
   bool _walkthroughDone = false;
 
+  /// Set once the 60 s capture is done and a first-time calibration still owes its cuff reading.
+  /// Held rather than passed onward immediately: the reading has to be entered before the session
+  /// can be filed, so the flow pauses here instead of at the processing screen.
+  SignalResult? _awaitingCuffFor;
+  DateTime? _awaitingCuffAt;
+
+  void _advanceWith(
+    BuildContext context,
+    SignalResult result,
+    DateTime capturedAt, {
+    int? systolic,
+    int? diastolic,
+  }) {
+    TeraFlow.advance(
+      context,
+      CheckFlow.afterSensorCapture(widget.session, SignalQuality.accepted),
+      payload: widget.payload.copyWith(
+        signal: result,
+        capturedAt: capturedAt,
+        calibrationSystolic: systolic,
+        calibrationDiastolic: diastolic,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // The cuff step of a first-time calibration, shown *after* the 60 s recording — the two
+    // measurements are meant to be concurrent, so the number is read off the cuff while the
+    // phone recording is still fresh rather than several screens earlier.
+    //
+    // `CuffReadingScreen` is reused rather than reimplemented: it already carries the scan and
+    // manual paths, the plausibility bounds, and the explicit confirmation step, and it files the
+    // reading as a real `cuff_reading` through the tested route.
+    final pending = _awaitingCuffFor;
+    if (pending != null) {
+      return CuffReadingScreen(
+        api: widget.flow.api,
+        checkSessionId: widget.payload.checkSessionId,
+        isReference: true,
+        onDone: () {
+          if (!context.mounted) return;
+          _advanceWith(context, pending, _awaitingCuffAt ?? DateTime.now());
+        },
+      );
+    }
+
     if (!_walkthroughDone) {
       return ScgPpgWalkthroughScreen(
         onDone: () => setState(() => _walkthroughDone = true),
@@ -744,18 +789,20 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
         await widget.flow.recordSuccessfulSensorCheck(DateTime.now());
         if (!context.mounted) return;
 
-        TeraFlow.advance(
-          context,
-          // Always `accepted` once the timer has run: the pipeline's own gate is already
-          // hard-accepted for the demo, and the only other way this reached SIG-02 was the fault
-          // path above. Signal honesty is carried by `SignalResult.synthetic`, which travels with
-          // the payload and is what the record and the result screen are labelled from.
-          CheckFlow.afterSensorCapture(widget.session, SignalQuality.accepted),
-          payload: widget.payload.copyWith(
-            signal: result,
-            capturedAt: capture.startedAt,
-          ),
-        );
+        // First run: the recording is done, now collect the cuff number that calibrates it.
+        if (widget.payload.firstTimeCalibration) {
+          setState(() {
+            _awaitingCuffFor = result;
+            _awaitingCuffAt = capture.startedAt;
+          });
+          return;
+        }
+
+        // Always `accepted` once the timer has run: the pipeline's own gate is already
+        // hard-accepted for the demo, and the only other way this reached SIG-02 was the fault
+        // path above. Signal honesty is carried by `SignalResult.synthetic`, which travels with
+        // the payload and is what the record and the result screen are labelled from.
+        _advanceWith(context, result, capture.startedAt);
       },
     );
   }
