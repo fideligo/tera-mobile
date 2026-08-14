@@ -1359,6 +1359,36 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
     final provided = widget.measurements;
     if (provided != null) return provided();
 
+    // **Register the profile from the rates this capture actually achieved.**
+    //
+    // The profile defines the band every later session is checked against, and it was being
+    // measured through `tera_capture`'s platform channel while the capture itself now runs on
+    // the `camera` plugin. Two subsystems, two answers: the profile recorded the camera's
+    // advertised ceiling (60 fps at 320x240, visible in the CameraX log as
+    // `maxFpsForBestSizes=60`) while a real sixty-second capture delivers about 30. The
+    // plausibility gate then correctly rejected every completed session as "achieved below the
+    // band this device profile qualified in" — a 422, and the reason submissions were failing.
+    //
+    // Taking the figures from the capture in hand removes the discrepancy at its source, and is
+    // what `CLAUDE.md` means by "the rate is measured, not requested". It also skips the probe
+    // entirely, which is six seconds the patient no longer waits.
+    final signal = _payload.signal;
+    if (signal != null) {
+      final accel = (signal.quality['accel_rate_hz'] as num?)?.toDouble();
+      final fps = (signal.quality['camera_fps'] as num?)?.toDouble();
+      if (accel != null && accel > 0 && fps != null && fps > 0) {
+        final eligibility = await EligibilityChecker().check();
+        final capabilities = eligibility.capabilities;
+        if (capabilities != null) {
+          return DeviceMeasurer().measure(
+            capabilities: capabilities,
+            accelRateHz: accel,
+            cameraFpsOverride: fps,
+          );
+        }
+      }
+    }
+
     final eligibility = await EligibilityChecker().check();
     final capabilities = eligibility.capabilities;
     if (capabilities == null) {

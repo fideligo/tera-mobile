@@ -66,7 +66,15 @@ class SecureDeviceProfileStore implements DeviceProfileStore {
 
   final FlutterSecureStorage _storage;
 
-  static const _key = 'tera.device_profile_id';
+  /// **Bumped to discard profiles registered from the camera's advertised ceiling.**
+  ///
+  /// Until now the profile recorded the fps the camera *claims* for the chosen size (60 at
+  /// 320x240) rather than the ~30 a real sixty-second capture delivers, so every completed
+  /// session was rejected by the achieved-rate gate with a 422. Fixing the measurement does not
+  /// help an install that already cached one of the bad profiles — the id is read straight back
+  /// out of storage and reused — so the key changes with it, and the next capture registers a
+  /// profile describing what this handset actually does.
+  static const _key = 'tera.device_profile_id.v2';
 
   @override
   Future<String?> read() => _storage.read(key: _key);

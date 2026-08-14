@@ -298,11 +298,44 @@ class ApiClient {
   }
 
   /// Surface the backend's own explanation where it has one — it is written for a person.
+  ///
+  /// **The field-level violations matter as much as the sentence.** This used to return the
+  /// fallback for anything whose `detail` was not a plain String, which is exactly the shape a
+  /// 422 from this API takes: the ingest route raises
+  /// `HTTPException(detail={'detail': ..., 'violations': [...]})`, so FastAPI nests it as
+  /// `{'detail': {'detail': ..., 'violations': [...]}}` and the String check falls straight
+  /// through. Every validation failure therefore read as a bare "Request failed (422)" while the
+  /// server had already said precisely which field it disliked and why.
   String _messageFor(http.Response response) {
     try {
       final body = jsonDecode(response.body);
-      if (body is Map && body['detail'] is String)
-        return body['detail'] as String;
+      if (body is! Map) return 'Request failed (${response.statusCode}).';
+
+      // The ingest shape: detail is itself an object carrying the violations.
+      final detail = body['detail'];
+      final nested = detail is Map ? detail : body;
+      final headline = (nested['detail'] is String)
+          ? nested['detail'] as String
+          : (detail is String ? detail : null);
+
+      final violations = nested['violations'];
+      if (violations is List && violations.isNotEmpty) {
+        final parts = violations.map((v) {
+          if (v is! Map) return v.toString();
+          final field = v['field'] ?? (v['loc'] as List?)?.join('.');
+          return field == null ? '${v['message'] ?? v['msg']}' : '$field: ${v['message'] ?? v['msg']}';
+        }).join('; ');
+        return headline == null ? parts : '$headline — $parts';
+      }
+
+      // FastAPI's own default: detail is a list of {loc, msg, type}.
+      if (detail is List && detail.isNotEmpty) {
+        return detail
+            .map((v) => v is Map ? '${(v['loc'] as List?)?.join('.')}: ${v['msg']}' : '$v')
+            .join('; ');
+      }
+
+      if (headline != null) return headline;
     } on Object {
       // fall through
     }

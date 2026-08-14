@@ -111,12 +111,33 @@ class DeviceMeasurer {
   Future<DeviceMeasurements> measure({
     required CameraCapabilities capabilities,
     required double accelRateHz,
+    double? cameraFpsOverride,
   }) async {
     final HandsetInfo handset;
     try {
       handset = await _capture.readHandsetInfo();
     } on Object catch (e) {
       throw DeviceMeasurementFailure('The phone did not report its model. $e');
+    }
+
+    // Supplied when the caller has already measured the camera during a real capture, which is
+    // a better figure than a fresh probe: it is the rate the method actually ran at, on the same
+    // code path, for a full session rather than a few seconds. Registering the advertised
+    // ceiling instead is what made completed sessions fail the achieved-rate gate.
+    if (cameraFpsOverride != null && cameraFpsOverride > 0) {
+      final fastOffsets = <double>[];
+      for (var i = 0; i < clockOffsetRuns; i++) {
+        fastOffsets.add((await _capture.readClockOffset()).offsetMillis);
+        if (i < clockOffsetRuns - 1) await Future<void>.delayed(clockOffsetSpacing);
+      }
+      final fastStats = OffsetStatistics.fromOffsetsMillis(fastOffsets);
+      return DeviceMeasurements(
+        handset: handset,
+        capabilities: capabilities,
+        accelRateHz: accelRateHz,
+        cameraFps: cameraFpsOverride,
+        clockOffsetSdMs: fastStats?.sdMillis ?? 0.0,
+      );
     }
 
     final double cameraFps;
