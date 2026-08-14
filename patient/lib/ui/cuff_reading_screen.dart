@@ -41,7 +41,7 @@ class CuffReadingScreen extends StatefulWidget {
     required this.onDone,
     this.checkSessionId,
     this.isReference = false,
-    this.ocr = const MockCuffOcrExtractor(),
+    this.ocr = const CameraCuffOcrExtractor(),
   });
 
   final ApiClient api;
@@ -75,14 +75,33 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
     super.dispose();
   }
 
-  /// Mock capture. No camera is opened and no image exists; see `cuff_ocr.dart`.
+  /// Opens the camera, then fills the fields from the extractor.
+  ///
+  /// The default extractor takes a real photograph and then returns fixed numbers without reading
+  /// it — see `CameraCuffOcrExtractor`. The confirmation step and the simulated-reading notice
+  /// are what keep that honest, and neither is skippable.
   Future<void> _photograph() async {
     setState(() {
       _stage = _Stage.reading;
       _error = null;
     });
 
-    final reading = await widget.ocr.extract();
+    final CuffOcrReading reading;
+    try {
+      reading = await widget.ocr.extract();
+    } on CuffOcrCancelled {
+      // Backed out at the camera. Return to the choice, pre-fill nothing.
+      if (mounted) setState(() => _stage = _Stage.choose);
+      return;
+    } on Object catch (e) {
+      if (mounted) {
+        setState(() {
+          _error = 'The camera could not be opened. $e';
+          _stage = _Stage.enter;
+        });
+      }
+      return;
+    }
     if (!mounted) return;
 
     _systolic.text = '${reading.systolicMmhg}';
@@ -147,25 +166,39 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
     try {
       // Confirmation happens here, at the tap, and is stamped with that instant.
       final confirmed = draft.confirm();
-      if (widget.checkSessionId != null && widget.checkSessionId!.isNotEmpty) {
-        await widget.api.postJson(
-          '/v1/check-sessions/${widget.checkSessionId}/process',
-          {
-            'blood_pressure': {
-              'systolic': confirmed.draft.systolicMmhg,
-              'diastolic': confirmed.draft.diastolicMmhg,
-              if (confirmed.draft.pulseBpm != null)
-                'pulse': confirmed.draft.pulseBpm,
-              'source': 'manual_entry',
-            },
-          },
-        );
-      } else {
-        final resolver = SessionContextResolver(api: widget.api);
-        final (:patientId, :episodeId) = await resolver.resolveEpisode();
-        await CuffReadingSubmitter(
-          api: widget.api,
-        ).submit(reading: confirmed, episodeId: episodeId);
+
+      // **One path, always: the reading is filed as a `cuff_reading`.**
+      //
+      // There used to be a fork here. With a `checkSessionId` present it posted
+      // `{'blood_pressure': {'systolic': ..., 'diastolic': ...}}` to
+      // `/v1/check-sessions/{id}/process` instead — a body that endpoint has never accepted:
+      // `ProcessIn` is an empty model with `extra="forbid"`, and the field names were `systolic`
+      // / `diastolic` rather than the schema's `systolic_mmhg` / `diastolic_mmhg` anyway. Every
+      // save through that branch returned 422, so the reading was never written.
+      //
+      // That is what produced the loop the calibration flow got stuck in: no `cuff_reading` row
+      // means no history, no history means the next check is judged a first run, and the patient
+      // is sent back to calibrate again. It also kept the dashboard chart empty, since cuff
+      // readings are the only entries carrying mmHg.
+      final resolver = SessionContextResolver(api: widget.api);
+      final (:patientId, :episodeId) = await resolver.resolveEpisode();
+      await CuffReadingSubmitter(
+        api: widget.api,
+      ).submit(reading: confirmed, episodeId: episodeId);
+
+      // Then, separately and best-effort, move the check session along. This request carries
+      // nothing — that is the actual contract — and a failure here must not lose a reading that
+      // is already safely filed above.
+      final checkSessionId = widget.checkSessionId;
+      if (checkSessionId != null && checkSessionId.isNotEmpty) {
+        try {
+          await widget.api.postJson(
+            '/v1/check-sessions/$checkSessionId/process',
+            const {},
+          );
+        } on Object {
+          // Deliberately swallowed; see above.
+        }
       }
       if (!mounted) return;
       setState(() {

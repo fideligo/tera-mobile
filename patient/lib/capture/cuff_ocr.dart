@@ -22,6 +22,7 @@
 /// alone. The confirmation step is not the extractor's to skip.
 library;
 
+import 'package:image_picker/image_picker.dart';
 import 'package:meta/meta.dart';
 
 /// Fixed output of the mock. Named rather than inlined so a test can assert the screen shows
@@ -94,4 +95,61 @@ class MockCuffOcrExtractor implements CuffOcrExtractor {
       simulated: true,
     );
   }
+}
+
+/// Opens the camera, then returns the same fixed reading [MockCuffOcrExtractor] does.
+///
+/// **The photograph is taken and then discarded unread.** Nothing looks at those pixels: there is
+/// no text recogniser behind this, and the numbers below are the same constants the pure mock
+/// returns. It exists so the capture *gesture* can be demonstrated end to end — point the phone at
+/// a monitor, take the shot, watch the fields populate — while the extraction behind it is still
+/// unbuilt.
+///
+/// It is therefore still [CuffOcrReading.simulated], and the confirmation screen still shows
+/// [simulatedOcrNotice] over the result. That matters more here than it did for the pure mock, not
+/// less: having just photographed their own monitor, a patient has every reason to assume the
+/// numbers came from the photograph. They did not, and the screen has to say so before they
+/// confirm a reading into their clinical record.
+///
+/// Replacing this with a real extractor means reading `photo.path` and leaving the rest alone.
+class CameraCuffOcrExtractor implements CuffOcrExtractor {
+  const CameraCuffOcrExtractor({
+    this.picker,
+    this.processingDelay = const Duration(milliseconds: 1500),
+  });
+
+  final ImagePicker? picker;
+
+  /// How long the "reading the display" state is held after the shutter.
+  final Duration processingDelay;
+
+  @override
+  Future<CuffOcrReading> extract() async {
+    final photo = await (picker ?? ImagePicker()).pickImage(
+      source: ImageSource.camera,
+      maxWidth: 1600,
+    );
+    if (photo == null) {
+      // Cancelled at the camera. Not an error and not a reading — the caller returns to the
+      // choice screen rather than pre-filling anything.
+      throw const CuffOcrCancelled();
+    }
+
+    await Future<void>.delayed(processingDelay);
+    return const CuffOcrReading(
+      systolicMmhg: mockOcrSystolic,
+      diastolicMmhg: mockOcrDiastolic,
+      pulseBpm: mockOcrPulse,
+      confidence: mockOcrConfidence,
+      simulated: true,
+    );
+  }
+}
+
+/// The patient backed out of the camera. Distinct from a failure, because it is not one.
+class CuffOcrCancelled implements Exception {
+  const CuffOcrCancelled();
+
+  @override
+  String toString() => 'Camera cancelled';
 }

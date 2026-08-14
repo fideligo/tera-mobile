@@ -60,6 +60,10 @@ class _HomeScreenState extends State<HomeScreen> {
   /// blood-pressure chart can honestly plot.
   List<_BpPoint> _trend = const [];
 
+  /// When phone checks happened, for the tick marks under the chart. Times only — see the note
+  /// in [_loadHistory] on why a check has no y-position.
+  List<DateTime> _checkMarks = const [];
+
   /// The most recent history entries of any kind, for Recent Activity.
   List<Map<String, dynamic>> _recent = const [];
   bool _historyLoading = false;
@@ -111,20 +115,34 @@ class _HomeScreenState extends State<HomeScreen> {
           .cast<Map<String, dynamic>>();
 
       final points = <_BpPoint>[];
+      final checks = <DateTime>[];
       for (final e in entries) {
-        final sys = e['systolic_mmhg'] as int?;
-        final dia = e['diastolic_mmhg'] as int?;
         final at = e['occurred_at'] as String?;
-        if (sys == null || dia == null || at == null) continue;
+        if (at == null) continue;
         final when = DateTime.tryParse(at);
         if (when == null) continue;
-        points.add(_BpPoint(at: when, systolic: sys, diastolic: dia));
+
+        final sys = e['systolic_mmhg'] as int?;
+        final dia = e['diastolic_mmhg'] as int?;
+        if (sys != null && dia != null) {
+          points.add(_BpPoint(at: when, systolic: sys, diastolic: dia));
+          continue;
+        }
+        // A phone check. It is marked on the chart's timeline but has no y-position, because
+        // there is no mmHg to give it: `trend_estimate` has no pressure column and the API does
+        // not populate one (invariant 1). Plotting it against the mmHg axis would mean inventing
+        // the number the whole design refuses to invent.
+        if (e['entry_type'] == 'trend' || e['direction'] != null) {
+          checks.add(when);
+        }
       }
       points.sort((a, b) => a.at.compareTo(b.at));
+      checks.sort();
 
       if (!mounted) return;
       setState(() {
         _trend = points;
+        _checkMarks = checks;
         _recent = entries;
         _historyLoading = false;
       });
@@ -402,10 +420,12 @@ class _HomeScreenState extends State<HomeScreen> {
                         // the dashboard is entitled to infer from a handful of plotted points.
                         Text(
                           auth.isSignedIn
-                              ? (_trend.isEmpty
-                                    ? 'No cuff readings in the last 7 days'
+                              ? (_trend.isEmpty && _checkMarks.isEmpty
+                                    ? 'Nothing recorded in the last 7 days'
                                     : '${_trend.length} cuff reading'
-                                          '${_trend.length == 1 ? '' : 's'} in the last 7 days')
+                                          '${_trend.length == 1 ? '' : 's'} · '
+                                          '${_checkMarks.length} phone check'
+                                          '${_checkMarks.length == 1 ? '' : 's'}')
                               : 'Sign in to see your readings',
                           style: const TextStyle(
                             color: TeraColors.neutral700,
@@ -429,10 +449,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ),
                                     ),
                                   )
-                                : _trend.isEmpty
+                                : (_trend.isEmpty && _checkMarks.isEmpty)
                                 ? const Center(
                                     child: Text(
-                                      'Your cuff readings will appear here',
+                                      'Your checks and cuff readings will appear here',
                                       style: TextStyle(
                                         color: TeraColors.neutral500,
                                         fontSize: 13,
@@ -452,7 +472,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                       ),
                                       Positioned.fill(
                                         child: CustomPaint(
-                                          painter: _ChartPainter(_trend),
+                                          painter: _ChartPainter(_trend, _checkMarks),
                                         ),
                                       ),
                                     ],
@@ -926,10 +946,16 @@ class _BpPoint {
 }
 
 class _ChartPainter extends CustomPainter {
-  const _ChartPainter(this.points);
+  const _ChartPainter(this.points, this.checkMarks);
 
-  /// Real readings, oldest first. Was a hard-coded six-element list.
+  /// Real cuff readings, oldest first. Was a hard-coded six-element list.
   final List<_BpPoint> points;
+
+  /// Phone checks, drawn as ticks along the base. They share the chart's time axis but not its
+  /// value axis, because a check produces a direction and a magnitude in baseline SDs, never a
+  /// pressure. Showing them here is what makes a phone capture visible on the dashboard; giving
+  /// them a height would be fabricating a reading.
+  final List<DateTime> checkMarks;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -947,15 +973,37 @@ class _ChartPainter extends CustomPainter {
       ..strokeWidth = 1.5
       ..style = PaintingStyle.stroke;
 
+    final startX = 40.0;
+    final w = size.width - startX;
+    if (w <= 0) return;
+
+    // Ticks first, so the cuff line sits above them.
+    if (checkMarks.isNotEmpty) {
+      final all = <DateTime>[...checkMarks, for (final p in points) p.at]..sort();
+      final first = all.first.millisecondsSinceEpoch;
+      final last = all.last.millisecondsSinceEpoch;
+      final span = (last - first).toDouble();
+      final tick = Paint()
+        ..color = TeraColors.neutral500
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke;
+      for (final at in checkMarks) {
+        final t = span <= 0
+            ? 0.5
+            : (at.millisecondsSinceEpoch - first) / span;
+        final x = startX + t * w;
+        canvas.drawLine(
+          Offset(x, size.height),
+          Offset(x, size.height - 10),
+          tick,
+        );
+      }
+    }
+
     if (points.isEmpty) return;
     // Systolic, which is the line a patient recognises. Diastolic is drawn under it below.
     final data = [for (final p in points) p.systolic.toDouble()];
     final lower = [for (final p in points) p.diastolic.toDouble()];
-
-    // Space for y axis label is 40 (30 width + 8 spacing roughly)
-    final startX = 40.0;
-    final w = size.width - startX;
-    if (w <= 0) return;
 
     // A single reading has no span to divide across; it is drawn as one dot.
     final dx = data.length == 1 ? 0.0 : w / (data.length - 1);
@@ -1001,7 +1049,7 @@ class _ChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ChartPainter oldDelegate) =>
-      oldDelegate.points != points;
+      oldDelegate.points != points || oldDelegate.checkMarks != checkMarks;
 }
 
 /// Blurs its child and puts a sign-in prompt over it, for a guest.
