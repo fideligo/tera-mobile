@@ -12,6 +12,7 @@ import '../auth/auth_controller.dart';
 import '../capture/check_session_client.dart';
 import '../capture/current_context.dart';
 import '../capture/current_context_submitter.dart';
+import '../capture/pending_check_store.dart';
 import '../capture/phr_profile.dart';
 import '../api/api_client.dart';
 import '../capture/device_measurement.dart';
@@ -792,6 +793,17 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
 
         // First run: the recording is done, now collect the cuff number that calibrates it.
         if (widget.payload.firstTimeCalibration) {
+          // **Written to disk before the cuff screen, because that screen opens the camera.**
+          // `image_picker` starts a separate activity and Android may destroy this one behind it;
+          // if it does, `_awaitingCuffFor` and the whole payload go with it, and the patient has
+          // sat through sixty seconds for nothing. `ProcessingScreen` reads this back when it
+          // finds itself with no signal in memory.
+          await const PendingCheckStore().save(
+            signal: result,
+            checkSessionId: widget.payload.checkSessionId,
+            capturedAt: capture.startedAt,
+          );
+          if (!context.mounted) return;
           setState(() {
             _awaitingCuffFor = result;
             _awaitingCuffAt = capture.startedAt;
@@ -1074,10 +1086,16 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
   /// A check session opened late, here, because the one at the start of the flow could not be.
   String? _recoveredCheckSessionId;
 
+  /// A capture read back from disk after the activity was destroyed mid-flow.
+  SignalResult? _restoredSignal;
+  DateTime? _restoredCapturedAt;
+
   /// The payload as it now stands, including any late-opened check session.
-  CheckPayload get _payload => _recoveredCheckSessionId == null
-      ? widget.payload
-      : widget.payload.copyWith(checkSessionId: _recoveredCheckSessionId);
+  CheckPayload get _payload => widget.payload.copyWith(
+    checkSessionId: _recoveredCheckSessionId,
+    signal: _restoredSignal,
+    capturedAt: _restoredCapturedAt,
+  );
 
   @override
   void initState() {
@@ -1160,7 +1178,32 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
     return consent ?? false;
   }
 
+  /// Read a capture back from disk when there is none in memory.
+  ///
+  /// The camera intent behind the cuff screen can take this activity down with it — see
+  /// `PendingCheckStore`. Without this, the flow arrives here with `signal == null`, takes the
+  /// BP-only branch below, and quietly submits nothing after a full minute of recording.
+  Future<void> _restorePendingCheck() async {
+    if (widget.payload.signal != null) return;
+
+    final pending = await const PendingCheckStore().read();
+    if (pending == null || !mounted) return;
+
+    debugPrint(
+      '[TERA] restored capture from disk: ptt=${pending.signal.pttMs.length} '
+      'checkSessionId=${pending.checkSessionId}',
+    );
+    setState(() {
+      _restoredSignal = pending.signal;
+      _restoredCapturedAt = pending.capturedAt;
+      _recoveredCheckSessionId ??= pending.checkSessionId;
+    });
+  }
+
   Future<void> _run() async {
+    await _restorePendingCheck();
+    if (!mounted) return;
+
     final signal = _payload.signal;
 
     await _ensureCheckSession();
@@ -1201,6 +1244,10 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
         startedAt: _payload.capturedAt ?? DateTime.now(),
         signal: signal,
       );
+
+      // Filed. The disk copy has done its job and must not outlive it — a stale capture
+      // reattached to a later check would file a reading against the wrong moment.
+      await const PendingCheckStore().clear();
 
       await _fileContext();
 
