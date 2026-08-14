@@ -4,6 +4,8 @@
 /// screen is what holds them together and carries sign-out.
 library;
 
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 
 import '../auth/auth_controller.dart';
@@ -53,6 +55,15 @@ class _HomeScreenState extends State<HomeScreen> {
   ContextIntake? _intake;
   String? _displayName;
 
+  /// Confirmed cuff readings from the last 7 days, oldest first. Only ever cuff readings: they
+  /// are the only entries that carry mmHg (invariant 1), so they are the only thing a
+  /// blood-pressure chart can honestly plot.
+  List<_BpPoint> _trend = const [];
+
+  /// The most recent history entries of any kind, for Recent Activity.
+  List<Map<String, dynamic>> _recent = const [];
+  bool _historyLoading = false;
+
   AuthController get auth => widget.auth;
 
   @override
@@ -62,6 +73,48 @@ class _HomeScreenState extends State<HomeScreen> {
     _profileStore = widget.profileStore ?? SecurePhrProfileStore();
     _loadIntake();
     _loadName();
+    _loadHistory();
+  }
+
+  /// The dashboard's real numbers.
+  ///
+  /// A guest has no token and therefore no history to fetch — the request would throw
+  /// `SessionExpiredException` before it left the handset — so it is not attempted, and the
+  /// chart and activity list render their locked state instead of an empty one. "No data yet"
+  /// and "not signed in" are different statements and the dashboard says which.
+  Future<void> _loadHistory() async {
+    final flow = widget.flow;
+    if (flow == null || !auth.isSignedIn) return;
+
+    setState(() => _historyLoading = true);
+    try {
+      final body = await flow.api.getJson('/v1/history?range=7d');
+      final entries = (body['entries'] as List<dynamic>? ?? [])
+          .cast<Map<String, dynamic>>();
+
+      final points = <_BpPoint>[];
+      for (final e in entries) {
+        final sys = e['systolic_mmhg'] as int?;
+        final dia = e['diastolic_mmhg'] as int?;
+        final at = e['occurred_at'] as String?;
+        if (sys == null || dia == null || at == null) continue;
+        final when = DateTime.tryParse(at);
+        if (when == null) continue;
+        points.add(_BpPoint(at: when, systolic: sys, diastolic: dia));
+      }
+      points.sort((a, b) => a.at.compareTo(b.at));
+
+      if (!mounted) return;
+      setState(() {
+        _trend = points;
+        _recent = entries;
+        _historyLoading = false;
+      });
+    } on Object {
+      // A dashboard that cannot reach the server still has to draw. The chart falls back to its
+      // empty state, which is honest, rather than to invented points.
+      if (mounted) setState(() => _historyLoading = false);
+    }
   }
 
   Future<void> _loadIntake() async {
@@ -266,7 +319,9 @@ class _HomeScreenState extends State<HomeScreen> {
                               ],
                             ),
                             FilledButton(
-                              onPressed: () => _openIntake(context),
+                              onPressed: () => auth.isSignedIn
+                                  ? _openIntake(context)
+                                  : _requireLoginForProfile(context),
                               style: FilledButton.styleFrom(
                                 backgroundColor: TeraColors.brand,
                                 shape: RoundedRectangleBorder(
@@ -317,64 +372,67 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.arrow_upward,
-                              color: Colors.red,
-                              size: 14,
-                            ),
-                            const SizedBox(width: 4),
-                            const Text(
-                              'Rising',
-                              style: TextStyle(
-                                color: Colors.red,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                          ],
+                        // The "Rising" chip was hard-coded, in red, beside a hard-coded chart.
+                        // It now reports the count it is actually drawing, and says nothing about
+                        // direction: a direction is the deviation engine's verdict, not something
+                        // the dashboard is entitled to infer from a handful of plotted points.
+                        Text(
+                          auth.isSignedIn
+                              ? (_trend.isEmpty
+                                    ? 'No cuff readings in the last 7 days'
+                                    : '${_trend.length} cuff reading'
+                                          '${_trend.length == 1 ? '' : 's'} in the last 7 days')
+                              : 'Sign in to see your readings',
+                          style: const TextStyle(
+                            color: TeraColors.neutral700,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w500,
+                          ),
                         ),
                         const SizedBox(height: 24),
                         SizedBox(
                           height: 120,
                           width: double.infinity,
-                          child: Stack(
-                            children: [
-                              Column(
-                                mainAxisAlignment:
-                                    MainAxisAlignment.spaceBetween,
-                                children: [
-                                  _buildGridLine('200'),
-                                  _buildGridLine('100'),
-                                  _buildGridLine('0'),
-                                ],
-                              ),
-                              Positioned.fill(
-                                child: CustomPaint(painter: _ChartPainter()),
-                              ),
-                              Positioned(
-                                bottom: -24,
-                                left: 40,
-                                right: 0,
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children:
-                                      ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-                                          .map(
-                                            (day) => Text(
-                                              day,
-                                              style: const TextStyle(
-                                                color: TeraColors.neutral400,
-                                                fontSize: 12,
-                                              ),
-                                            ),
-                                          )
-                                          .toList(),
-                                ),
-                              ),
-                            ],
+                          child: _LockedIfGuest(
+                            locked: !auth.isSignedIn,
+                            child: _historyLoading
+                                ? const Center(
+                                    child: SizedBox(
+                                      width: 22,
+                                      height: 22,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                  )
+                                : _trend.isEmpty
+                                ? const Center(
+                                    child: Text(
+                                      'Your cuff readings will appear here',
+                                      style: TextStyle(
+                                        color: TeraColors.neutral500,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  )
+                                : Stack(
+                                    children: [
+                                      Column(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          _buildGridLine('200'),
+                                          _buildGridLine('100'),
+                                          _buildGridLine('0'),
+                                        ],
+                                      ),
+                                      Positioned.fill(
+                                        child: CustomPaint(
+                                          painter: _ChartPainter(_trend),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                           ),
                         ),
                         const SizedBox(height: 24), // For bottom labels
@@ -391,7 +449,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  _buildRecentActivityList(),
+                  _LockedIfGuest(
+                    locked: !auth.isSignedIn,
+                    child: _buildRecentActivityList(),
+                  ),
                   const SizedBox(height: 48),
                 ],
               ),
@@ -404,27 +465,96 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildRecentActivityList() {
-    return Column(
-      children: [
-        _buildActivityItem(
-          'Aug 12 · 09:20',
-          'Persistent BP-related change',
-          'Phone check · Good signal',
+    if (!auth.isSignedIn) {
+      // Placeholder rows behind the lock overlay, so the blurred shape reads as a list rather
+      // than as empty space. Deliberately generic: nothing here is anyone's data.
+      return Column(
+        children: [
+          _buildActivityItem('--', 'Your checks appear here', 'Sign in to see them'),
+          const SizedBox(height: 12),
+          _buildActivityItem('--', 'Your cuff readings appear here', 'Sign in to see them'),
+        ],
+      );
+    }
+    if (_recent.isEmpty) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          color: TeraColors.paper,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: TeraColors.neutral200),
         ),
-        const SizedBox(height: 12),
-        _buildActivityItem(
-          'Aug 11 · 08:50',
-          'BP-related change',
-          'Phone check · Good signal',
+        child: const Text(
+          'Nothing recorded yet. Your first check will show up here.',
+          textAlign: TextAlign.center,
+          style: TextStyle(color: TeraColors.neutral700, fontSize: 14),
         ),
-        const SizedBox(height: 12),
+      );
+    }
+
+    final rows = <Widget>[];
+    for (final entry in _recent.take(3)) {
+      if (rows.isNotEmpty) rows.add(const SizedBox(height: 12));
+      rows.add(
         _buildActivityItem(
-          'Aug 10 · 09:05',
-          '138 / 86 mmHg',
-          'Confirmed BP · Manual input',
+          _formatWhen(entry['occurred_at'] as String?),
+          _entryTitle(entry),
+          _entrySubtitle(entry),
         ),
-      ],
-    );
+      );
+    }
+    return Column(children: rows);
+  }
+
+  static String _formatWhen(String? iso) {
+    if (iso == null) return '--';
+    final at = DateTime.tryParse(iso)?.toLocal();
+    if (at == null) return '--';
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final hh = at.hour.toString().padLeft(2, '0');
+    final mm = at.minute.toString().padLeft(2, '0');
+    return '${months[at.month - 1]} ${at.day} · $hh:$mm';
+  }
+
+  /// The title for one history row.
+  ///
+  /// **A cuff reading is the only kind that shows mmHg** — invariant 1, and the API enforces it
+  /// by simply not populating those fields on anything else. A trend shows its direction and
+  /// nothing numeric.
+  static String _entryTitle(Map<String, dynamic> e) {
+    final sys = e['systolic_mmhg'] as int?;
+    final dia = e['diastolic_mmhg'] as int?;
+    if (sys != null && dia != null) return '$sys / $dia mmHg';
+
+    final direction = e['direction'] as String?;
+    if (direction != null) {
+      return switch (direction) {
+        'increase' => 'BP-related change: upward',
+        'decrease' => 'BP-related change: downward',
+        _ => 'BP-related trend: stable',
+      };
+    }
+    final rejection = e['rejection_reason'] as String?;
+    if (rejection != null) return 'Check could not be used';
+    return 'Check recorded';
+  }
+
+  static String _entrySubtitle(Map<String, dynamic> e) {
+    final parts = <String>[];
+    final type = e['entry_type'] as String?;
+    if (type == 'cuff_reading') {
+      parts.add(e['badge'] as String? ?? 'Confirmed BP');
+    } else if (type == 'rejected') {
+      parts.add((e['rejection_reason'] as String? ?? '').replaceAll('_', ' '));
+    } else {
+      parts.add('Phone check');
+    }
+    if (e['synthetic'] == true) parts.add('DEMO DATA');
+    return parts.where((p) => p.isNotEmpty).join(' · ');
   }
 
   Widget _buildActivityItem(String time, String title, String subtitle) {
@@ -489,6 +619,52 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// History and Profile both need a token; a guest has none. Caught here, at the tap, rather
   /// than let the screen's own request fail and show a generic error.
+  /// The profile is the one thing a guest genuinely cannot do partway.
+  ///
+  /// It is not gated to push sign-ups: the profile is what `read_insight` reads when a patient
+  /// consents to the AI paragraph — age, sex, height, weight, reported conditions — and there is
+  /// nowhere to store it without an account. Collecting it into local storage that no request
+  /// will ever carry would be a form that quietly does nothing.
+  void _requireLoginForProfile(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(TeraRadius.card),
+        ),
+        backgroundColor: TeraColors.paper,
+        title: const Text(
+          'Login required',
+          style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
+        ),
+        content: const Text(
+          'Login required to complete your profile. We need this context to help AI translate '
+          'your results accurately.',
+          style: TextStyle(color: TeraColors.ink, height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Not now'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              Navigator.of(
+                context,
+              ).pushNamedAndRemoveUntil(Routes.login, (r) => false);
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: TeraColors.ink,
+              foregroundColor: TeraColors.paper,
+            ),
+            child: const Text('Log in'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openGuarded(BuildContext context, String route, String feature) {
     if (auth.isGuest) {
       Navigator.of(context).push(
@@ -675,7 +851,25 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
+/// One confirmed cuff reading, for the dashboard chart.
+class _BpPoint {
+  const _BpPoint({
+    required this.at,
+    required this.systolic,
+    required this.diastolic,
+  });
+
+  final DateTime at;
+  final int systolic;
+  final int diastolic;
+}
+
 class _ChartPainter extends CustomPainter {
+  const _ChartPainter(this.points);
+
+  /// Real readings, oldest first. Was a hard-coded six-element list.
+  final List<_BpPoint> points;
+
   @override
   void paint(Canvas canvas, Size size) {
     final paintLine = Paint()
@@ -692,16 +886,18 @@ class _ChartPainter extends CustomPainter {
       ..strokeWidth = 1.5
       ..style = PaintingStyle.stroke;
 
-    // Hardcoded dummy data for chart visualization
-    // Mapping y from 0 to 200 into height
-    final data = [60.0, 140.0, 120.0, 70.0, 100.0, 120.0];
+    if (points.isEmpty) return;
+    // Systolic, which is the line a patient recognises. Diastolic is drawn under it below.
+    final data = [for (final p in points) p.systolic.toDouble()];
+    final lower = [for (final p in points) p.diastolic.toDouble()];
 
     // Space for y axis label is 40 (30 width + 8 spacing roughly)
     final startX = 40.0;
     final w = size.width - startX;
     if (w <= 0) return;
 
-    final dx = w / (data.length - 1);
+    // A single reading has no span to divide across; it is drawn as one dot.
+    final dx = data.length == 1 ? 0.0 : w / (data.length - 1);
 
     final path = Path();
     for (int i = 0; i < data.length; i++) {
@@ -723,8 +919,87 @@ class _ChartPainter extends CustomPainter {
       canvas.drawCircle(Offset(x, y), 4, paintDot);
       canvas.drawCircle(Offset(x, y), 4, paintDotBorder);
     }
+
+    // Diastolic, same scale, lighter — the pair is what a cuff actually reports.
+    final lowerPaint = Paint()
+      ..color = TeraColors.neutral400
+      ..strokeWidth = 2
+      ..style = PaintingStyle.stroke;
+    final lowerPath = Path();
+    for (int i = 0; i < lower.length; i++) {
+      final x = startX + i * dx;
+      final y = size.height - (lower[i] / 200.0) * size.height;
+      if (i == 0) {
+        lowerPath.moveTo(x, y);
+      } else {
+        lowerPath.lineTo(x, y);
+      }
+    }
+    canvas.drawPath(lowerPath, lowerPaint);
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(covariant _ChartPainter oldDelegate) =>
+      oldDelegate.points != points;
+}
+
+/// Blurs its child and puts a sign-in prompt over it, for a guest.
+///
+/// Blurred rather than hidden or replaced with an empty state, and that distinction is the point:
+/// an empty chart says "you have no readings", which is a claim about the patient's record. This
+/// says "there is something here and it is not yours to see yet", which is what is actually true
+/// of a guest session.
+class _LockedIfGuest extends StatelessWidget {
+  const _LockedIfGuest({required this.locked, required this.child});
+
+  final bool locked;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!locked) return child;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Stack(
+        children: [
+          // Excluded from semantics as well as sight: a screen reader should not read out the
+          // placeholder rows behind the lock as though they were the patient's own history.
+          ExcludeSemantics(
+            child: ImageFiltered(
+              imageFilter: ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+              child: Opacity(opacity: 0.45, child: child),
+            ),
+          ),
+          Positioned.fill(
+            child: Container(
+              color: TeraColors.paper.withValues(alpha: 0.35),
+              alignment: Alignment.center,
+              padding: const EdgeInsets.all(TeraSpacing.md),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.lock_outline,
+                    size: 22,
+                    color: TeraColors.neutral700,
+                  ),
+                  const SizedBox(height: TeraSpacing.sm),
+                  const Text(
+                    'Please login to view your history.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: TeraColors.ink,
+                      fontWeight: FontWeight.w600,
+                      fontSize: TeraText.small,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

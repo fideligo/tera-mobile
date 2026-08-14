@@ -377,7 +377,10 @@ class TeraRouter {
       Routes.history => _page(settings, (_) => HistoryScreen(api: flow.api)),
 
       // ------------------------------------------------------------------ profile
-      Routes.profile => _page(settings, (_) => const ProfileIndexScreen()),
+      Routes.profile => _page(
+        settings,
+        (_) => ProfileIndexScreen(auth: flow.auth),
+      ),
       Routes.profilePersonal => _page(
         settings,
         (_) =>

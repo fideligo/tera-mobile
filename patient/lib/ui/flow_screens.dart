@@ -1328,7 +1328,60 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
 }
 
 class ProfileIndexScreen extends StatelessWidget {
-  const ProfileIndexScreen({super.key});
+  const ProfileIndexScreen({super.key, this.auth});
+
+  /// Null only in tests that render this screen in isolation; the router always supplies it.
+  final AuthController? auth;
+
+  /// Clear the session and go back to the door.
+  ///
+  /// `pushNamedAndRemoveUntil` rather than a pop: every screen behind this one was built for a
+  /// signed-in patient, and leaving them on the stack would let the back gesture walk into
+  /// someone's record after they had signed out of it.
+  Future<void> _logOut(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(TeraRadius.card),
+        ),
+        backgroundColor: TeraColors.paper,
+        title: const Text(
+          'Log out?',
+          style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
+        ),
+        content: const Text(
+          'Your records stay on your account and will be here when you sign back in.',
+          style: TextStyle(color: TeraColors.ink, height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: TeraColors.plum,
+              foregroundColor: TeraColors.paper,
+            ),
+            child: const Text('Log out'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    // Best effort on the network half — the local tokens are cleared either way, because a
+    // logout that fails to reach the server must still log the patient out of this handset.
+    try {
+      await auth?.signOut();
+    } on Object {
+      // Deliberately swallowed; see above.
+    }
+    if (!context.mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil(Routes.login, (r) => false);
+  }
 
   static const _entries = <(String, String, IconData)>[
     ('Personal Details', Routes.profilePersonal, Icons.person_outline),
@@ -1499,10 +1552,15 @@ class ProfileIndexScreen extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           TextButton(
-            onPressed: () {},
+            onPressed: () => _logOut(context),
             child: const Text(
-              'Log Out',
-              style: TextStyle(color: Colors.red, fontWeight: FontWeight.w600),
+              'Log out',
+              style: TextStyle(
+                // Plum, not raw red: red is not in this palette, and signing out is system
+                // state rather than anything clinical.
+                color: TeraColors.plum,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
           const SizedBox(height: 48),
