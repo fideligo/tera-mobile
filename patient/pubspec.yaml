@@ -28,6 +28,8 @@ dependencies:
   camera: ^0.12.0+1
   sensors_plus: ^7.1.0
   image_picker: ^1.2.2
+  flutter_dotenv: ^6.0.1
+  path_provider: ^2.1.5
 
 dev_dependencies:
   flutter_test:
@@ -38,3 +40,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/logo.jpeg
+    - .env

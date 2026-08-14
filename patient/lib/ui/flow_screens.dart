@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../auth/auth_controller.dart';
+import '../capture/calibration_anchor.dart';
 import '../capture/check_session_client.dart';
 import '../capture/current_context.dart';
 import '../capture/current_context_submitter.dart';
@@ -1200,6 +1201,38 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
     });
   }
 
+  /// Establish the calibration this patient's estimates are anchored to.
+  ///
+  /// Single-point: one confirmed cuff reading plus the session just stored. The server computes
+  /// the baseline from the session's own PTT — it is never sent from here, because a handset that
+  /// could write its own baseline could make any later reading look however it liked.
+  ///
+  /// Best effort, and deliberately so: the capture is already filed by the time this runs, and a
+  /// failure here costs the estimate on later checks, not this reading. It is skipped entirely
+  /// when there is no anchor to point at.
+  Future<void> _establishCalibration(
+    SessionContext resolved,
+    String sessionId,
+  ) async {
+    const anchors = CalibrationAnchorStore();
+    final anchorId = await anchors.read();
+    if (anchorId == null) return;
+
+    try {
+      await widget.flow.api.postJson('/v1/calibrations', {
+        'patient_id': resolved.patientId,
+        'device_profile_id': resolved.deviceProfileId,
+        'reference_cuff_reading_id': anchorId,
+        'session_ids': [sessionId],
+      });
+      debugPrint('[TERA] calibration established against cuff reading $anchorId');
+      // Consumed. Leaving it would re-anchor every future check to the same old reading.
+      await anchors.clear();
+    } on Object catch (e) {
+      debugPrint('[TERA] calibration could not be established: $e');
+    }
+  }
+
   Future<void> _run() async {
     await _restorePendingCheck();
     if (!mounted) return;
@@ -1244,6 +1277,16 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
         startedAt: _payload.capturedAt ?? DateTime.now(),
         signal: signal,
       );
+
+      // First run: the session is stored and the cuff reading is filed, so the calibration
+      // that anchors every later estimate can finally be established.
+      //
+      // **Nothing called this before.** `POST /v1/calibrations` existed, was tested, and had no
+      // caller anywhere in the app — so `resolve_at` found nothing in force, `ingest.submit`
+      // took its `in_force is None` branch, and every session came back with
+      // `estimate_produced: false`. That is the whole reason no estimate has ever appeared; it
+      // was never a quality gate or a frame rate.
+      await _establishCalibration(resolved, outcome.sessionId);
 
       // Filed. The disk copy has done its job and must not outlive it — a stale capture
       // reattached to a later check would file a reading against the wrong moment.

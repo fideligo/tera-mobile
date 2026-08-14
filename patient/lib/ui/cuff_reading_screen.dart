@@ -28,6 +28,7 @@ import 'package:flutter/services.dart';
 
 import '../api/api_client.dart';
 import '../capture/cuff_ocr.dart';
+import '../capture/calibration_anchor.dart';
 import '../capture/cuff_reading.dart';
 import '../capture/session_context.dart';
 import 'tokens.dart';
@@ -182,9 +183,17 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
       // readings are the only entries carrying mmHg.
       final resolver = SessionContextResolver(api: widget.api);
       final (:patientId, :episodeId) = await resolver.resolveEpisode();
-      await CuffReadingSubmitter(
+      final filed = await CuffReadingSubmitter(
         api: widget.api,
       ).submit(reading: confirmed, episodeId: episodeId);
+
+      // Remember which row this was. `ProcessingScreen` needs it to establish the calibration
+      // that anchors every later estimate — a calibration without a reference cuff reading is
+      // not a calibration, and the id is the only way to name one.
+      final filedId = filed['id'] as String?;
+      if (filedId != null) {
+        await const CalibrationAnchorStore().save(filedId);
+      }
 
       // Then, separately and best-effort, move the check session along. This request carries
       // nothing — that is the actual contract — and a failure here must not lose a reading that
