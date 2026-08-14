@@ -9,6 +9,9 @@
 /// Next Best Step.
 library;
 
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../api/api_client.dart';
@@ -69,6 +72,9 @@ class _InsightScreenState extends State<InsightScreen> {
   bool _aiConsentAsked = false;
   bool _aiLoading = false;
 
+  /// How long the AI paragraph gets before the screen stops waiting for it.
+  static const _aiDeadline = Duration(seconds: 4);
+
   @override
   void initState() {
     super.initState();
@@ -101,6 +107,9 @@ class _InsightScreenState extends State<InsightScreen> {
       final consented = widget.aiConsent == true;
       final body = await widget.api.getJson(
         '/v1/check-sessions/$id/insight${consented ? '?ai_consent=true' : ''}',
+        // Only the consented call waits on a third-party LLM. Past the deadline the screen
+        // stops waiting rather than leaving a patient watching a spinner.
+        timeout: consented ? _aiDeadline : null,
       );
       if (!mounted) return;
       setState(() => _insight = body);
@@ -111,6 +120,18 @@ class _InsightScreenState extends State<InsightScreen> {
       // is not re-litigated here.
       if (widget.aiConsent == null) {
         WidgetsBinding.instance.addPostFrameCallback((_) => _askAiConsent());
+      }
+    } on TimeoutException {
+      // The AI half ran long. The deterministic result does not depend on it, so it is fetched
+      // again without consent rather than lost along with it.
+      debugPrint('[TERA] insight AI timed out; loading the deterministic result alone');
+      if (!mounted) return;
+      try {
+        final body = await widget.api.getJson('/v1/check-sessions/$id/insight');
+        if (!mounted) return;
+        setState(() => _insight = body);
+      } on Object catch (e) {
+        if (mounted) setState(() => _error = 'Could not load your result. $e');
       }
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -176,6 +197,7 @@ class _InsightScreenState extends State<InsightScreen> {
     try {
       final body = await widget.api.getJson(
         '/v1/check-sessions/$id/insight?ai_consent=true',
+        timeout: _aiDeadline,
       );
       if (!mounted) return;
       // Merge rather than replace: a slow or failed AI call must never take the deterministic
@@ -354,7 +376,7 @@ class _InsightScreenState extends State<InsightScreen> {
                               // `app/api/v1/phr.py`). This read `hero_result`, a key the
                               // response has never had, so this line always showed its
                               // fallback text — the result of every check, silently blank.
-                              insight['hero_result'] as String? ?? 'No result',
+                              insight['hero'] as String? ?? 'No result',
                               textAlign: TextAlign.center,
                               style: const TextStyle(
                                 fontSize: 28,
@@ -434,6 +456,80 @@ class _InsightScreenState extends State<InsightScreen> {
                           ),
                         ),
                       ],
+
+                      // The cuff baseline, shown large because it is the number a patient
+                      // recognises — and because it is the only real mmHg in this whole screen.
+                      //
+                      // `reference_systolic` / `reference_diastolic` come off a validated cuff
+                      // the patient used themselves; the engine passes them through untouched.
+                      // Nothing here is derived from the phone capture and nothing here is
+                      // invented: when there is no cuff reading on file the card says so and
+                      // asks for one, because a blood-pressure figure that no cuff produced is
+                      // the one thing this product exists not to show.
+                      const SizedBox(height: 16),
+                      Builder(
+                        builder: (context) {
+                          final sys = insight['reference_systolic'] as int?;
+                          final dia = insight['reference_diastolic'] as int?;
+                          final have = sys != null && dia != null;
+
+                          return Container(
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: TeraColors.paper,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: TeraColors.neutral300),
+                            ),
+                            child: Column(
+                              children: [
+                                Text(
+                                  have
+                                      ? 'YOUR CUFF BASELINE'
+                                      : 'NO CUFF BASELINE YET',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: TeraColors.neutral700,
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 10),
+                                if (have) ...[
+                                  Text(
+                                    '$sys / $dia',
+                                    style: const TextStyle(
+                                      fontSize: 44,
+                                      fontWeight: FontWeight.w700,
+                                      color: TeraColors.ink,
+                                      height: 1.0,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  const Text(
+                                    'mmHg · measured with your cuff',
+                                    style: TextStyle(
+                                      fontSize: TeraText.small,
+                                      color: TeraColors.neutral700,
+                                    ),
+                                  ),
+                                ] else
+                                  const Text(
+                                    'Take a reading with your upper-arm cuff and Tera will '
+                                    'show it here. A blood-pressure number only ever comes '
+                                    'from a cuff — the phone check tracks how that number is '
+                                    'changing, not what it is.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: TeraText.small,
+                                      color: TeraColors.ink,
+                                      height: 1.45,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
 
                       const SizedBox(height: 24),
                       // 23.3 What This Means. The backend has no single "what_this_means"

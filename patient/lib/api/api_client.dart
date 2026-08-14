@@ -190,9 +190,18 @@ class ApiClient {
 
   // ------------------------------------------------------------------ requests
 
-  Future<Map<String, dynamic>> getJson(String path) async => _decode(
-    await _send((token) => _http.get(_uri(path), headers: _headers(token))),
-  );
+  /// GET, with an optional per-call deadline.
+  ///
+  /// [timeout] exists for the insight fetch, which can wait on a third-party LLM. A screen a
+  /// patient is staring at should not hang on someone else's API; past the deadline the caller
+  /// shows what it already has. Omitted everywhere else, so ordinary calls keep the client's
+  /// default behaviour.
+  Future<Map<String, dynamic>> getJson(String path, {Duration? timeout}) async {
+    final request = _send(
+      (token) => _http.get(_uri(path), headers: _headers(token)),
+    );
+    return _decode(timeout == null ? await request : await request.timeout(timeout));
+  }
 
   Future<Map<String, dynamic>> postJson(
     String path,
