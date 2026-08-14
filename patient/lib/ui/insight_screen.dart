@@ -457,74 +457,119 @@ class _InsightScreenState extends State<InsightScreen> {
                         ),
                       ],
 
-                      // The cuff baseline, shown large because it is the number a patient
-                      // recognises — and because it is the only real mmHg in this whole screen.
+                      // The estimated reading, and the cuff baseline it is anchored to.
                       //
-                      // `reference_systolic` / `reference_diastolic` come off a validated cuff
-                      // the patient used themselves; the engine passes them through untouched.
-                      // Nothing here is derived from the phone capture and nothing here is
-                      // invented: when there is no cuff reading on file the card says so and
-                      // asks for one, because a blood-pressure figure that no cuff produced is
-                      // the one thing this product exists not to show.
+                      // `estimated_systolic` / `estimated_diastolic` are computed on the server
+                      // from *this capture's* PTT against the calibration in force
+                      // (`app/services/pressure_estimate.py`). They are null whenever the model
+                      // could not stand behind a number — no calibration, an anchor older than
+                      // four weeks, drift outside the linear range — and the card then explains
+                      // that instead of inventing a figure.
+                      //
+                      // The estimate is an **outlined** card; a cuff reading is a **filled** one.
+                      // That is standing constraint 1 and not decoration: the two are different
+                      // kinds of claim and must not be mistaken for each other at a glance.
                       const SizedBox(height: 16),
                       Builder(
                         builder: (context) {
-                          final sys = insight['reference_systolic'] as int?;
-                          final dia = insight['reference_diastolic'] as int?;
-                          final have = sys != null && dia != null;
+                          final estSys = insight['estimated_systolic'] as int?;
+                          final estDia = insight['estimated_diastolic'] as int?;
+                          final conf = (insight['estimate_confidence'] as num?)?.toDouble();
+                          final refSys = insight['reference_systolic'] as int?;
+                          final refDia = insight['reference_diastolic'] as int?;
 
-                          return Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: TeraColors.paper,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: TeraColors.neutral300),
-                            ),
-                            child: Column(
-                              children: [
-                                Text(
-                                  have
-                                      ? 'YOUR CUFF BASELINE'
-                                      : 'NO CUFF BASELINE YET',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
-                                    color: TeraColors.neutral700,
-                                    letterSpacing: 1.2,
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                if (have) ...[
-                                  Text(
-                                    '$sys / $dia',
-                                    style: const TextStyle(
-                                      fontSize: 44,
+                          if (estSys == null || estDia == null) {
+                            final needsCalibration = refSys == null;
+                            return Container(
+                              padding: const EdgeInsets.all(TeraSpacing.md),
+                              decoration: systemFlagDecoration(),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'No estimated reading for this check',
+                                    style: TextStyle(
                                       fontWeight: FontWeight.w700,
                                       color: TeraColors.ink,
-                                      height: 1.0,
                                     ),
                                   ),
-                                  const SizedBox(height: 2),
-                                  const Text(
-                                    'mmHg · measured with your cuff',
-                                    style: TextStyle(
-                                      fontSize: TeraText.small,
-                                      color: TeraColors.neutral700,
-                                    ),
-                                  ),
-                                ] else
-                                  const Text(
-                                    'Take a reading with your upper-arm cuff and Tera will '
-                                    'show it here. A blood-pressure number only ever comes '
-                                    'from a cuff — the phone check tracks how that number is '
-                                    'changing, not what it is.',
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: TeraText.small,
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    needsCalibration
+                                        ? 'Take one reading with an upper-arm cuff to '
+                                              'calibrate. After that, Tera estimates your blood '
+                                              'pressure from the phone check alone.'
+                                        : 'This capture sits too far from your calibration for '
+                                              'an estimate Tera can stand behind. Your trend is '
+                                              'below; a fresh cuff reading restores the numbers.',
+                                    style: const TextStyle(
                                       color: TeraColors.ink,
+                                      fontSize: TeraText.small,
                                       height: 1.45,
                                     ),
                                   ),
+                                ],
+                              ),
+                            );
+                          }
+
+                          final confText = conf == null
+                              ? ''
+                              : ' · confidence ${(conf * 100).round()}%';
+
+                          return Container(
+                            padding: const EdgeInsets.all(20),
+                            // Outlined, never filled. The filled treatment belongs to a
+                            // cuff-confirmed reading and to nothing else.
+                            decoration: BoxDecoration(
+                              color: TeraColors.paper,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: TeraColors.baltic, width: 2),
+                            ),
+                            child: Column(
+                              children: [
+                                const Text(
+                                  'ESTIMATED — NOT A CUFF READING',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: TeraColors.baltic,
+                                    letterSpacing: 0.8,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  '$estSys / $estDia',
+                                  style: const TextStyle(
+                                    fontSize: 46,
+                                    fontWeight: FontWeight.w700,
+                                    color: TeraColors.ink,
+                                    height: 1.0,
+                                  ),
+                                ),
+                                const SizedBox(height: 2),
+                                const Text(
+                                  'mmHg, estimated from this check',
+                                  style: TextStyle(
+                                    fontSize: TeraText.small,
+                                    color: TeraColors.neutral700,
+                                  ),
+                                ),
+                                if (refSys != null && refDia != null) ...[
+                                  const SizedBox(height: TeraSpacing.md),
+                                  const Divider(height: 1),
+                                  const SizedBox(height: TeraSpacing.sm),
+                                  Text(
+                                    'Calibrated against your cuff reading of '
+                                    '$refSys / $refDia mmHg$confText',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      fontSize: TeraText.micro,
+                                      color: TeraColors.neutral700,
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           );

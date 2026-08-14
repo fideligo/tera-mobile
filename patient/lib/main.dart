@@ -15,6 +15,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'api/api_client.dart';
 import 'auth/auth_controller.dart';
@@ -23,17 +24,13 @@ import 'routing/app_router.dart';
 import 'routing/routes.dart';
 import 'ui/tokens.dart';
 
-/// The backend, overridable at build time so a demo can point at a laptop on the venue
-/// network without a rebuild of the Dart source:
+/// The backend URL, read from `.env` at runtime.
 ///
-///     flutter run --dart-define=TERA_API_URL=http://192.168.1.10:8000
-const String apiBaseUrl = String.fromEnvironment(
-  'TERA_API_URL',
-  defaultValue:
-      'http://10.0.2.2:8000', // the host machine, as seen from an Android emulator
-);
+/// The key must be present — there is no fallback so the URL never leaks into source.
+String get apiBaseUrl => dotenv.env['TERA_API_URL']!;
 
-void main() {
+Future<void> main() async {
+  await dotenv.load(fileName: '.env');
   runApp(const TeraPatientApp());
 }
 
