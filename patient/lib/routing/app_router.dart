@@ -359,11 +359,23 @@ class TeraRouter {
         (_) =>
             CaptureRouteScreen(flow: flow, session: session, payload: payload),
       ),
+      // **`payload:` is not optional here, and leaving it off cost every check its capture.**
+      //
+      // SIG-01 sits on the happy path: an accepted capture routes here and then on to processing.
+      // This call omitted the payload, so `ProcessingScreen` was built with `const CheckPayload()`
+      // — no signal, no `capturedAt`, no `checkSessionId`, no consent answer. Its `signal == null`
+      // branch is the BP-only path, which submits nothing, so a completed sixty-second recording
+      // was discarded two screens after the patient was told "Session accepted". Nothing failed
+      // loudly: the check simply arrived at the insight with no capture behind it, which is what
+      // "no estimated reading" and the empty trend have been reporting.
       Routes.checkSignalAccepted => _page(
         settings,
         (context) => SignalAcceptedScreen(
-          onNext: () =>
-              TeraFlow.advance(context, CheckFlow.afterSignalAccepted(session)),
+          onNext: () => TeraFlow.advance(
+            context,
+            CheckFlow.afterSignalAccepted(session),
+            payload: payload,
+          ),
         ),
       ),
       Routes.checkSignalAdjust => _page(

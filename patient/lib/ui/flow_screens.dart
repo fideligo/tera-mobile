@@ -401,7 +401,12 @@ class _CurrentContextScreenState extends State<CurrentContextScreen> {
     if (!mounted) return;
     TeraFlow.advance(
       context,
-      CheckFlow.afterContext(widget.session),
+      // Only a first run is shown the cuff intro. Everything else goes straight to the
+      // walkthrough — calibration is a one-time step, not a per-check one.
+      CheckFlow.afterContext(
+        widget.session,
+        needsCalibration: widget.payload.firstTimeCalibration,
+      ),
       payload: widget.payload.copyWith(context: collected),
     );
   }
@@ -709,6 +714,18 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
   SignalResult? _awaitingCuffFor;
   DateTime? _awaitingCuffAt;
 
+  /// The session as this screen now holds it, including attempts made without leaving it.
+  ///
+  /// A retry after a local rejection remounts [CaptureScreen] in place rather than navigating to
+  /// SIG-02 and back, so the incremented attempt count has to live here or every retry would look
+  /// like the first one and the three-attempt cap would never be reached.
+  CheckSession? _session;
+  CheckSession get _current => _session ?? widget.session;
+
+  /// Forces [CaptureScreen] to remount on a retry. It starts its countdown from `initState`, so a
+  /// new key is what "resets the capture screen" actually means.
+  Key _captureKey = UniqueKey();
+
   void _advanceWith(
     BuildContext context,
     SignalResult result,
@@ -718,7 +735,7 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
   }) {
     TeraFlow.advance(
       context,
-      CheckFlow.afterSensorCapture(widget.session, SignalQuality.accepted),
+      CheckFlow.afterSensorCapture(_current, SignalQuality.accepted),
       payload: widget.payload.copyWith(
         signal: result,
         capturedAt: capturedAt,
@@ -726,6 +743,89 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
         calibrationDiastolic: diastolic,
       ),
     );
+  }
+
+  /// What the patient is told when the capture did not carry a measurement.
+  ///
+  /// Every reason names something about the *recording*, never about the patient's health — a
+  /// refused capture says the phone could not read the signal, and must not read as a finding.
+  static String _rejectionDetail(SignalRejection? reason) => switch (reason) {
+    SignalRejection.excessiveMotion =>
+      'Terlalu banyak gerakan selama perekaman.',
+    SignalRejection.insufficientBeats =>
+      'Denyut yang terbaca belum cukup untuk satu pengukuran.',
+    SignalRejection.signalProcessingUnavailable =>
+      'Analisis sinyal tidak dapat diselesaikan pada perekaman ini.',
+    _ => 'Sinyal dari kamera dan sensor gerak belum cukup jelas.',
+  };
+
+  /// The local quality gate's dialog. Returns true when the patient wants another attempt.
+  ///
+  /// Not dismissible: the capture is over and the only two ways forward are another attempt or
+  /// leaving, so a stray tap must not drop the patient onto a dead screen.
+  Future<bool> _showRetryDialog(SignalResult result) async {
+    final again = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(TeraRadius.card),
+        ),
+        backgroundColor: TeraColors.paper,
+        title: const Text(
+          'Perekaman belum bisa dipakai',
+          style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
+        ),
+        content: Text(
+          'Perekaman kurang stabil atau terlalu banyak bergerak. Silakan ulangi '
+          'perekaman.\n\n${_rejectionDetail(result.rejectionReason)}',
+          style: const TextStyle(color: TeraColors.ink, height: 1.45),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Kembali'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: TeraColors.ink,
+              foregroundColor: TeraColors.paper,
+            ),
+            child: const Text('Ulangi perekaman'),
+          ),
+        ],
+      ),
+    );
+    return again ?? false;
+  }
+
+  /// A capture the local gate refused. **Nothing is submitted.**
+  ///
+  /// The attempt is counted through the state machine, which is also what decides when three
+  /// failures have been reached; past that the existing SIG-03 screen takes over rather than the
+  /// dialog repeating forever.
+  Future<void> _handleRejected(SignalResult result) async {
+    final step = CheckFlow.afterSensorCapture(
+      _current,
+      SignalQuality.retryableReject,
+    );
+
+    if (step.session.state == CheckState.failedQuality) {
+      TeraFlow.advance(context, step, payload: widget.payload);
+      return;
+    }
+
+    final again = await _showRetryDialog(result);
+    if (!mounted) return;
+    if (!again) {
+      TeraFlow.toHome(context);
+      return;
+    }
+    setState(() {
+      _session = step.session;
+      _captureKey = UniqueKey();
+    });
   }
 
   @override
@@ -756,8 +856,9 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
       );
     }
     return CaptureScreen(
+      key: _captureKey,
       onComplete: (capture) async {
-        // **A completed 60 seconds never routes back to SIG-02.**
+        // **A completed 60 seconds never leaves the patient with nothing.**
         //
         // `process()` was called unguarded here. Most of it is wrapped internally, but the rate
         // statistics and the clock-basis read at the top of it are not, so a fault there threw
@@ -767,27 +868,29 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
         try {
           result = await const TeraSignalPipeline().process(capture);
         } on Object {
-          // The chain faulted outright. The minute still happened, so the flow continues — but
-          // it continues with a session that is marked synthetic and carries no derived
-          // intervals of its own, rather than one pretending the fault did not occur.
-          result = SignalResult(
-            accepted: true,
-            pttMs: List<double>.generate(40, (i) => 240.0 + (i % 5)),
-            nBeatsTotal: 60,
-            nBeatsUsable: 40,
-            quality: const {
-              'accel_rate_hz': 50.0,
-              'camera_fps': 30.0,
-              'dropped_frame_pct': 0.0,
-              'snr_db': 25.0,
-              'motion_index': 0.1,
-            },
-            scg: const [],
-            ppg: const [],
-            synthetic: true,
+          // The chain faulted outright. The minute still happened — but it produced no
+          // measurement, and this now says so instead of inventing forty intervals and marking
+          // them synthetic on the way to the patient's clinical record.
+          result = const SignalResult(
+            accepted: false,
+            rejectionReason: SignalRejection.signalProcessingUnavailable,
+            pttMs: [],
+            nBeatsTotal: 0,
+            nBeatsUsable: 0,
+            quality: {},
+            scg: [],
+            ppg: [],
           );
         }
         if (!context.mounted) return;
+
+        // **The local gate, before anything is sent.** A refused capture never reaches
+        // `SessionSubmitter`, never establishes a calibration, and never counts as a successful
+        // sensor check — the three things below all assume a measurement exists.
+        if (!result.accepted) {
+          await _handleRejected(result);
+          return;
+        }
 
         await widget.flow.recordSuccessfulSensorCheck(DateTime.now());
         if (!context.mounted) return;

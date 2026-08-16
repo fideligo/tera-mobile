@@ -13,8 +13,10 @@ import 'package:tera_patient/auth/auth_controller.dart';
 import 'package:tera_patient/auth/token_store.dart';
 import 'package:tera_patient/routing/app_flow_state.dart';
 import 'package:tera_patient/routing/app_router.dart';
+import 'package:tera_patient/routing/check_payload.dart';
 import 'package:tera_patient/routing/check_session.dart';
 import 'package:tera_patient/routing/routes.dart';
+import 'package:tera_patient/signal/signal_pipeline.dart';
 import 'package:tera_patient/capture/eligibility_check.dart';
 import 'package:tera_patient/ui/device_check_screens.dart';
 import 'package:tera_patient/ui/flow_stub_screen.dart';
@@ -322,6 +324,84 @@ void main() {
       await _pump(tester, _flow(state), initialRoute: state.resumeRoute);
 
       expect(_specId(tester), 'ONB-03');
+    });
+  });
+
+  group('the capture survives the screens between it and submission', () {
+    testWidgets('SIG-01 hands the payload on rather than dropping it', (
+      tester,
+    ) async {
+      // **The regression this exists for.** SIG-01 sits on the happy path: an accepted capture
+      // routes here, waits two seconds, and advances to processing. That advance was made without
+      // a `payload:` argument, so the next route was built with a default `CheckPayload` — no
+      // signal, no `capturedAt`, no `checkSessionId`, no consent answer.
+      //
+      // Nothing failed loudly. `ProcessingScreen` treats a null signal as the BP-only path, which
+      // submits nothing, so every completed sixty-second recording was discarded two screens
+      // after the patient was told "Session accepted" — and the insight then had no capture to
+      // report on, which is what "no estimated reading" has been saying.
+      const captured = CheckPayload(
+        checkSessionId: 'check-session-under-test',
+        signal: SignalResult(
+          accepted: true,
+          pttMs: [240, 241, 242],
+          nBeatsTotal: 3,
+          nBeatsUsable: 3,
+          quality: {},
+        ),
+      );
+
+      CheckPayload? handedOn;
+      final router = TeraRouter(_flow(const AppFlowState()));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          onGenerateRoute: (settings) {
+            // Stop at processing rather than building it: that screen opens the network and the
+            // pending-capture store on `initState`, and what is under test is the handover.
+            if (settings.name == Routes.checkProcessing) {
+              final args = settings.arguments;
+              if (args is CheckArgs) handedOn = args.payload;
+              return MaterialPageRoute<void>(
+                settings: settings,
+                builder: (_) => const SizedBox.shrink(),
+              );
+            }
+            return router.onGenerateRoute(settings);
+          },
+          initialRoute: Routes.checkSignalAccepted,
+          onGenerateInitialRoutes: (name) => [
+            router.onGenerateRoute(
+              RouteSettings(
+                name: name,
+                arguments: CheckArgs(
+                  const CheckSession(
+                    mode: CheckMode.sensor,
+                    state: CheckState.processing,
+                  ),
+                  captured,
+                ),
+              ),
+            )!,
+          ],
+        ),
+      );
+
+      // SIG-01 advances itself after two seconds.
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+
+      expect(
+        handedOn,
+        isNotNull,
+        reason: 'SIG-01 never advanced to processing',
+      );
+      expect(handedOn!.checkSessionId, 'check-session-under-test');
+      expect(
+        handedOn!.signal?.pttMs,
+        isNotEmpty,
+        reason: 'the capture must reach the screen that submits it',
+      );
     });
   });
 }

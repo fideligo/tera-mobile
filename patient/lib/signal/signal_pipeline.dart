@@ -112,8 +112,15 @@ class SignalResult {
     required this.nBeatsTotal,
     required this.nBeatsUsable,
     required this.quality,
-    required this.scg,
-    required this.ppg,
+    // Optional, and deliberately so. These are the raw sample series, carried only for the
+    // compile-time-gated developer CSV export (`TERA_DEBUG_CAPTURE`); nothing on the clinical path
+    // reads them and invariant 2 forbids them leaving the handset. Making them *required* pushed
+    // that debug-only concern into every construction site — which silently broke
+    // `signal_pipeline_test.dart` and `flow_data_test.dart` at compile time, and those two files
+    // are the ones that assert this pipeline never fabricates an interval. The gate went missing
+    // behind a test suite that could not run.
+    this.scg = const [],
+    this.ppg = const [],
     this.rejectionReason,
     this.synthetic = false,
     this.heartRateBpm,
@@ -123,14 +130,14 @@ class SignalResult {
          'a rejected session must carry a reason',
        );
 
-  /// True when [pttMs] does not come from this capture — the demo fallback below substituted it.
+  /// True when [pttMs] does not come from this capture.
   ///
-  /// **This flag is the difference between a demo and a lie.** Invariant 9 does not forbid
-  /// synthetic data; it forbids synthetic data *presented as real*, and the backend carries a
-  /// `synthetic` boolean on every clinical table for exactly this purpose. The fallback used to
-  /// submit invented intervals with `'synthetic': false` hard-coded beside them, which put
-  /// fabricated measurements into a patient's clinical record indistinguishable from measured
-  /// ones — the one thing this file's own header says an implementation must never do.
+  /// **[TeraSignalPipeline] can no longer set this.** It marked the demo fallback that
+  /// substituted a plausible PTT array whenever the chain came up short; that fallback is gone,
+  /// and a capture the gate cannot stand behind is now rejected rather than filled in. The field
+  /// stays because the backend carries a `synthetic` boolean on every clinical table (invariant
+  /// 9) and seeded data still travels through this type, but on the capture path it is always
+  /// false: there is nothing left to substitute.
   final bool synthetic;
 
   /// Heart rate derived on this handset from the PPG (camera) signal, beats per minute.
@@ -189,8 +196,6 @@ class TeraSignalPipeline implements SignalPipeline {
       'accel_rate_hz': accelStats?.meanRateHz ?? 50.0,
       'camera_fps': frameStats?.meanRateHz ?? 30.0,
       'dropped_frame_pct': frameStats?.droppedPercent ?? 0.0,
-      'snr_db': 25.0,
-      'motion_index': 0.1,
     };
     final offset = capture.clockBasis.camera?.clockSeparationMillis;
     if (offset != null) quality['clock_offset_ms'] = offset;
@@ -198,46 +203,113 @@ class TeraSignalPipeline implements SignalPipeline {
     final scg = [for (final s in capture.accelerometer.samples) s.z];
     final ppg = [for (final f in capture.frames.samples) f.roiMean];
 
-    List<double> usable = [];
-    int nBeatsTotal = 60;
-    double? heartRateBpm;
-    double? pttMedianMs;
+    // **The clock basis is a precondition, not a correction.**
+    //
+    // PTT is the distance between a beat seen by the accelerometer and the same beat seen by the
+    // camera, so the two streams have to be on one timeline before the subtraction means
+    // anything. `sharedBasis` is true only when both were verified and agree; false means they
+    // are on different bases and every interval is offset by however long the handset has slept
+    // since boot, and null means it could not be established at all. Neither of the latter two
+    // can be repaired after the fact, and both produce confident nonsense that looks entirely
+    // normal on every other measure — which is exactly why this is checked before analysis rather
+    // than inferred from the result.
+    if (capture.clockBasis.sharedBasis != true) {
+      return SignalResult(
+        accepted: false,
+        rejectionReason: SignalRejection.clockUnstable,
+        pttMs: const [],
+        nBeatsTotal: 0,
+        nBeatsUsable: 0,
+        quality: quality,
+        scg: scg,
+        ppg: ppg,
+      );
+    }
 
+    PttAnalysis analysis;
     try {
-      final analysis = analyseCapture(
+      analysis = analyseCapture(
         scg: scg,
         fsScg: accelStats?.meanRateHz ?? 50.0,
         ppg: ppg,
         fsPpg: frameStats?.meanRateHz ?? 30.0,
       );
-      nBeatsTotal = analysis.nScgBeats;
-      // The PPG heart rate survives even when the SCG side is too slow to pair beats against,
-      // which is what makes it usable as an offline result on its own.
-      if (analysis.ppgHr.isFinite && analysis.ppgHr > 0) {
-        heartRateBpm = analysis.ppgHr;
-      }
-      if (analysis.summary.median.isFinite && analysis.summary.median > 0) {
-        pttMedianMs = analysis.summary.median;
-      }
-      usable = [
-        for (final v in analysis.pttMs)
-          if (v >= pttMinMs && v <= pttMaxMs) v,
-      ];
-    } catch (e) {
-      // Ignored for demo override
+    } on Object {
+      // A fault in the chain, not a verdict about the signal. `signalProcessingUnavailable` keeps
+      // the two distinguishable, which is the whole reason that value exists.
+      return SignalResult(
+        accepted: false,
+        rejectionReason: SignalRejection.signalProcessingUnavailable,
+        pttMs: const [],
+        nBeatsTotal: 0,
+        nBeatsUsable: 0,
+        quality: quality,
+        scg: scg,
+        ppg: ppg,
+      );
     }
 
-    // Demo fallback: when the chain cannot derive enough intervals from this capture, substitute
-    // a plausible set so the flow completes end to end for a demonstration.
+    // Derived, not asserted. `snr_db` and `motion_index` were the constants 25.0 and 0.1 — two
+    // figures that travelled into the clinical record and into the backend's own gate describing
+    // a capture nobody had looked at. Both helpers below have existed unused since the chain
+    // landed.
+    quality['snr_db'] = _snrDb(analysis);
+    quality['motion_index'] = _motionIndex(analysis);
+
+    // The PPG heart rate survives even when the SCG side is too slow to pair beats against, which
+    // is what makes it usable as an offline result on its own — and what lets the result screen
+    // show a measured figure even for a capture this gate refuses.
+    final heartRateBpm = analysis.ppgHr.isFinite && analysis.ppgHr > 0
+        ? analysis.ppgHr
+        : null;
+    final pttMedianMs =
+        analysis.summary.median.isFinite && analysis.summary.median > 0
+        ? analysis.summary.median
+        : null;
+
+    final usable = [
+      for (final v in analysis.pttMs)
+        if (v >= pttMinMs && v <= pttMaxMs) v,
+    ];
+
+    // **The gate, restored.**
     //
-    // **Kept, but no longer silent.** The substituted session is marked `synthetic`, which
-    // travels with it into the clinical record and onto the result screen. That is the whole
-    // difference between a demo and a fabricated measurement: invariant 9 permits synthetic data
-    // and forbids only synthetic data presented as real, and the backend already carries a
-    // `synthetic` boolean on every clinical table to hold exactly this.
-    final substituted = usable.length < minUsableBeats;
-    if (substituted) {
-      usable = List.generate(40, (i) => 240.0 + (i % 5));
+    // This branch used to substitute `List.generate(40, (i) => 240.0 + (i % 5))` whenever the
+    // chain could not derive enough intervals, mark the session `synthetic`, and submit it
+    // `accepted`. Invariant 9 does permit labelled synthetic data — but the substitution ran on
+    // the *clinical* path, so the backend anchored a calibration to those numbers and computed
+    // mmHg estimates from them, and this file's own header forbids exactly that: "the one thing
+    // an implementation must never do is return plausible values it did not derive."
+    //
+    // Rejecting is the correct output, not a failure of the implementation. The caller shows the
+    // retry, and nothing is submitted.
+    if (!analysis.gate.passed) {
+      return SignalResult(
+        accepted: false,
+        rejectionReason: _reasonFor(analysis.gate.failure),
+        pttMs: const [],
+        nBeatsTotal: analysis.nScgBeats,
+        nBeatsUsable: 0,
+        quality: quality,
+        scg: scg,
+        ppg: ppg,
+        heartRateBpm: heartRateBpm,
+        pttMedianMs: pttMedianMs,
+      );
+    }
+    if (usable.length < minUsableBeats) {
+      return SignalResult(
+        accepted: false,
+        rejectionReason: SignalRejection.insufficientBeats,
+        pttMs: const [],
+        nBeatsTotal: analysis.nScgBeats,
+        nBeatsUsable: 0,
+        quality: quality,
+        scg: scg,
+        ppg: ppg,
+        heartRateBpm: heartRateBpm,
+        pttMedianMs: pttMedianMs,
+      );
     }
 
     final bounded = usable.length > maxPttArrayLength
@@ -247,13 +319,12 @@ class TeraSignalPipeline implements SignalPipeline {
     return SignalResult(
       accepted: true,
       pttMs: bounded,
-      nBeatsTotal: nBeatsTotal,
+      nBeatsTotal: analysis.nScgBeats,
       nBeatsUsable: bounded.length,
       quality: quality,
       scg: scg,
       ppg: ppg,
       rejectionReason: null,
-      synthetic: substituted,
       heartRateBpm: heartRateBpm,
       pttMedianMs: pttMedianMs,
     );

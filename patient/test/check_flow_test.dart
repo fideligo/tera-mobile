@@ -110,7 +110,19 @@ void main() {
   });
 
   group('startCheck', () {
-    test('an eligible device needing a reference goes to BP_REFERENCE_FLOW', () {
+    test('an eligible device goes to PRECHECK whatever the local reference says', () {
+      // **This asserted the opposite until the one-time-calibration decision.** Section 38 routes
+      // an eligible device to BPREF whenever `needsBpReference` says so, including its seven-day
+      // refresh rule. Calibration is now a one-time step: whether this patient has ever
+      // calibrated is answered by the server's record of cuff readings in
+      // `HomeScreen._startSpotCheck`, not by this install's copy of a timestamp, which a
+      // reinstall or a second handset would get wrong in both directions.
+      //
+      // Staleness is not lost, only moved. The server withholds the estimate once the anchor
+      // passes `max_calibration_age_days` and `InsightScreen` turns that into an explicit prompt
+      // for a fresh cuff reading — the escalation invariant 1 asks for, at the point where the
+      // patient can see what it costs them. `needsBpReference` below still defines the rule and
+      // is still exercised.
       final step = CheckFlow.startCheck(
         eligibility: DeviceEligibility.eligible,
         reference: _reference(),
@@ -118,8 +130,8 @@ void main() {
       );
 
       expect(step.session.mode, CheckMode.sensor);
-      expect(step.session.state, CheckState.referenceRequired);
-      expect(step.route, Routes.checkBpReference);
+      expect(step.session.state, CheckState.precheck);
+      expect(step.route, Routes.checkPrecondition);
     });
 
     test('an eligible device with a current reference goes to PRECHECK', () {
@@ -260,6 +272,29 @@ void main() {
 
       expect(step.session.state, CheckState.bpInput);
       expect(step.route, Routes.checkBpInput);
+    });
+
+    test('a first run is sent to the cuff intro first', () {
+      final step = CheckFlow.afterContext(
+        const CheckSession(mode: CheckMode.sensor, state: CheckState.context),
+        needsCalibration: true,
+      );
+
+      expect(step.route, Routes.checkCalibrationIntro);
+    });
+
+    test('calibration is asked for once, not before every check', () {
+      // The regression this exists for: `afterContext` returned the cuff intro unconditionally,
+      // so "Please put on your tensimeter" stood between a calibrated patient and every single
+      // check they took. Portability is the product's whole claim; requiring the cuff each time
+      // is that claim inverted.
+      final calibrated = CheckFlow.afterContext(
+        const CheckSession(mode: CheckMode.sensor, state: CheckState.context),
+        needsCalibration: false,
+      );
+
+      expect(calibrated.route, isNot(Routes.checkCalibrationIntro));
+      expect(calibrated.route, Routes.checkWalkthrough1);
     });
   });
 

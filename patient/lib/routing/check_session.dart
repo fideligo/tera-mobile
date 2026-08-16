@@ -182,6 +182,17 @@ abstract final class CheckFlow {
   ///
   /// A not-eligible device goes straight to the pre-check: it has no sensor trend to reference
   /// against, so asking it for a BP reference would be asking for a number nothing consumes.
+  ///
+  /// **[reference] is accepted and deliberately not consulted.** Section 38 routes an eligible
+  /// device to BPREF whenever [needsBpReference] says so, which includes the seven-day refresh
+  /// rule. That rule was overtaken by a product decision: calibration is a one-time step, and
+  /// whether this patient has ever calibrated is answered by the server's record of cuff readings
+  /// rather than by this install's copy of a timestamp. Staleness is still enforced — the server
+  /// withholds the estimate past `max_calibration_age_days` and the insight screen asks for a
+  /// fresh cuff reading there, where the patient is looking at the consequence, instead of
+  /// blocking the top of every check. The parameters stay on the signature because
+  /// [needsBpReference] is still the definition of the rule and Profile's explicit refresh still
+  /// routes through [Routes.checkBpReference].
   static CheckStep startCheck({
     required DeviceEligibility eligibility,
     required BpReferenceStatus reference,
@@ -239,11 +250,35 @@ abstract final class CheckFlow {
   );
 
   /// Section 38's `afterContext`. This is where the two product loops diverge.
-  static CheckStep afterContext(CheckSession session) {
+  ///
+  /// **Calibration is a one-time step, and [needsCalibration] is what makes it one.**
+  ///
+  /// This returned [Routes.checkCalibrationIntro] for *every* sensor check. That screen reads
+  /// "Please put on your tensimeter / blood pressure cuff", so a patient who calibrated weeks ago
+  /// was told to fetch a cuff before every single check — the value proposition is portability,
+  /// and asking for the cuff each time is precisely the product promise inverted.
+  ///
+  /// The flag is decided from the server's own record of cuff readings, in
+  /// `HomeScreen._startSpotCheck`, and travels in [CheckPayload.firstTimeCalibration]. It is not
+  /// read from local state: a reinstall would otherwise walk a calibrated patient back through
+  /// first-run calibration.
+  ///
+  /// A calibration that has since gone *stale* is not handled here and deliberately so. The
+  /// server withholds the estimate once the anchor passes `max_calibration_age_days`
+  /// (`services/pressure_estimate.py`), and the insight screen turns that withholding into an
+  /// explicit prompt for a fresh cuff reading. Escalating there rather than with a blocking
+  /// screen at the top of every check keeps invariant 1's "recalibration is prompted" without
+  /// reinstating the loop.
+  static CheckStep afterContext(
+    CheckSession session, {
+    bool needsCalibration = false,
+  }) {
     if (session.mode == CheckMode.sensor) {
       return CheckStep(
         session.copyWith(state: CheckState.walkthrough),
-        Routes.checkCalibrationIntro,
+        needsCalibration
+            ? Routes.checkCalibrationIntro
+            : Routes.walkthroughSteps.first,
       );
     }
     return CheckStep(
