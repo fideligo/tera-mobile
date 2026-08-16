@@ -1883,3 +1883,75 @@ before this pass either. `flutter analyze` is clean on all changed files bar the
 `deprecated_member_use` (`withOpacity`) already present in `insight_screen.dart`, and the intended
 unused-parameter warnings on `_FingerLockController`'s named tunables. Full suite unchanged at 244
 passing / 20 failing, same pre-existing set.
+
+## One-time calibration, a local quality gate, and metrics that survive a failure
+
+Three flow fixes, and one root cause underneath two of them.
+
+**The root cause: SIG-01 dropped the payload.** `app_router.dart` built `SignalAcceptedScreen`
+with `TeraFlow.advance(context, CheckFlow.afterSignalAccepted(session))` and no `payload:`
+argument, so the next route was constructed with a default `CheckPayload` — no signal, no
+`capturedAt`, no `checkSessionId`, no consent answer. SIG-01 is on the happy path: every accepted
+capture routes through it. `ProcessingScreen` treats a null signal as the BP-only path, which
+submits nothing, so **every completed sixty-second recording was discarded two screens after the
+patient was told "Session accepted."** Nothing failed loudly. The insight then had no capture
+behind it, which is what "no estimated reading" and the empty trend have been reporting, and the
+first-run calibration was never established either — `_establishCalibration` runs inside the
+submit branch that was no longer reached. `app_router_test.dart` now asserts the handover and
+fails without the fix.
+
+**Task 1 — calibration is asked for once.** `CheckFlow.afterContext` returned
+`Routes.checkCalibrationIntro` for *every* sensor check, and that screen reads "Please put on your
+tensimeter / blood pressure cuff." A patient who calibrated weeks ago was told to fetch a cuff
+before every check — the product's claim is portability, and this was that claim inverted. It now
+takes `needsCalibration`, fed from `CheckPayload.firstTimeCalibration`, which is decided from the
+server's own record of cuff readings rather than from local state.
+
+*Staleness moved rather than disappeared.* `CheckFlow.startCheck` still accepts `reference` and
+still does not consult `needsBpReference`; re-wiring it would add a cuff prompt at the top of
+checks, which is what this task removes. The escalation invariant 1 asks for now happens where it
+is actionable: the server withholds the estimate past `max_calibration_age_days`, and the insight
+screen turns that withholding into a named reason and a "Take a cuff reading" button. The
+`startCheck` test that asserted the old BPREF routing was updated, with the reasoning in the test.
+
+**Task 2 — the local gate, restored.** `TeraSignalPipeline.process` returned `accepted: true`
+unconditionally. When the real chain could not derive `minUsableBeats` intervals it substituted
+`List.generate(40, (i) => 240.0 + (i % 5))` and marked the session `synthetic`. Invariant 9 does
+permit labelled synthetic data — but this ran on the *clinical* path, so the backend anchored
+calibrations to those numbers and computed mmHg estimates from them, which is exactly what
+`signal_pipeline.dart`'s own header forbids. `GateResult` was computed by `analyseCapture` and
+discarded; `_reasonFor`, `_snrDb` and `_motionIndex` had been dead code since the chain landed,
+and `snr_db`/`motion_index` were shipped as the constants 25.0 and 0.1. The gate now runs, the
+clock basis is a precondition again, and the quality figures are derived. A refused capture makes
+no API call: `CaptureRouteScreen` shows the dialog, counts the attempt through the state machine,
+and hands over to the existing SIG-03 screen at three.
+
+**Why the gate was invisible.** `signal_pipeline_test.dart` — thirteen tests whose entire subject
+is that this pipeline never fabricates an interval — had not run in some time. `SignalResult`
+gained `required` `scg` and `ppg` for the debug CSV export, which broke that file and
+`flow_data_test.dart` at compile time; a file that does not compile reports as one failure in a
+suite that already had thirty. Both are now optional, since nothing on the clinical path reads
+them. The thirteen tests pass unmodified, including "a clean seated capture is accepted" — the
+gate refuses bad signal without refusing good signal.
+
+**Task 3 — the measured figures come first.** Heart rate is derived on the handset and depends on
+nothing downstream of the capture, so it renders before the server is consulted and survives every
+failure of it. The estimate block moved above the AI paragraph, which had put the two numbers a
+patient came for under a scroll and under an optional third-party paragraph. The `hero` fallback
+string was the literal text "No result"; there is no state in which that is true, so a missing
+trend now removes the trend block rather than announcing that nothing happened.
+
+*Where the estimate is null, no number is shown.* This was raised with the product owner as a
+conflict with the task text, which asked for SYS/DIA to be visible unconditionally, and decided in
+favour of the invariant: the card names the reason — including the calibration's age in days — and
+offers the cuff reading that restores the numbers. Consent branching was already correct and is
+now covered: declining makes no request carrying `ai_consent=true`, and neither answer can displace
+the core figures. `insight_screen_test.dart` is new, nine tests, and is the first widget coverage
+this screen has had.
+
+**Not fixed, and deliberately.** `quality['accel_rate_hz']` and `camera_fps` still fall back to
+50.0 and 30.0 when the rate statistics are missing — fabricated quality figures on the same path,
+but changing them risks 422s on submission and belongs with the eligibility-threshold work. The
+suite stands at 248 passing / 29 failing, up from 193 / 32; the remaining failures are the
+pre-existing set (eligibility thresholds, cuff OCR fixtures, the device-permission screen, SIG-01's
+insertion into the machine) and none of them is in code this pass touched.

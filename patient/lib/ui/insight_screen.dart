@@ -17,6 +17,7 @@ import 'package:flutter/material.dart';
 import '../api/api_client.dart';
 import '../routing/app_router.dart';
 import '../signal/signal_pipeline.dart';
+import 'cuff_reading_screen.dart';
 import 'tokens.dart';
 
 class InsightScreen extends StatefulWidget {
@@ -214,6 +215,160 @@ class _InsightScreenState extends State<InsightScreen> {
     }
   }
 
+  /// The cuff step, reached from the no-estimate card.
+  ///
+  /// Filing the reading is all this does. `CuffReadingScreen` writes it as a real `cuff_reading`
+  /// and records it in `CalibrationAnchorStore`, which `ProcessingScreen` reads on the next check
+  /// to establish the calibration against a capture — a calibration needs both, and there is no
+  /// capture to anchor to from this screen.
+  Future<void> _takeCuffReading() async {
+    final navigator = Navigator.of(context);
+    await navigator.push(
+      MaterialPageRoute<void>(
+        builder: (_) => CuffReadingScreen(
+          api: widget.api,
+          isReference: true,
+          onDone: () => navigator.pop(),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    // The estimate for *this* check cannot change — it is computed from the calibration in force
+    // when it was captured (invariant 4) — but the reference shown alongside it can, so the
+    // screen is reloaded rather than left describing a state that has moved.
+    await _load();
+  }
+
+  /// Systolic and diastolic for this check, or an honest account of why there are none.
+  ///
+  /// `estimated_systolic` / `estimated_diastolic` are computed on the server from *this capture's*
+  /// PTT against the calibration in force (`app/services/pressure_estimate.py`). They are null
+  /// whenever the model could not stand behind a number — no calibration, an anchor older than
+  /// `max_calibration_age_days`, drift outside the linear range, a result outside the
+  /// physiological clamps.
+  ///
+  /// **Null is rendered as an explanation and a way out, never as a number.** Invariant 1 permits
+  /// an estimate only where a measured PTT went through the stated model; substituting a figure so
+  /// the slot is never empty would put a pressure in front of a patient that no signal produced,
+  /// which is the one thing both this file and that model refuse to do. What the patient gets
+  /// instead is the reason and the action that fixes it — which is invariant 7's escalation, in
+  /// the place where it is actually actionable.
+  ///
+  /// The estimate is an **outlined** card; a cuff reading is a **filled** one. That is standing
+  /// constraint 1 and not decoration: the two are different kinds of claim and must not be
+  /// mistaken for each other at a glance.
+  Widget _estimateBlock(Map<String, dynamic> insight) {
+    final estSys = insight['estimated_systolic'] as int?;
+    final estDia = insight['estimated_diastolic'] as int?;
+    final conf = (insight['estimate_confidence'] as num?)?.toDouble();
+    final ageDays = insight['estimate_calibration_age_days'] as int?;
+    final refSys = insight['reference_systolic'] as int?;
+    final refDia = insight['reference_diastolic'] as int?;
+
+    if (estSys == null || estDia == null) {
+      final needsCalibration = refSys == null;
+      return Container(
+        padding: const EdgeInsets.all(TeraSpacing.md),
+        decoration: systemFlagDecoration(),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'No estimated reading for this check',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: TeraColors.ink,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              needsCalibration
+                  ? 'Take one reading with an upper-arm cuff to calibrate. After that, Tera '
+                        'estimates your blood pressure from the phone check alone.'
+                  : ageDays == null
+                  ? 'This capture sits too far from your calibration for an estimate Tera can '
+                        'stand behind. A fresh cuff reading restores the numbers.'
+                  : 'Your calibration is $ageDays days old, and this capture sits too far from '
+                        'it for an estimate Tera can stand behind. A fresh cuff reading '
+                        'restores the numbers.',
+              style: const TextStyle(
+                color: TeraColors.ink,
+                fontSize: TeraText.small,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: TeraSpacing.md),
+            OutlinedButton(
+              onPressed: _takeCuffReading,
+              child: const Text('Take a cuff reading'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final confText = conf == null
+        ? ''
+        : ' · confidence ${(conf * 100).round()}%';
+
+    return Container(
+      padding: const EdgeInsets.all(20),
+      // Outlined, never filled. The filled treatment belongs to a cuff-confirmed reading and to
+      // nothing else.
+      decoration: BoxDecoration(
+        color: TeraColors.paper,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: TeraColors.baltic, width: 2),
+      ),
+      child: Column(
+        children: [
+          const Text(
+            'ESTIMATED — NOT A CUFF READING',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: TeraColors.baltic,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            '$estSys / $estDia',
+            style: const TextStyle(
+              fontSize: 46,
+              fontWeight: FontWeight.w700,
+              color: TeraColors.ink,
+              height: 1.0,
+            ),
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'mmHg, estimated from this check',
+            style: TextStyle(
+              fontSize: TeraText.small,
+              color: TeraColors.neutral700,
+            ),
+          ),
+          if (refSys != null && refDia != null) ...[
+            const SizedBox(height: TeraSpacing.md),
+            const Divider(height: 1),
+            const SizedBox(height: TeraSpacing.sm),
+            Text(
+              'Calibrated against your cuff reading of '
+              '$refSys / $refDia mmHg$confText',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: TeraText.micro,
+                color: TeraColors.neutral700,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final insight = _insight;
@@ -243,10 +398,23 @@ class _InsightScreenState extends State<InsightScreen> {
               Expanded(
                 child: ListView(
                   children: [
+                    // **The measured figures come first and are never conditional on the server.**
+                    //
+                    // Heart rate is derived on this handset from the camera signal. It does not
+                    // depend on the network, on a calibration, or on the insight request having
+                    // succeeded, so it is rendered before any of them are consulted — a patient
+                    // who has just held still for a minute sees what was measured even when
+                    // everything downstream of the capture has failed.
+                    //
+                    // It is deliberately not in the same visual language as either a cuff reading
+                    // or an estimate: it is a rate, directly measured, and neither of those.
+                    if (local != null && !_contraindicated) ...[
+                      _HeartRateCard(bpm: local.heartRateBpm),
+                      const SizedBox(height: TeraSpacing.md),
+                    ],
+
                     // Server unreachable, not signed in, timed out, refused — every one of them
-                    // lands here, and every one of them still has the on-device result behind it.
-                    // Task 1's requirement, met with real measured values rather than invented
-                    // ones: the card below is built from what this capture actually produced.
+                    // lands here, and every one of them still has the on-device result above it.
                     if (error != null && !_contraindicated && local != null) ...[
                       _LocalResultCard(signal: local, onRetry: _load),
                     ] else if (error != null) ...[
@@ -343,50 +511,65 @@ class _InsightScreenState extends State<InsightScreen> {
                         ),
                         const SizedBox(height: TeraSpacing.md),
                       ],
+                      // The estimated reading, directly under the measured heart rate and above
+                      // everything the server *interprets*. It was below the AI paragraph, so
+                      // the two numbers a patient came for sat under a scroll and under an
+                      // optional third-party paragraph.
+                      _estimateBlock(insight),
+                      const SizedBox(height: 16),
+
                       // 23.1 Hero Result
-                      Container(
-                        padding: const EdgeInsets.all(24),
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(16),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.02),
-                              blurRadius: 10,
-                              offset: const Offset(0, 4),
+                      Builder(
+                        builder: (context) {
+                          // The backend's field is `hero` (see `_render()` in
+                          // `app/api/v1/phr.py`). This read `hero_result`, a key the response has
+                          // never had, so this line always showed its fallback text — the result
+                          // of every check, silently blank.
+                          //
+                          // The fallback itself was the string 'No result', which is what the
+                          // patient actually read. There is no state in which that is true: the
+                          // check ran and the figures above are from it. A response that arrived
+                          // without a trend means the trend is what is missing, so the block that
+                          // shows the trend is what goes, rather than the screen announcing that
+                          // nothing happened.
+                          final hero = insight['hero'] as String?;
+                          if (hero == null || hero.isEmpty) {
+                            return const SizedBox.shrink();
+                          }
+                          return Container(
+                            padding: const EdgeInsets.all(24),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: const Color(0xFFE2E8F0)),
                             ),
-                          ],
-                          border: Border.all(color: const Color(0xFFE2E8F0)),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            const Text(
-                              'BP-RELATED TREND',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF64748B),
-                                letterSpacing: 1.2,
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.center,
+                              children: [
+                                const Text(
+                                  'BP-RELATED TREND',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF64748B),
+                                    letterSpacing: 1.2,
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                Text(
+                                  hero,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF0F172A),
+                                    height: 1.2,
+                                  ),
+                                ),
+                              ],
                             ),
-                            const SizedBox(height: 12),
-                            Text(
-                              // The backend's field is `hero` (see `_render()` in
-                              // `app/api/v1/phr.py`). This read `hero_result`, a key the
-                              // response has never had, so this line always showed its
-                              // fallback text — the result of every check, silently blank.
-                              insight['hero'] as String? ?? 'No result',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 28,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF0F172A),
-                                height: 1.2,
-                              ),
-                            ),
-                          ],
-                        ),
+                          );
+                        },
                       ),
 
                       // The consent-gated AI paragraph (Task 4). `ai_commentary` is present and
@@ -457,124 +640,6 @@ class _InsightScreenState extends State<InsightScreen> {
                         ),
                       ],
 
-                      // The estimated reading, and the cuff baseline it is anchored to.
-                      //
-                      // `estimated_systolic` / `estimated_diastolic` are computed on the server
-                      // from *this capture's* PTT against the calibration in force
-                      // (`app/services/pressure_estimate.py`). They are null whenever the model
-                      // could not stand behind a number — no calibration, an anchor older than
-                      // four weeks, drift outside the linear range — and the card then explains
-                      // that instead of inventing a figure.
-                      //
-                      // The estimate is an **outlined** card; a cuff reading is a **filled** one.
-                      // That is standing constraint 1 and not decoration: the two are different
-                      // kinds of claim and must not be mistaken for each other at a glance.
-                      const SizedBox(height: 16),
-                      Builder(
-                        builder: (context) {
-                          final estSys = insight['estimated_systolic'] as int?;
-                          final estDia = insight['estimated_diastolic'] as int?;
-                          final conf = (insight['estimate_confidence'] as num?)?.toDouble();
-                          final refSys = insight['reference_systolic'] as int?;
-                          final refDia = insight['reference_diastolic'] as int?;
-
-                          if (estSys == null || estDia == null) {
-                            final needsCalibration = refSys == null;
-                            return Container(
-                              padding: const EdgeInsets.all(TeraSpacing.md),
-                              decoration: systemFlagDecoration(),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text(
-                                    'No estimated reading for this check',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      color: TeraColors.ink,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    needsCalibration
-                                        ? 'Take one reading with an upper-arm cuff to '
-                                              'calibrate. After that, Tera estimates your blood '
-                                              'pressure from the phone check alone.'
-                                        : 'This capture sits too far from your calibration for '
-                                              'an estimate Tera can stand behind. Your trend is '
-                                              'below; a fresh cuff reading restores the numbers.',
-                                    style: const TextStyle(
-                                      color: TeraColors.ink,
-                                      fontSize: TeraText.small,
-                                      height: 1.45,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }
-
-                          final confText = conf == null
-                              ? ''
-                              : ' · confidence ${(conf * 100).round()}%';
-
-                          return Container(
-                            padding: const EdgeInsets.all(20),
-                            // Outlined, never filled. The filled treatment belongs to a
-                            // cuff-confirmed reading and to nothing else.
-                            decoration: BoxDecoration(
-                              color: TeraColors.paper,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: TeraColors.baltic, width: 2),
-                            ),
-                            child: Column(
-                              children: [
-                                const Text(
-                                  'ESTIMATED — NOT A CUFF READING',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: TeraColors.baltic,
-                                    letterSpacing: 0.8,
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                Text(
-                                  '$estSys / $estDia',
-                                  style: const TextStyle(
-                                    fontSize: 46,
-                                    fontWeight: FontWeight.w700,
-                                    color: TeraColors.ink,
-                                    height: 1.0,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                const Text(
-                                  'mmHg, estimated from this check',
-                                  style: TextStyle(
-                                    fontSize: TeraText.small,
-                                    color: TeraColors.neutral700,
-                                  ),
-                                ),
-                                if (refSys != null && refDia != null) ...[
-                                  const SizedBox(height: TeraSpacing.md),
-                                  const Divider(height: 1),
-                                  const SizedBox(height: TeraSpacing.sm),
-                                  Text(
-                                    'Calibrated against your cuff reading of '
-                                    '$refSys / $refDia mmHg$confText',
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(
-                                      fontSize: TeraText.micro,
-                                      color: TeraColors.neutral700,
-                                      height: 1.4,
-                                    ),
-                                  ),
-                                ],
-                              ],
-                            ),
-                          );
-                        },
-                      ),
 
                       const SizedBox(height: 24),
                       // 23.3 What This Means. The backend has no single "what_this_means"
@@ -696,6 +761,64 @@ class _InsightScreenState extends State<InsightScreen> {
   }
 }
 
+/// Heart rate for this check, measured on this handset.
+///
+/// **Its own card, and its own visual language.** A cuff reading is a solid fill with large
+/// numerals; an estimate is an outline carrying "ESTIMATED — NOT A CUFF READING" (standing
+/// constraint 1). A heart rate is neither — it is a rate, derived directly from the camera signal
+/// rather than modelled from it — so it is rendered as neutral measured data and labelled with
+/// where it came from, which keeps all three distinguishable at a glance.
+///
+/// Shown whether or not the server was reachable, because nothing about it depends on the server.
+class _HeartRateCard extends StatelessWidget {
+  const _HeartRateCard({required this.bpm});
+
+  /// Null when the chain could not derive one. Rendered as a dash, never as a plausible number.
+  final double? bpm;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(TeraSpacing.lg),
+      decoration: BoxDecoration(
+        color: TeraColors.paper,
+        borderRadius: BorderRadius.circular(TeraRadius.card),
+        border: Border.all(color: TeraColors.neutral300),
+      ),
+      child: Column(
+        children: [
+          const Text(
+            'HEART RATE — MEASURED THIS CHECK',
+            style: TextStyle(
+              fontSize: TeraText.micro,
+              fontWeight: FontWeight.w700,
+              color: TeraColors.neutral700,
+              letterSpacing: 1.2,
+            ),
+          ),
+          const SizedBox(height: TeraSpacing.sm),
+          Text(
+            bpm == null ? '--' : bpm!.round().toString(),
+            style: const TextStyle(
+              fontSize: 46,
+              fontWeight: FontWeight.w700,
+              color: TeraColors.ink,
+              height: 1.0,
+            ),
+          ),
+          const Text(
+            'beats per minute',
+            style: TextStyle(
+              fontSize: TeraText.small,
+              color: TeraColors.neutral700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// The offline result: what this handset measured, when the server could not be asked.
 ///
 /// Everything on this card is a real figure out of the capture that just ran. There is
@@ -711,52 +834,15 @@ class _LocalResultCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hr = signal.heartRateBpm;
     final accelHz = (signal.quality['accel_rate_hz'] as num?)?.toDouble();
     final cameraFps = (signal.quality['camera_fps'] as num?)?.toDouble();
 
+    // The heart rate itself is no longer repeated here: `_HeartRateCard` renders it above this
+    // card on every path, reachable or not, so this one is now purely the explanation of what
+    // could not be produced and why.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Container(
-          padding: const EdgeInsets.all(TeraSpacing.lg),
-          decoration: BoxDecoration(
-            color: TeraColors.paper,
-            borderRadius: BorderRadius.circular(TeraRadius.card),
-            border: Border.all(color: TeraColors.neutral300),
-          ),
-          child: Column(
-            children: [
-              const Text(
-                'MEASURED ON THIS PHONE',
-                style: TextStyle(
-                  fontSize: TeraText.micro,
-                  fontWeight: FontWeight.w700,
-                  color: TeraColors.neutral700,
-                  letterSpacing: 1.2,
-                ),
-              ),
-              const SizedBox(height: TeraSpacing.md),
-              Text(
-                hr == null ? '--' : hr.round().toString(),
-                style: const TextStyle(
-                  fontSize: 56,
-                  fontWeight: FontWeight.w700,
-                  color: TeraColors.ink,
-                  height: 1.0,
-                ),
-              ),
-              const Text(
-                'beats per minute',
-                style: TextStyle(
-                  fontSize: TeraText.body,
-                  color: TeraColors.neutral700,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: TeraSpacing.md),
         Container(
           padding: const EdgeInsets.all(TeraSpacing.md),
           decoration: systemFlagDecoration(),
