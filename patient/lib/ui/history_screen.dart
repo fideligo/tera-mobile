@@ -34,9 +34,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
     try {
       final range = _timeFilter.toLowerCase();
       final response = await widget.api.getJson('/v1/history?range=$range');
-      final items = response is Map
-          ? response['entries'] as List? ?? []
-          : response as List;
+      // `getJson` returns `Map<String, dynamic>`, so the old `response is Map ? ... : response as
+      // List` had a branch the type system could already prove unreachable.
+      final items = response['entries'] as List? ?? [];
       if (!mounted) return;
       setState(() {
         _sessions = items;

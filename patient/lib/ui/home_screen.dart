@@ -16,12 +16,9 @@ import '../capture/session_context.dart';
 import '../routing/check_payload.dart';
 import '../routing/app_router.dart';
 import '../routing/routes.dart';
-import 'capture_screen.dart';
 import 'context_intake_screen.dart';
-import 'cuff_reading_screen.dart';
 import 'guest_gate_screen.dart';
 import 'symptom_triage_screen.dart';
-import 'session_result_screen.dart';
 import 'tokens.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -821,18 +818,6 @@ class _HomeScreenState extends State<HomeScreen> {
         // The blocked path pops without calling onSaved, so the answer is re-read on return
         // rather than trusted to have arrived through the callback.
         .then((_) => _loadIntake());
-  }
-
-  void _recordCuffReading(BuildContext context) {
-    final navigator = Navigator.of(context);
-    navigator.push(
-      MaterialPageRoute<void>(
-        builder: (_) => CuffReadingScreen(
-          api: auth.api,
-          onDone: () => navigator.popUntil((route) => route.isFirst),
-        ),
-      ),
-    );
   }
 
   /// Triage, then eligibility, then capture, then the terminal steps.

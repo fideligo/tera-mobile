@@ -66,6 +66,15 @@ jobs:
           flutter analyze --no-fatal-infos
           flutter test
 
+      # `.env` is gitignored, so a clean checkout has none — and `pubspec.yaml` declares it as an
+      # asset, which makes `flutter analyze` emit a *warning*. `--no-fatal-infos` does not downgrade
+      # warnings, so the job failed on a file that is absent by design. An empty one satisfies the
+      # asset declaration; the URL comes from the dart-define below, which is what a built artifact
+      # should carry anyway.
+      - name: Placeholder .env
+        working-directory: patient
+        run: touch .env
+
       - name: Analyse and test the patient app
         working-directory: patient
         run: |
@@ -91,17 +100,23 @@ jobs:
           channel: stable
           cache: true
 
+      - name: Placeholder .env
+        working-directory: patient
+        run: touch .env
+
       - name: Install dependencies
         working-directory: patient
         run: flutter pub get
 
       # Both defines matter, and one of them is a safety flag.
       #
-      #   TERA_API_URL     — without it the app falls back to 10.2.2.2, which is the host as seen
+      #   TERA_API_URL     — without it the app falls back to 10.0.2.2, which is the host as seen
       #                      from an Android emulator and is unreachable from a real handset. Set
       #                      the repository variable so an installed build can reach a server; the
       #                      build still succeeds without it, and the app then only works on an
-      #                      emulator.
+      #                      emulator. This define was inert until `main.dart` was changed to read
+      #                      it: the URL came from a gitignored `.env`, so a CI-built APK had no
+      #                      server to talk to and crashed on `dotenv.load` before the first frame.
       #   TERA_DEBUG_CAPTURE — compiles in the raw accelerometer and ROI CSV export. It is pinned
       #                      false here and is not configurable from the workflow: the flag is
       #                      compile-time precisely so an unflagged build cannot reach that code,

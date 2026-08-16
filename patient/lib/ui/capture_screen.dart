@@ -41,7 +41,6 @@ class _CaptureScreenState extends State<CaptureScreen> {
   int _countdown = 5;
   int _recordingSeconds = 60;
 
-  int _redIntensity = 0;
   int _consecutiveLockedFrames = 0;
 
   /// Consecutive below-threshold frames seen during recording, and the guard that stops several
@@ -142,7 +141,6 @@ class _CaptureScreenState extends State<CaptureScreen> {
 
   void _checkFingerLock(CameraImage image) {
     final avgLuma = _meanLuma(image);
-    _redIntensity = avgLuma.round();
 
     final detected = avgLuma > 100;
     if (detected) {

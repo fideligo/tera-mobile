@@ -11,6 +11,13 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        // Required by flutter_local_notifications, which uses java.time on minSdk 26.
+        //
+        // Without it the build fails at `:app:checkDebugAarMetadata` with "Dependency
+        // ':flutter_local_notifications' requires core library desugaring to be enabled" — a hard
+        // failure, not a warning, so the app will not start at all. Adding the plugin without this
+        // is what broke `flutter run`.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
@@ -41,5 +48,11 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // The desugaring runtime itself. flutter_local_notifications 18 requires 2.1.4 or newer; an
+    // older one fails the same metadata check with a version message instead of an absence one.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 

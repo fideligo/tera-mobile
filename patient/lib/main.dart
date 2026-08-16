@@ -24,13 +24,37 @@ import 'routing/app_router.dart';
 import 'routing/routes.dart';
 import 'ui/tokens.dart';
 
-/// The backend URL, read from `.env` at runtime.
+/// The backend URL: the dart-define first, then `.env`, then the emulator default.
 ///
-/// The key must be present — there is no fallback so the URL never leaks into source.
-String get apiBaseUrl => dotenv.env['TERA_API_URL']!;
+/// **The define was doing nothing.** Both `CLAUDE.md` files document the release build as
+/// `--dart-define=TERA_API_URL=http://<laptop-lan-ip>:8000`, and the CI workflow passes it — but
+/// this read `dotenv.env['TERA_API_URL']!` and nothing ever consulted the define, so every build
+/// took its URL from a gitignored file and the documented command had no effect at all.
+///
+/// The order is deliberate. A define is baked into the artifact and is what a released APK should
+/// use; `.env` stays ahead of the fallback so a local `flutter run` keeps working the way it does
+/// today; and the last resort is the emulator's view of the host, which is wrong on a real handset
+/// but is at least a stated wrong rather than a crash.
+const String _definedApiUrl = String.fromEnvironment('TERA_API_URL');
+
+String get apiBaseUrl {
+  if (_definedApiUrl.isNotEmpty) return _definedApiUrl;
+  final fromFile = dotenv.env['TERA_API_URL'];
+  if (fromFile != null && fromFile.isNotEmpty) return fromFile;
+  // 10.0.2.2 is the host as seen from an Android emulator, and unreachable from a real phone.
+  return 'http://10.0.2.2:8000';
+}
 
 Future<void> main() async {
-  await dotenv.load(fileName: '.env');
+  // **Not fatal.** `.env` is gitignored, so a clean checkout — CI's, or a teammate's first clone —
+  // has none, and this threw before `runApp` and killed the app on the first frame with no error
+  // a user could act on. It is a local convenience, not a requirement: the define above is what a
+  // built artifact carries.
+  try {
+    await dotenv.load(fileName: '.env');
+  } on Object {
+    // Nothing to do. `apiBaseUrl` falls through to the define or the documented default.
+  }
   runApp(const TeraPatientApp());
 }
 
