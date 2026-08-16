@@ -23,10 +23,14 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 
 import '../api/api_client.dart';
 import '../auth/auth_controller.dart';
+import '../capture/eligibility_check.dart';
 import '../capture/phr_profile.dart';
+import '../export/pdf_export_service.dart';
+import '../notifications/notification_service.dart';
 import '../routing/app_flow_state.dart';
 import '../routing/app_router.dart';
 import '../routing/check_session.dart';
@@ -42,6 +46,8 @@ class ProfileScreen extends StatefulWidget {
     this.auth,
     this.flow,
     this.profileStore,
+    this.reminderStore,
+    this.notifications,
   });
 
   final ApiClient api;
@@ -55,6 +61,10 @@ class ProfileScreen extends StatefulWidget {
   /// Injectable for tests; the real store otherwise.
   final PhrProfileStore? profileStore;
 
+  /// Injectable for tests. Both default to the real thing, which no-ops without a platform.
+  final ReminderStore? reminderStore;
+  final NotificationService? notifications;
+
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
 }
@@ -62,6 +72,18 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   late final PhrProfileStore _store =
       widget.profileStore ?? SecurePhrProfileStore();
+  late final ReminderStore _reminders =
+      widget.reminderStore ?? SecureReminderStore();
+  late final NotificationService _notifications =
+      widget.notifications ?? NotificationService();
+
+  ReminderPreference _reminder = const ReminderPreference();
+
+  /// Set when the patient asked for reminders and the platform refused the permission. Shown
+  /// instead of leaving a switch on that will never deliver anything.
+  bool _reminderBlocked = false;
+
+  bool _exporting = false;
 
   bool _loading = true;
 
@@ -94,7 +116,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
       _error = null;
     });
 
-    _local = await _store.read();
+    // Local stores, guarded. Neither is worth stranding the screen for: a Keystore read that
+    // throws or never returns would otherwise leave `_loading` true forever, which renders as a
+    // shimmer that never resolves — the exact failure this screen was built to avoid.
+    try {
+      _local = await _store.read();
+    } on Object {
+      _local = const PhrProfile();
+    }
+    try {
+      _reminder = await _reminders.read();
+    } on Object {
+      _reminder = const ReminderPreference();
+    }
 
     if (_isGuest) {
       // A guest has no account and no record. Asking the API would 401 four times and report it
@@ -166,6 +200,111 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
     if (mounted) await _load();
+  }
+
+  // -------------------------------------------------------------- reminders
+
+  /// Turn the daily reminder on or off.
+  ///
+  /// The permission is requested only when switching *on*, and the switch does not move unless the
+  /// platform actually granted it. A toggle that stays on while Android silently drops every
+  /// notification is worse than no toggle: the patient believes they are being reminded.
+  Future<void> _setReminderEnabled(bool enabled) async {
+    if (!enabled) {
+      await _notifications.cancelDaily();
+      final next = ReminderPreference(enabled: false, time: _reminder.time);
+      await _reminders.write(next);
+      if (mounted) {
+        setState(() {
+          _reminder = next;
+          _reminderBlocked = false;
+        });
+      }
+      return;
+    }
+
+    final granted = await _notifications.requestPermission();
+    if (!mounted) return;
+    if (!granted) {
+      setState(() => _reminderBlocked = true);
+      return;
+    }
+
+    final scheduled = await _notifications.scheduleDaily(_reminder.time);
+    if (!mounted) return;
+    if (!scheduled) {
+      setState(() => _reminderBlocked = true);
+      return;
+    }
+
+    final next = ReminderPreference(enabled: true, time: _reminder.time);
+    await _reminders.write(next);
+    if (mounted) {
+      setState(() {
+        _reminder = next;
+        _reminderBlocked = false;
+      });
+    }
+  }
+
+  Future<void> _pickReminderTime() async {
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay(
+        hour: _reminder.time.hour,
+        minute: _reminder.time.minute,
+      ),
+    );
+    if (picked == null || !mounted) return;
+
+    final time = ReminderTime(picked.hour, picked.minute);
+    final next = ReminderPreference(enabled: _reminder.enabled, time: time);
+    await _reminders.write(next);
+    // Rescheduled rather than left on the old time: the fixed notification id means this replaces
+    // the existing reminder instead of adding a second one.
+    if (next.enabled) await _notifications.scheduleDaily(time);
+    if (mounted) setState(() => _reminder = next);
+  }
+
+  // ----------------------------------------------------------------- export
+
+  /// Build the clinician-facing report and hand it to the system share sheet.
+  ///
+  /// The history is fetched fresh rather than reused from anything on screen: this document may be
+  /// handed to someone who will act on it, so it should be the record as it stands rather than as
+  /// it was when the tab was opened.
+  Future<void> _exportPdf() async {
+    setState(() => _exporting = true);
+    try {
+      final response = await widget.api.getJson(
+        '/v1/history?range=all&limit=500',
+      );
+      final entries = response['entries'] as List<dynamic>? ?? [];
+
+      final profile = _profile;
+      final dobText = profile?['date_of_birth'] as String?;
+
+      final data = buildReportData(
+        entries: entries,
+        generatedAt: DateTime.now(),
+        displayName: _local.displayName,
+        patientId: _me?['patient_id'] as String?,
+        dateOfBirth: dobText == null ? null : DateTime.tryParse(dobText),
+        sex: SexAtBirth.fromWire(profile?['sex_assigned_at_birth'] as String?),
+      );
+
+      final bytes = await const PdfExportService().build(data);
+      if (!mounted) return;
+      final stamp = DateTime.now().toIso8601String().split('T').first;
+      await Printing.sharePdf(bytes: bytes, filename: 'tera-record-$stamp.pdf');
+    } on Object catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not build your report. $e')));
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
   }
 
   /// Clear the session and go back to the door.
@@ -247,6 +386,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _clinicalSection(),
             const SizedBox(height: TeraSpacing.md),
             _deviceSection(),
+            const SizedBox(height: TeraSpacing.md),
+            _reminderSection(),
+            const SizedBox(height: TeraSpacing.md),
+            _exportSection(),
             const SizedBox(height: TeraSpacing.lg),
             _signOutButton(),
             const SizedBox(height: TeraSpacing.lg),
@@ -453,19 +596,43 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ? 'Not measured'
               : '${rate.toStringAsFixed(0)} Hz measured',
         ),
-        if (rate != null && rate < targetRateHz) ...[
+        if (rate != null && rate < clinicalTargetAccelRateHz) ...[
           const SizedBox(height: 6),
           Text(
-            rate < minimumRateHz
-                ? 'Below the ${minimumRateHz.toStringAsFixed(0)} Hz Tera needs. Sensor checks on '
-                      'this phone would carry more timing error than the change they measure.'
-                : 'Above the ${minimumRateHz.toStringAsFixed(0)} Hz minimum, below the '
-                      '${targetRateHz.toStringAsFixed(0)} Hz Tera works best with. More checks '
-                      'may be set aside as unusable.',
+            rate < clinicalMinimumAccelRateHz
+                ? 'Below the ${clinicalMinimumAccelRateHz.toStringAsFixed(0)} Hz Tera is '
+                      'designed around. Checks on this phone carry more timing error than the '
+                      'change they measure, and more of them will be set aside as unusable.'
+                : 'Above the ${clinicalMinimumAccelRateHz.toStringAsFixed(0)} Hz minimum, below '
+                      'the ${clinicalTargetAccelRateHz.toStringAsFixed(0)} Hz Tera works best '
+                      'with. More checks may be set aside as unusable.',
             style: const TextStyle(
               color: TeraColors.neutral700,
               fontSize: TeraText.micro,
               height: 1.4,
+            ),
+          ),
+        ],
+        // The gate's posture, stated rather than left to be inferred from "Qualified".
+        //
+        // While `openDeviceGate` is set, every handset proceeds — so the verdict above says which
+        // band this phone landed in, not that it met the clinical requirement. A tester reading
+        // "Qualified" without this line would have no way to tell the difference, and neither
+        // would anyone being shown the app.
+        if (openDeviceGate) ...[
+          const SizedBox(height: TeraSpacing.sm),
+          Container(
+            padding: const EdgeInsets.all(TeraSpacing.sm),
+            decoration: systemFlagDecoration(),
+            child: const Text(
+              'Field-testing build: the hardware requirement is not enforced, so checks run on '
+              'any phone while the real baseline is measured. Readings from a handset below the '
+              'requirement are less reliable, and more of them will be set aside.',
+              style: TextStyle(
+                color: TeraColors.ink,
+                fontSize: TeraText.micro,
+                height: 1.4,
+              ),
             ),
           ),
         ],
@@ -547,6 +714,97 @@ class _ProfileScreenState extends State<ProfileScreen> {
     };
   }
 
+  Widget _reminderSection() => _Card(
+    title: 'Daily reminder',
+    children: [
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        value: _reminder.enabled,
+        onChanged: _isGuest ? null : _setReminderEnabled,
+        title: const Text(
+          'Remind me to take a check',
+          style: TextStyle(color: TeraColors.ink, fontSize: TeraText.small),
+        ),
+        subtitle: Text(
+          _reminder.enabled ? 'Every day at ${_reminder.time.label}' : 'Off',
+          style: const TextStyle(
+            color: TeraColors.neutral700,
+            fontSize: TeraText.micro,
+          ),
+        ),
+      ),
+      if (_reminder.enabled)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: _pickReminderTime,
+            child: const Text('Change the time'),
+          ),
+        ),
+      if (_reminderBlocked) ...[
+        const SizedBox(height: TeraSpacing.sm),
+        Container(
+          padding: const EdgeInsets.all(TeraSpacing.sm),
+          decoration: systemFlagDecoration(),
+          child: const Text(
+            'Notifications are turned off for Tera on this phone, so the reminder cannot be set. '
+            'Turn them on in Settings and try again.',
+            style: TextStyle(
+              color: TeraColors.ink,
+              fontSize: TeraText.micro,
+              height: 1.4,
+            ),
+          ),
+        ),
+      ],
+      const SizedBox(height: TeraSpacing.sm),
+      const Text(
+        'The reminder is scheduled on this phone. It is never sent through a notification service, '
+        'and it never contains a reading.',
+        style: TextStyle(
+          color: TeraColors.neutral700,
+          fontSize: TeraText.micro,
+          height: 1.4,
+        ),
+      ),
+    ],
+  );
+
+  Widget _exportSection() => _Card(
+    title: 'Medical report',
+    children: [
+      const Text(
+        'A record of your cuff readings and phone checks, to save or send to a clinician. Built on '
+        'this phone from your own history.',
+        style: TextStyle(
+          color: TeraColors.ink,
+          fontSize: TeraText.small,
+          height: 1.45,
+        ),
+      ),
+      const SizedBox(height: TeraSpacing.md),
+      FilledButton.icon(
+        onPressed: _isGuest || _exporting ? null : _exportPdf,
+        icon: const Icon(Icons.picture_as_pdf_outlined, size: 20),
+        label: Text(
+          _exporting ? 'Building...' : 'Export Medical Report (PDF)',
+          style: const TextStyle(
+            fontSize: TeraText.body,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        style: FilledButton.styleFrom(
+          backgroundColor: TeraColors.brand,
+          foregroundColor: TeraColors.paper,
+          padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(TeraRadius.button),
+          ),
+        ),
+      ),
+    ],
+  );
+
   Widget _signOutButton() => OutlinedButton(
     onPressed: _logOut,
     style: OutlinedButton.styleFrom(
@@ -563,13 +821,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ),
   );
 }
-
-/// The eligibility thresholds, mirrored for wording only.
-///
-/// `eligibility_check.dart` owns the rule and the gate; these are here so the copy can name the
-/// same figures without this screen importing the prober.
-const double minimumRateHz = 200.0;
-const double targetRateHz = 500.0;
 
 /// One request's outcome, kept whole so a 404 can be told from a failure.
 class _Fetched {

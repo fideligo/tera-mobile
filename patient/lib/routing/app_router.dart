@@ -16,6 +16,7 @@ import '../ui/device_check_screens.dart';
 import '../ui/flow_screens.dart';
 import '../ui/history_screen.dart';
 import '../ui/flow_stub_screen.dart';
+import '../capture/eligibility_check.dart';
 import '../capture/phr_profile.dart';
 import '../ui/home_screen.dart';
 import '../ui/insight_screen.dart';
@@ -161,8 +162,23 @@ class TeraFlow extends ChangeNotifier {
   /// An unchecked device is treated as not eligible: the BP-only path works everywhere and blocks
   /// nobody, whereas assuming eligibility would walk a patient into a capture their phone cannot
   /// perform.
+  /// Section 38's `startCheck`.
+  ///
+  /// **The verdict is read, not assumed.** This passed `DeviceEligibility.eligible` unconditionally
+  /// — a demo shortcut that made the device probe decorative for mode selection, whatever it had
+  /// measured. It is gone; with `openDeviceGate` set the probe already returns a proceeding verdict
+  /// for every handset, so nothing needs a hardcode to get through, and when the gate is closed
+  /// again this reads the real answer instead of having to be found and removed.
+  ///
+  /// An unchecked handset falls back to whatever the gate's current posture implies: eligible while
+  /// the gate is open, and not-eligible when it is closed — the conservative reading, since
+  /// assuming eligibility would walk a patient into a capture their phone cannot perform.
   CheckStep startCheck({DateTime? now}) => CheckFlow.startCheck(
-    eligibility: DeviceEligibility.eligible, // HARDCODED FOR DEMO
+    eligibility:
+        _state.deviceEligibility ??
+        (openDeviceGate
+            ? DeviceEligibility.eligible
+            : DeviceEligibility.notEligible),
     reference: _state.reference,
     now: now ?? DateTime.now(),
   );

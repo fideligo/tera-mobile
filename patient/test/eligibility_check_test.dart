@@ -122,30 +122,82 @@ void main() {
     expect(result.detail, contains('500'));
   });
 
-  test('below the minimum is refused, with the reason', () async {
-    final result = await _checker(_FakePlatform(rateHz: 100.0)).check();
+  group('the clinical rule, whatever posture the build is in', () {
+    // `openDeviceGate` is a compile-time constant, so the enforced band cannot be flipped inside a
+    // test. The rule is therefore exercised against the clinical band directly — it has to stay
+    // true and stay tested while the gate is open, because it is what the gate goes back to.
+    test('below the clinical floor is not qualified', () {
+      expect(
+        gradeAccelRate(100.0, minimumHz: clinicalMinimumAccelRateHz),
+        EligibilityVerdict.notQualified,
+      );
+    });
 
-    expect(result.verdict, EligibilityVerdict.notQualified);
-    expect(result.canProceed, isFalse);
-    expect(result.detail, contains('larger than the change being measured'));
+    test('the clinical boundary is inclusive at both ends', () {
+      expect(
+        gradeAccelRate(
+          clinicalMinimumAccelRateHz,
+          minimumHz: clinicalMinimumAccelRateHz,
+        ),
+        EligibilityVerdict.provisional,
+      );
+      expect(
+        gradeAccelRate(
+          clinicalMinimumAccelRateHz - 0.1,
+          minimumHz: clinicalMinimumAccelRateHz,
+        ),
+        EligibilityVerdict.notQualified,
+      );
+      expect(
+        gradeAccelRate(
+          clinicalTargetAccelRateHz,
+          minimumHz: clinicalMinimumAccelRateHz,
+        ),
+        EligibilityVerdict.qualified,
+      );
+    });
+
+    test('the clinical thresholds are the proposal figures, unmoved', () {
+      // Page 7: minimum 200 Hz, target 500 Hz. The enforced band is allowed to differ; these are
+      // not, and a change here is a change to what the method claims about itself.
+      expect(clinicalMinimumAccelRateHz, 200.0);
+      expect(clinicalTargetAccelRateHz, 500.0);
+    });
   });
 
-  test('the boundary is inclusive at both ends', () async {
-    expect(
-      (await _checker(_FakePlatform(rateHz: 200.0)).check()).verdict,
-      EligibilityVerdict.provisional,
-    );
-    expect(
-      (await _checker(_FakePlatform(rateHz: 199.0)).check()).verdict,
-      EligibilityVerdict.notQualified,
-    );
-  });
+  group('the gate is open for field testing', () {
+    test('a handset below the clinical floor proceeds, and is told why', () async {
+      // The point of the posture: a phone that would have been refused now produces data. It is
+      // not called qualified, and the caveat names the figure a tester needs.
+      final result = await _checker(_FakePlatform(rateHz: 100.0)).check();
 
-  test('no torch is refused regardless of sensor rate', () async {
-    final result = await _checker(_FakePlatform(rateHz: 1000.0, hasFlash: false)).check();
+      expect(result.verdict, EligibilityVerdict.provisional);
+      expect(result.canProceed, isTrue);
+      expect(result.achievedRateHz, 100.0);
+      expect(result.detail, contains('100'));
+      expect(result.detail, contains('200'));
+      expect(result.detail, contains('set aside as unusable'));
+    });
 
-    expect(result.verdict, EligibilityVerdict.notQualified);
-    expect(result.detail, contains('camera light'));
+    test('no torch no longer blocks, and the rate is still measured', () async {
+      final result = await _checker(
+        _FakePlatform(rateHz: 1000.0, hasFlash: false),
+      ).check();
+
+      expect(result.canProceed, isTrue);
+      expect(result.achievedRateHz, 1000.0);
+    });
+
+    test('the enforced floor is open, and the switch is named', () {
+      // Reading the posture back, so flipping it is a visible change to this file rather than a
+      // silent one somewhere else.
+      expect(openDeviceGate, isTrue);
+      expect(minimumAccelRateHz, 0.0);
+      expect(requireTorch, isFalse);
+      // The target does not move with the posture: a phone below it is still provisional, so the
+      // verdict keeps carrying the honest figure instead of calling every handset qualified.
+      expect(targetAccelRateHz, clinicalTargetAccelRateHz);
+    });
   });
 
   test('a failed probe is "could not check", not "not suitable"', () async {
@@ -158,8 +210,5 @@ void main() {
     expect(result.headline, contains('Could not check'));
   });
 
-  test('the thresholds match the proposal', () {
-    expect(minimumAccelRateHz, 200.0);
-    expect(targetAccelRateHz, 500.0);
-  });
+
 }

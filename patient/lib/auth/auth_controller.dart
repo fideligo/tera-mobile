@@ -8,6 +8,7 @@ library;
 import 'package:flutter/foundation.dart';
 
 import '../api/api_client.dart';
+import '../notifications/notification_service.dart';
 import 'local_wipe.dart';
 import 'token_store.dart';
 
@@ -137,7 +138,13 @@ class AuthController extends ChangeNotifier {
     } finally {
       // Local removal is not conditional on the network. A revoke that never reached the server
       // still has to leave this handset clean.
-      if (wipeLocalData) await wipeLocalPatientData();
+      if (wipeLocalData) {
+        await wipeLocalPatientData(
+          // The daily reminder is scheduled with the system, not just stored. Removing the
+          // preference without cancelling it leaves it firing on the next person's lock screen.
+          cancelScheduledNotifications: NotificationService().cancelAll,
+        );
+      }
       _session = null;
       _status = AuthStatus.signedOut;
       _error = null;

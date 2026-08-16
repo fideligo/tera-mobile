@@ -2093,3 +2093,97 @@ route-table test still walks them — so re-adding a link is one line once a scr
 rather than deleted, and is the obvious next thing to remove.
 
 309 passing, 0 failing, no analyzer errors.
+
+## CI, reminders, the clinical export, and opening the hardware gate
+
+**The hardware gate is open, and it is configuration rather than a deletion.** The product owner's
+reasoning holds: enforcing the 200 Hz floor refuses a handset *before* it produces any data, so the
+one thing the gate guarantees is that nothing is learned about the handsets being refused, and
+there are no field measurements yet to set a real baseline from.
+
+What it is *not* is a decision that low-rate handsets produce trustworthy readings. `openDeviceGate`
+lowers the enforced minimum to 0 and drops the torch requirement; `clinicalMinimumAccelRateHz` and
+`clinicalTargetAccelRateHz` do not move, `gradeAccelRate` takes them as parameters so the closed-gate
+rule stays exercised in the shipped build, and the target stays at 500 so a low handset still reads
+`provisional` with the measured figure rather than being called qualified. Closing it again is
+`--dart-define=TERA_OPEN_DEVICE_GATE=false`.
+
+It is a define rather than a deleted branch for a specific reason: this gate has been lost once
+already. Commit 0200c30 replaced `EligibilityChecker.check()` with a stub returning a hardcoded
+500 Hz, and restoring it took a git archaeology pass. A threshold that is configuration can be put
+back; one that was deleted has to be rediscovered.
+
+`TeraFlow.startCheck`'s `DeviceEligibility.eligible` hardcode is gone with it — the verdict is read
+now. It was a demo shortcut that made the probe decorative for mode selection whatever it measured,
+and with the gate open nothing needs it. Profile carries a standing note that the requirement is not
+enforced, so "Qualified" cannot be mistaken for "met the clinical spec" by a tester or by anyone
+being shown the app.
+
+**What still constrains a low-rate handset, and what does not.** The local signal gate still refuses
+a capture that cannot yield 30 usable intervals, and the backend still grades device profiles
+against its own 200 Hz band and marks sessions `sensor_rate_below_qualified`. So opening the gate
+does not make bad captures into readings — it makes them into refusals. **The gap worth knowing
+about**: a locally-refused capture is not submitted at all, so the backend never learns about the
+worst handsets, which is the opposite of what field testing needs. Invariant 3 says rejected
+sessions are retained; the handset currently drops them. Submitting the *rejection record* — status,
+reason, quality figures, no PTT array — would close that and is the obvious next change.
+
+**CI.** `flutter_release.yml` tests all three packages before building, so a release asset can only
+come from a green tree; `backend_deploy.yml` runs pytest against a real Postgres service (the suite
+needs arrays, JSONB, partial indexes and triggers, so SQLite is not an option) and applies the
+migration chain from empty, which is exactly what the deployed image does on start. The deploy step
+is explicit rather than Koyeb's git auto-deploy because auto-deploy triggers on the push and would
+ship a red commit; it skips rather than fails when `KOYEB_API_TOKEN` is absent.
+
+The APK is debug-signed — `build.gradle.kts` still carries the template's TODO — and the release
+notes say so rather than leaving someone to find out.
+
+**The Dockerfile ran no migrations.** `alembic upgrade head` lived only in `docker-compose.yml` as a
+`command:` override, so any other host would have started the API against an unmigrated schema and
+found out on the first request touching a new column. It is in the image's CMD now, along with
+`${PORT:-8000}` so a platform host can place the listener.
+
+**A 500 on the most common path in the product.** `PriorityAction.PREVENTIVE_RECOMMENDATION` and
+`PERSONALIZED_INTERVENTION` had no entry in `PRIORITY_ACTION_WORDING`, and `_render` looked the map
+up with `[]`. The engine emits `preventive_recommendation` for every stable result — the ordinary
+outcome — so `GET /v1/check-sessions/{id}/insight` raised `KeyError` and answered 500 whenever a
+patient's check was unremarkable. `test_every_code_the_engine_can_emit_has_wording` had been
+failing about it the whole time. Both codes now have non-advisory wording, and the lookup uses
+`.get` with a floor so a future gap costs one sentence instead of the whole insight.
+
+**Left open, deliberately: the insight matrix.** Seven tests still fail, and they are not stale in
+the ordinary sense — they encode PM spec section 24's decision matrix, and commit 15cf384 changed
+the engine's outputs without them. One change needs a clinical decision rather than a test update:
+a `PERSISTENT_CHANGE` with a lifestyle or missed-medication context now yields
+`PERSONALIZED_INTERVENTION` where it previously yielded `CONFIRM_WITH_CUFF`. That substitutes advice
+for an escalation, and invariant 7 says an ambiguous picture asks for a cuff. A missed dose reaching
+an "intervention" branch also runs at invariant 6. Not reconciled here; the wording chosen above
+preserves the escalation in the meantime.
+
+**Reminders.** Local only — no FCM, no push token. Two reasons and the second is the stronger: a
+patient is offline between checks, and a push token is an identifier held by a third party whose
+message says the holder monitors their blood pressure. That is health data in the routing metadata,
+which no care with the notification text removes. The copy names the action and never the reason;
+`notification_service_test.dart` asserts no reading-shaped word appears in it, because this is the
+one string in the product that arrives unasked on a lock screen somebody else may be reading.
+
+Scheduled inexactly on purpose: `SCHEDULE_EXACT_ALARM` is restricted on Android 14 to alarms and
+timers a user explicitly set, and a health reminder does not qualify. `POST_NOTIFICATIONS` is in the
+manifest — Android 13 made it a runtime permission, and without it the reminder is silently dropped
+with no error and nothing scheduled. The preference is registered in `local_wipe.dart` and the wipe
+now cancels scheduled notifications too: a reminder left behind fires "Time for your Tera check" on
+the next person's lock screen, disclosing that the previous user was monitoring their blood pressure
+without disclosing anything about them.
+
+**The clinical export.** The previous one read `session['date']`, `session['subtitle']` and
+`session['title']` — three keys `HistoryEntryOut` has never carried — so every row of every report
+printed "Unknown Date - Sensor Check / No details", and it put cuff readings and phone checks under
+one heading. That heading is the problem the new document is built around: the natural shape for
+"blood pressure history" is one table with a systolic column, and filling it from both sources puts
+a modelled figure and a measured one under one label for a reader who cannot tell them apart, on a
+page that leaves the app. Two sections, different columns, a stated explanation between them.
+Refused captures appear (invariant 3), the synthetic flag survives into the page (invariant 9), and
+nothing is interpreted (invariant 6). The mapping is pure and tested.
+
+Flutter: 331 passing, 0 failing, no analyzer errors. Backend: 361 passing, 7 failing — the matrix
+question above, unchanged by this pass except for the 500 that is now fixed.

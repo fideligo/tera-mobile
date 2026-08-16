@@ -1,0 +1,158 @@
+# Patient APK — test, build, and publish to a GitHub Release.
+#
+# The gate is `flutter test`. A red suite fails the job before anything is built, so a release
+# asset can only ever come from a green tree. That is the whole point of the workflow: the suite
+# has been dark before — two files stopped compiling and reported as one failure among thirty,
+# which is how a fabrication in the signal pipeline survived for weeks — and a build that ignores
+# it would put the same class of thing in front of a patient.
+#
+# All three packages are tested, not just the app. `packages/tera_capture` is the acquisition layer
+# and `profiler/` is the device-capability harness; a change to either reaches the patient app.
+#
+# **The APK is signed with the debug keystore.** `android/app/build.gradle.kts` still carries the
+# Flutter template's `TODO: Add your own signing config for the release build`, so this artifact is
+# installable for testing and is not distributable through Play. Wiring a real keystore means adding
+# it as a secret and pointing the release buildType at it; until then the release notes below say so
+# rather than leaving someone to find out.
+
+name: Patient APK
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  # So a branch can be checked before it reaches main.
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: flutter-release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned to the toolchain this project is developed against. Floating on `stable` means an
+  # upstream release can turn a green tree red with no change of ours, which on a health app is a
+  # signal nobody should have to spend time discounting.
+  FLUTTER_VERSION: '3.35.7'
+  JAVA_VERSION: '17'
+
+jobs:
+  test:
+    name: Test all packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      # tera_capture first: the other two depend on it by path, so a break here is the real cause
+      # of whatever they would report second.
+      - name: Analyse and test tera_capture
+        working-directory: packages/tera_capture
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos
+          flutter test
+
+      - name: Analyse and test the profiler
+        working-directory: profiler
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos
+          flutter test
+
+      - name: Analyse and test the patient app
+        working-directory: patient
+        run: |
+          flutter pub get
+          flutter analyze --no-fatal-infos
+          flutter test
+
+  build:
+    name: Build release APK
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        working-directory: patient
+        run: flutter pub get
+
+      # Both defines matter, and one of them is a safety flag.
+      #
+      #   TERA_API_URL     — without it the app falls back to 10.2.2.2, which is the host as seen
+      #                      from an Android emulator and is unreachable from a real handset. Set
+      #                      the repository variable so an installed build can reach a server; the
+      #                      build still succeeds without it, and the app then only works on an
+      #                      emulator.
+      #   TERA_DEBUG_CAPTURE — compiles in the raw accelerometer and ROI CSV export. It is pinned
+      #                      false here and is not configurable from the workflow: the flag is
+      #                      compile-time precisely so an unflagged build cannot reach that code,
+      #                      and a released artifact is exactly the build that must not.
+      - name: Build APK
+        working-directory: patient
+        run: |
+          flutter build apk --release \
+            --dart-define=TERA_API_URL=${{ vars.TERA_API_URL }} \
+            --dart-define=TERA_DEBUG_CAPTURE=false
+
+      - name: Name the artifact after the commit
+        id: name
+        run: |
+          if [ "${{ startsWith(github.ref, 'refs/tags/v') }}" = "true" ]; then
+            echo "name=tera-patient-${GITHUB_REF_NAME}.apk" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=tera-patient-${GITHUB_SHA::7}.apk" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rename
+        run: |
+          mv patient/build/app/outputs/flutter-apk/app-release.apk \
+             "patient/build/app/outputs/flutter-apk/${{ steps.name.outputs.name }}"
+
+      # Every green build is downloadable, tagged or not — that is what makes a mid-week build
+      # testable on a handset without cutting a release for it.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.name.outputs.name }}
+          path: patient/build/app/outputs/flutter-apk/${{ steps.name.outputs.name }}
+          retention-days: 30
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: patient/build/app/outputs/flutter-apk/${{ steps.name.outputs.name }}
+          generate_release_notes: true
+          body: |
+            Patient APK for ${{ github.ref_name }}.
+
+            Built from ${{ github.sha }} with the full test suite green across
+            `patient/`, `profiler/` and `packages/tera_capture`.
+
+            **Signed with the debug keystore.** Installable for testing; not
+            distributable through Play until a real signing config is wired.
+
+            **Field-testing build.** The hardware eligibility gate is open
+            (`TERA_OPEN_DEVICE_GATE` defaults true), so checks run on handsets
+            below the 200 Hz the method is designed around. Readings from those
+            devices are less reliable and more captures will be refused by the
+            signal gate. Build with
+            `--dart-define=TERA_OPEN_DEVICE_GATE=false` to enforce it.

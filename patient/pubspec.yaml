@@ -31,6 +31,15 @@ dependencies:
   flutter_dotenv: ^6.0.1
   path_provider: ^2.1.5
 
+  # ADH-01: the daily check reminder. Scheduled and delivered entirely on the handset — no FCM, no
+  # push token, no server round trip — which is the only arrangement that works for a patient whose
+  # phone is offline between checks, and the only one that does not put "this person is monitoring
+  # their blood pressure" through a third-party push service.
+  flutter_local_notifications: ^18.0.1
+  # Required by the above for `zonedSchedule`: a daily reminder has to fire at a wall-clock time in
+  # the patient's own zone, and survive them crossing one.
+  timezone: ^0.9.4
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

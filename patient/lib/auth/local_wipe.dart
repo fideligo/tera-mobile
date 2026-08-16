@@ -51,6 +51,10 @@ const List<String> teraSecureKeys = [
 
   // session_context.dart — which device profile this handset registered as.
   'tera.device_profile_id.v2',
+
+  // notification_service.dart — whether the daily reminder is on, and at what time. A reminder
+  // left behind fires "Time for your Tera check" on the next person's lock screen.
+  'tera.reminder',
 ];
 
 /// Every file this app writes to the application-documents directory.
@@ -72,9 +76,15 @@ const List<String> teraLocalFiles = [
 ///
 /// It does *not* revoke the refresh token — `ApiClient.signOut` does that, and this runs whether
 /// or not that call reached the server. Local removal cannot be conditional on the network.
+///
+/// [cancelScheduledNotifications] is injected rather than imported so this file stays pure storage
+/// and a test does not need a platform channel. Removing the stored preference is not enough on its
+/// own: the reminder is scheduled with the *system*, and an unscheduled cancel leaves it firing
+/// after the record it belongs to is gone.
 Future<void> wipeLocalPatientData({
   FlutterSecureStorage? storage,
   Directory? documentsDirectory,
+  Future<void> Function()? cancelScheduledNotifications,
 }) async {
   final secure =
       storage ??
@@ -105,6 +115,14 @@ Future<void> wipeLocalPatientData({
     try {
       final file = File('${dir.path}/$name');
       if (file.existsSync()) await file.delete();
+    } on Object {
+      // Deliberately swallowed; see above.
+    }
+  }
+
+  if (cancelScheduledNotifications != null) {
+    try {
+      await cancelScheduledNotifications();
     } on Object {
       // Deliberately swallowed; see above.
     }

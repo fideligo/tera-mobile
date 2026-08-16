@@ -7,6 +7,21 @@
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!--
+        Android 13 (API 33) made notifications an opt-in runtime permission. Without this the
+        daily check reminder is silently dropped on every modern handset — no error, no dialog,
+        nothing scheduled. `NotificationService.requestPermission` asks for it; the platform
+        returns null on 12 and below, where it is granted at install.
+
+        Deliberately NOT here: SCHEDULE_EXACT_ALARM. Android 14 restricts it to alarms and timers
+        a user explicitly set, and Play reviews it on that basis; a health reminder does not
+        qualify. The reminder is scheduled inexactly instead, which costs a few minutes of drift
+        and nothing else.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <!-- Re-registers the scheduled reminder after a restart; without it a reboot silently ends it. -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+
     <application
         android:label="tera_patient"
         android:name="${applicationName}"
@@ -33,6 +48,24 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!--
+            flutter_local_notifications' receivers. The boot receiver is what makes a daily
+            reminder survive a restart: Android drops scheduled alarms on reboot, and without
+            this the reminder stops firing the first time the phone is turned off overnight.
+        -->
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver"/>
+        <receiver
+            android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
+            </intent-filter>
+        </receiver>
+
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -20,6 +20,7 @@ import 'package:tera_patient/api/api_client.dart';
 import 'package:tera_patient/auth/auth_controller.dart';
 import 'package:tera_patient/auth/token_store.dart';
 import 'package:tera_patient/capture/phr_profile.dart';
+import 'package:tera_patient/notifications/notification_service.dart';
 import 'package:tera_patient/routing/app_flow_state.dart';
 import 'package:tera_patient/routing/app_router.dart';
 import 'package:tera_patient/routing/check_session.dart';
@@ -144,7 +145,14 @@ Future<void> _pump(
 
   await tester.pumpWidget(
     MaterialApp(
-      home: ProfileScreen(api: api, flow: flow, profileStore: store),
+      home: ProfileScreen(
+        api: api,
+        flow: flow,
+        profileStore: store,
+        // In memory, so the screen does not reach for the Keystore, which has no platform channel
+        // under test.
+        reminderStore: InMemoryReminderStore(),
+      ),
     ),
   );
   if (settle) await tester.pumpAndSettle();

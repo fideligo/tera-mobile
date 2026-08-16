@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+
+import '../export/pdf_export_service.dart';
 import '../api/api_client.dart';
 import 'tokens.dart';
 
@@ -51,75 +51,29 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
   }
 
+  /// The clinician-facing report, built by the shared service.
+  ///
+  /// This method used to compose its own document from `session['date']`, `session['subtitle']`
+  /// and `session['title']` — three keys `HistoryEntryOut` has never carried — so every row of
+  /// every export read "Unknown Date - Sensor Check / No details". It also put cuff readings and
+  /// phone checks under one heading, which is the distinction standing constraint 1 exists to
+  /// protect. Both are now `PdfExportService`'s problem, and it is tested.
   Future<void> _exportPdf() async {
-    final pdf = pw.Document();
-
-    pdf.addPage(
-      pw.Page(
-        pageFormat: PdfPageFormat.a4,
-        build: (pw.Context context) {
-          return pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Header(
-                level: 0,
-                child: pw.Text(
-                  'Tera Patient Report',
-                  style: pw.TextStyle(
-                    fontSize: 24,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-              ),
-              pw.SizedBox(height: 10),
-              pw.Text(
-                'Generated: ${DateTime.now().toLocal().toString().split('.')[0]}',
-                style: const pw.TextStyle(fontSize: 12),
-              ),
-              pw.SizedBox(height: 20),
-              pw.Text(
-                '7-Day Trend History & Recent Checks',
-                style: pw.TextStyle(
-                  fontSize: 18,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.SizedBox(height: 10),
-              ..._filteredSessions.take(20).map((session) {
-                final date = session['date'] ?? 'Unknown Date';
-                final type = session['entry_type'] == 'cuff_reading'
-                    ? 'BP Cuff'
-                    : 'Sensor Check';
-                final details =
-                    session['subtitle'] ?? session['title'] ?? 'No details';
-                return pw.Container(
-                  margin: const pw.EdgeInsets.only(bottom: 8),
-                  padding: const pw.EdgeInsets.all(8),
-                  decoration: pw.BoxDecoration(
-                    border: pw.Border.all(color: PdfColors.grey300),
-                  ),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        '$date - $type',
-                        style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-                      ),
-                      pw.SizedBox(height: 4),
-                      pw.Text(details),
-                    ],
-                  ),
-                );
-              }),
-            ],
-          );
-        },
-      ),
-    );
-
-    await Printing.layoutPdf(
-      onLayout: (PdfPageFormat format) async => pdf.save(),
-    );
+    try {
+      final data = buildReportData(
+        entries: _sessions,
+        generatedAt: DateTime.now(),
+      );
+      final bytes = await const PdfExportService().build(data);
+      if (!mounted) return;
+      final stamp = DateTime.now().toIso8601String().split('T').first;
+      await Printing.sharePdf(bytes: bytes, filename: 'tera-record-$stamp.pdf');
+    } on Object catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Could not build your report. $e')));
+    }
   }
 
   List<dynamic> get _filteredSessions {
