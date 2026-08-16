@@ -21,6 +21,7 @@ import '../ui/home_screen.dart';
 import '../ui/insight_screen.dart';
 import '../ui/onboarding_screens.dart';
 import '../ui/profile_personal_screen.dart';
+import '../ui/profile_screen.dart';
 import '../ui/register_screen.dart';
 import '../ui/safety_onboarding_screen.dart';
 import '../ui/sign_in_screen.dart';
@@ -122,8 +123,19 @@ class TeraFlow extends ChangeNotifier {
     await _save(AppFlowState(deviceEligibility: _state.deviceEligibility));
   }
 
-  Future<void> recordEligibility(DeviceEligibility eligibility) =>
-      _save(_state.copyWith(deviceEligibility: eligibility));
+  /// The verdict, and the figure behind it.
+  ///
+  /// `achievedRateHz` is null when the probe could not measure one, and is stored as null rather
+  /// than as a nominal rate — Profile shows "not measured" instead of a number nobody observed.
+  Future<void> recordEligibility(
+    DeviceEligibility eligibility, {
+    double? achievedRateHz,
+  }) => _save(
+    _state.copyWith(
+      deviceEligibility: eligibility,
+      deviceAccelRateHz: achievedRateHz,
+    ),
+  );
 
   Future<void> completeOnboardingStep(OnboardingStep step) => _save(
     _state.copyWith(onboardingStep: step.next ?? OnboardingStep.complete),
@@ -421,8 +433,10 @@ class TeraRouter {
       // ------------------------------------------------------------------ profile
       Routes.profile => _page(
         settings,
-        (_) => ProfileIndexScreen(
+        (_) => ProfileScreen(
+          api: flow.api,
           auth: flow.auth,
+          flow: flow,
           profileStore: SecurePhrProfileStore(),
         ),
       ),

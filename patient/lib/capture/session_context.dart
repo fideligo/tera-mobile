@@ -49,7 +49,12 @@ class SessionContextFailure implements Exception {
 ///
 /// Not a secret, but it lives beside the tokens rather than in SharedPreferences: it is written
 /// once at registration and read on every capture, and one storage mechanism is one thing to
-/// reason about. Cleared on sign-out with the rest of the session.
+/// reason about.
+///
+/// Cleared on sign-out with the rest of the session — which this comment claimed from the day it
+/// was written and which only became true when `lib/auth/local_wipe.dart` landed. Nothing had ever
+/// cleared it. If you add a store, add its key there; `local_wipe_test.dart` reads `lib/` and
+/// fails on any it does not know about, so the claim cannot go stale again.
 abstract class DeviceProfileStore {
   Future<String?> read();
   Future<void> write(String deviceProfileId);

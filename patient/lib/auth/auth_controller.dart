@@ -8,6 +8,7 @@ library;
 import 'package:flutter/foundation.dart';
 
 import '../api/api_client.dart';
+import 'local_wipe.dart';
 import 'token_store.dart';
 
 enum AuthStatus { checking, signedOut, signedIn, guest }
@@ -119,15 +120,38 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> signOut() async {
-    await _api.signOut();
-    _session = null;
-    _status = AuthStatus.signedOut;
-    _error = null;
-    notifyListeners();
+  /// Sign out, and leave nothing behind.
+  ///
+  /// [wipeLocalPatientData] is the whole point: `_api.signOut()` clears the four token keys, and
+  /// for a long time that was all a sign-out did. The rest of the handset's copy of the patient —
+  /// their date of birth, sex, height, weight, reported conditions, pregnancy and arrhythmia
+  /// answers, medication list, device eligibility, calibration anchor and any capture left
+  /// mid-flow — survived it untouched and was there for whoever signed in next. A phone gets
+  /// shared far more often than an account does.
+  ///
+  /// It runs here rather than in the Profile screen's button so that every route out of a session
+  /// goes through it, and it runs *after* the network call so a failed revoke cannot skip it.
+  Future<void> signOut({bool wipeLocalData = true}) async {
+    try {
+      await _api.signOut();
+    } finally {
+      // Local removal is not conditional on the network. A revoke that never reached the server
+      // still has to leave this handset clean.
+      if (wipeLocalData) await wipeLocalPatientData();
+      _session = null;
+      _status = AuthStatus.signedOut;
+      _error = null;
+      notifyListeners();
+    }
   }
 
   /// Called by [ApiClient] when a refresh fails and the session cannot be recovered.
+  ///
+  /// **Deliberately does not wipe.** This is an expired or rejected token, not a patient leaving
+  /// the device: the same person is about to sign back in, and throwing away their onboarding,
+  /// device eligibility and profile over a token that lapsed overnight would make a transient
+  /// failure cost a full re-setup. The wipe belongs to [signOut], which is someone saying they
+  /// are done with this handset.
   void onSessionLost() {
     _session = null;
     _status = AuthStatus.signedOut;

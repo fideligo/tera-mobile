@@ -2025,3 +2025,71 @@ why it must never fill a missing figure in.
 282 passing, 0 failing, no analyzer errors, across all three Flutter packages. Twenty-one
 pre-existing lints remain (`withOpacity`, brace style, two unused imports); none is in code this
 pass touched.
+
+## The Profile tab, and a sign-out that was not one
+
+**Sign-out left the whole patient on the handset.** `ApiClient.signOut` clears four token keys.
+Nothing cleared the other seven stores: `tera.phr_profile` (date of birth, sex, height, weight,
+reported conditions, the name), `tera.context_intake` (pregnancy, arrhythmia, medications),
+`tera.app_flow` (device eligibility, onboarding, reference dates), `tera.device_profile_id.v2`,
+`tera_calibration_anchor.json` and `tera_pending_check.json`. The next person to sign in on the
+same phone inherited all of it. A phone is shared far more often than an account is, and clearing
+the tokens is exactly what made the leak invisible — the screens looked signed-out.
+
+`lib/auth/local_wipe.dart` is the registry and the wipe; `AuthController.signOut` calls it after
+the network half, so a revoke that never reaches the server still empties the device. It is
+deliberately **not** called from `onSessionLost`: an expired token is the same person about to sign
+back in, and throwing away their setup over a lapsed refresh would make a transient failure cost a
+full re-onboarding.
+
+The registry is checked against the source rather than against memory. `DeviceProfileStore` has
+claimed in its own docstring to be "cleared on sign-out" since the day it was written and nothing
+ever cleared it — a hand-maintained list is precisely what went stale. `local_wipe_test.dart` reads
+every file under `lib/` and fails on a storage key or state file it does not know about. It earned
+itself on the first run by catching a seventh store the list had missed.
+
+**No BMI, decided rather than defaulted.** The task asked for one, auto-calculated on the handset.
+`PhrProfileOut` refuses to derive one server-side — "the spec forbids deriving one and invariant 6
+forbids the class of thing: height and weight are returned as given and never combined" — and
+computing the same figure on the client would route around that rather than honour it. Raised with
+the product owner and left out. Age *is* shown: arithmetic on a date the patient gave is not the
+same as combining two measurements into a third figure the record deliberately does not hold.
+`profile_screen_test.dart` asserts neither "BMI" nor the value 172 cm / 68 kg implies appears
+anywhere.
+
+**Three requests, settled independently.** `Future.wait` surfaces the first rejection and discards
+the rest, which is the one behaviour this screen must not have. Each of `/v1/auth/me`,
+`/v1/profile` and `/v1/bp-reference/status` lands on its own, and only the account read is reported
+as a failure — a 404 from `/v1/profile` is the documented "no profile has been recorded yet" and
+renders an invitation to fill it in, not an error. The failure path keeps every section on screen
+with a retry above them, because a profile tab that blanks when the network blinks is
+indistinguishable from an account with nothing in it.
+
+**Editing settles types before the request exists.** `PhrProfilePatch` bounds height and weight,
+takes a `date` for the birth date, and forbids unknown fields; a text field hands you a `String`.
+Values are parsed and range-checked against the same bounds `PhrProfile` already mirrors, an input
+filter keeps non-numerics out of the box in the first place (the numeric keyboard is a hint the
+platform may ignore), and only changed fields are sent — the endpoint is a partial update, and
+posting the whole form would rewrite five rows to their own values and log five audit entries every
+time somebody fixed one typo.
+
+`isoDateOnly` is a top-level function for one reason: `toIso8601String()` produces an instant, the
+schema takes a calendar date, and the resulting 422 looks correct at a glance. It is unit-tested
+without driving a date picker, including that a local time near midnight does not shift the day.
+
+**Device and calibration.** `AppFlowState` gained `deviceAccelRateHz`, recorded by DEV-01 alongside
+its verdict, so Profile can report the measured figure rather than the verdict alone — "qualified"
+answers a different question from "how close to the floor is this phone". Null when the probe never
+ran or could not measure, and rendered as "Not measured": the same rule the capture path now
+follows. Calibration standing comes from `GET /v1/bp-reference/status`, which already computes it
+server-side and survives a reinstall, and the wording follows the spec's insistence that a
+reference needs a *refresh* and does not *expire*. The section carries a cuff button so
+recalibration is voluntary rather than only prompted.
+
+**The six dead links are gone.** Conditions, Medications, Lifestyle, Family History, BP Reference,
+Device and Privacy all resolved to `FlowStubScreen` placeholders. The routes stay registered — the
+route-table test still walks them — so re-adding a link is one line once a screen exists.
+`ProfilePersonalScreen` is now unlinked and duplicated by the edit sheet; it is left in place
+rather than deleted, and is the obvious next thing to remove.
+
+309 passing, 0 failing, no analyzer errors.

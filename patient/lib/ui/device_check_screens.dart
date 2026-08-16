@@ -224,7 +224,10 @@ class _DeviceCheckingScreenState extends State<DeviceCheckingScreen>
         ? DeviceEligibility.eligible
         : DeviceEligibility.notEligible;
 
-    await widget.flow.recordEligibility(eligibility);
+    await widget.flow.recordEligibility(
+      eligibility,
+      achievedRateHz: result.achievedRateHz,
+    );
 
     // File it with the backend, and never block on it. `GET /v1/device/current` exists so a
     // reinstall does not have to re-probe, but a handset offline at this moment must still be

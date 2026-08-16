@@ -48,6 +48,7 @@ enum OnboardingStep {
 class AppFlowState {
   const AppFlowState({
     this.deviceEligibility,
+    this.deviceAccelRateHz,
     this.onboardingStep = OnboardingStep.aboutYou,
     this.reference = const BpReferenceStatus(),
   });
@@ -55,6 +56,14 @@ class AppFlowState {
   /// Null means DEV-01 has never run on this handset. Device eligibility comes **before** PHR
   /// onboarding, per section 6.
   final DeviceEligibility? deviceEligibility;
+
+  /// What the accelerometer actually delivered when DEV-01 probed it, in Hz.
+  ///
+  /// Kept so Profile can report the measured figure rather than the verdict alone — "qualified"
+  /// answers a different question from "how close to the floor is this phone", and a handset
+  /// sitting just above 200 Hz is worth a patient knowing about. Null when the probe has not run,
+  /// or ran and could not measure; it is never filled in with a nominal rate.
+  final double? deviceAccelRateHz;
 
   final OnboardingStep onboardingStep;
   final BpReferenceStatus reference;
@@ -72,16 +81,19 @@ class AppFlowState {
 
   AppFlowState copyWith({
     DeviceEligibility? deviceEligibility,
+    double? deviceAccelRateHz,
     OnboardingStep? onboardingStep,
     BpReferenceStatus? reference,
   }) => AppFlowState(
     deviceEligibility: deviceEligibility ?? this.deviceEligibility,
+    deviceAccelRateHz: deviceAccelRateHz ?? this.deviceAccelRateHz,
     onboardingStep: onboardingStep ?? this.onboardingStep,
     reference: reference ?? this.reference,
   );
 
   Map<String, dynamic> toJson() => {
     'device_eligibility': deviceEligibility?.name,
+    'device_accel_rate_hz': deviceAccelRateHz,
     'onboarding_step': onboardingStep.wireValue,
     'bp_reference_taken_at': reference.currentReferenceTakenAt
         ?.toUtc()
@@ -100,6 +112,7 @@ class AppFlowState {
 
     final eligibility = json['device_eligibility'] as String?;
     return AppFlowState(
+      deviceAccelRateHz: (json['device_accel_rate_hz'] as num?)?.toDouble(),
       deviceEligibility: eligibility == null
           ? null
           : DeviceEligibility.values.firstWhere(
