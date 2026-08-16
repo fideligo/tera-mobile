@@ -1955,3 +1955,73 @@ but changing them risks 422s on submission and belongs with the eligibility-thre
 suite stands at 248 passing / 29 failing, up from 193 / 32; the remaining failures are the
 pre-existing set (eligibility thresholds, cuff OCR fixtures, the device-permission screen, SIG-01's
 insertion into the machine) and none of them is in code this pass touched.
+
+## Getting the suite to zero, and what it turned out to be hiding
+
+The twenty-nine failures were not stale tests. Most of them were tests still asserting a property
+that code had quietly stopped honouring, and three of those properties were safety ones. Where a
+test really had been overtaken by a redesign it was updated; where the code had drifted from the
+test, the code was put back. Which of the two applied is recorded per case below, because
+"bring the tests up to date" applied uniformly would have deleted the evidence.
+
+**`EligibilityChecker.check()` had been replaced by a stub** (commit 0200c30) that returned
+`qualified` at a hardcoded 500 Hz with a fabricated `CameraCapabilities`, and never read the
+device. The proposal (p. 7) excludes handsets below 200 Hz *at onboarding* precisely so they never
+produce estimates whose error exceeds the signal; the stub admitted every handset. The real
+implementation is restored from 7cacad9 and its six tests pass unmodified. **This changes
+behaviour on hardware**: a phone that probes below 200 Hz, or has no torch, is now refused at
+onboarding, which is what `CLAUDE.md` §3 already says happens. `TeraFlow.startCheck` still hardcodes
+`DeviceEligibility.eligible`; that is a separate demo shortcut, it only selects sensor vs BP-only
+mode, and it is left alone.
+
+**The cuff confirmation screen had lost its simulated-reading disclosure.** `CameraCuffOcrExtractor`
+photographs the monitor, discards the image unread, and returns fixed constants; the redesigned
+review screen showed those constants under "Measured / Just now" with a Confirm button and nothing
+else. A patient who has just photographed their own cuff reads that as their reading. It is not,
+and confirming it files a real `cuff_reading` that becomes the anchor every later mmHg estimate is
+computed against — invariant 9, on the clinical path, at the point of maximum consequence.
+`simulatedOcrNotice` and the confidence line are restored above the buttons, gated on a new
+`_suggestion` field so they appear over scanned numbers and not over typed ones. Passing back
+through Edit without changing a digit keeps the disclosure: editing is not correcting.
+
+The mock's constants had also moved to 120/80 at 0.98 confidence in the same commit. Restored to
+152/96 at 0.88, and the tests now reference the named constants instead of copies of them — the
+textbook-normal reading is the one value a patient will confirm on sight, which is the opposite of
+what a placeholder awaiting a check should be.
+
+**`cuff_reading` stopped sending `synthetic: false`.** The backend defaults it, so nothing broke;
+but invariant 9 turns on synthetic data being labelled, and a payload that states what it is beats
+one that is only ever false because nobody set it. `SessionSubmitter` already sent it.
+
+**Genuinely stale, and updated:** SIG-01 was inserted between capture and processing and DEV-00
+before the device probe — both are in section 32's route table, so the state machine is right and
+the tests predated them. PRE-01 no longer defaults to the ideal state (a defaulted answer is an
+answer nobody gave, and PRE-01 feeds the comparability rows), so the router test answers its five
+questions. WALK-01..04 became four pages of one screen rather than four routes. The router tests
+identified screens by a spec id in the app bar; screens that graduated from stubs were given titles
+a patient can read, so those assertions now find screens by widget type and the ids are left to the
+stubs that still show them. `flow_data_test`'s BP-only case asserted that *no* request was made,
+which stopped being true when `ProcessingScreen` learned to reopen a check session it was not
+handed — a BP-only check legitimately has one. It now asserts what it meant: no measurement is
+submitted.
+
+**Task 3 — the rate fallbacks are gone rather than documented.** `accel_rate_hz` and `camera_fps`
+fell back to 50.0 and 30.0 when `rateStatistics` returned null. That happens for exactly two
+reasons, and `RateStatistics.fromTimestamps` says of the second — non-monotonic timestamps — that
+"dropping the sample is wrong (it hides the fault) so the whole run is refused instead". The
+fallback did what that comment warns against, and the invented rate then fed the server's own
+`sensor_rate_below_qualified` gate as an observed figure. 50 Hz is also a quarter of the floor, so
+the substitute described an unusable handset. An unmeasurable rate is now a rejected capture.
+
+What replaces the defaults is a stated contract rather than a comment: every accepted result
+carries all five figures `QualityMetrics` requires, inside their bounds, and nothing the schema
+would refuse — asserted in `signal_pipeline_test.dart`, so a 422 on submission is a test failure
+here rather than an incident on a handset. `_snrDb` is clamped to the schema's range, which it
+could previously exceed on an unusually tight run. `SessionSubmitter` carries the note explaining
+why it must never fill a missing figure in.
+
+**Task 2** — the retry dialog is English throughout, matching the rest of the app.
+
+282 passing, 0 failing, no analyzer errors, across all three Flutter packages. Twenty-one
+pre-existing lints remain (`withOpacity`, brace style, two unused imports); none is in code this
+pass touched.

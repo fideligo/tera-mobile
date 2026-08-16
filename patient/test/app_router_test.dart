@@ -18,8 +18,12 @@ import 'package:tera_patient/routing/check_session.dart';
 import 'package:tera_patient/routing/routes.dart';
 import 'package:tera_patient/signal/signal_pipeline.dart';
 import 'package:tera_patient/capture/eligibility_check.dart';
+import 'package:tera_patient/ui/cuff_reading_screen.dart';
 import 'package:tera_patient/ui/device_check_screens.dart';
+import 'package:tera_patient/ui/flow_screens.dart';
 import 'package:tera_patient/ui/flow_stub_screen.dart';
+import 'package:tera_patient/ui/signal_quality_screens.dart';
+import 'package:tera_patient/ui/walkthrough_screen.dart';
 
 TeraFlow _flow(AppFlowState state) {
   final api = ApiClient(
@@ -59,16 +63,44 @@ Future<void> _pump(
   await tester.pumpAndSettle();
 }
 
-/// The spec id in the app bar, which is how a route is identified here.
+/// The app bar title, which is how a *stub* route is identified here.
 ///
-/// Read from the AppBar rather than from [FlowStubScreen], because screens graduate from stub to
-/// real — CTX-01 and ONB-03 already have — and the identifier should survive that.
+/// **Only for screens that are still [FlowStubScreen]s.** Real screens are asserted by type
+/// instead. The spec id used to be the app-bar title everywhere, which is what these tests read;
+/// as screens graduated from stub to real they were given titles a patient can read ("Before your
+/// check", "About this check") and the ids went with them. Identifying a real screen by its
+/// user-facing copy would make every wording change a routing failure, so the ones that have
+/// graduated are found by widget type and the ids are left to the stubs that still show them.
 String? _specId(WidgetTester tester) {
   final appBar = find.byType(AppBar);
   if (appBar.evaluate().isEmpty) return null;
   final title = find.descendant(of: appBar, matching: find.byType(Text));
   if (title.evaluate().isEmpty) return null;
   return tester.widget<Text>(title.first).data;
+}
+
+/// Answer all five PRE-01 questions.
+///
+/// The screen requires every one of them before Next enables — it no longer defaults to the ideal
+/// state, because a defaulted answer is an answer nobody gave, and PRE-01 feeds the insight's
+/// comparability rows. The five render in order (rested, activity, caffeine, nicotine, restroom)
+/// with a Yes/No pair each, so they are addressed by position.
+Future<void> _answerPrecheck(
+  WidgetTester tester, {
+  bool rested = true,
+  bool activity = false,
+  bool caffeine = false,
+  bool nicotine = false,
+  bool restroom = false,
+}) async {
+  // Each question renders exactly one 'Yes' and one 'No', so both finders are indexed by the
+  // question's position — not by how many of each have been tapped.
+  final answers = [rested, activity, caffeine, nicotine, restroom];
+  for (var i = 0; i < answers.length; i++) {
+    await tester.tap(find.text(answers[i] ? 'Yes' : 'No').at(i));
+    await tester.pump();
+  }
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -156,23 +188,35 @@ void main() {
         session: session,
       );
 
-      // PRE-01 defaults to the ideal state, so Next continues to context.
+      expect(find.byType(PrecheckScreen), findsOneWidget);
+
+      // The ideal state, answered rather than assumed.
+      await _answerPrecheck(tester);
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
-      expect(_specId(tester), 'CTX-01');
+      expect(find.byType(CurrentContextScreen), findsOneWidget);
 
+      // Not the cuff intro: this session is not a first run, so calibration is not asked for.
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
-      expect(_specId(tester), 'WALK-01');
+      expect(find.byType(WalkthroughScreen), findsOneWidget);
 
-      for (final step in ['WALK-02', 'WALK-03', 'WALK-04']) {
+      // WALK-01 to WALK-04 are now four pages of one screen rather than four routes. The
+      // `/check/walkthrough/2..4` routes still resolve — the table above proves it — but the flow
+      // no longer visits them, so this walks the pages the patient actually sees.
+      for (var page = 0; page < 3; page++) {
         await tester.tap(find.text('Next'));
         await tester.pumpAndSettle();
-        expect(_specId(tester), step);
+        expect(find.byType(WalkthroughScreen), findsOneWidget);
       }
 
-      // The last walkthrough step starts the check rather than continuing.
-      expect(find.text('Start check'), findsOneWidget);
+      // The last step starts the check rather than continuing.
+      expect(find.text('Start Check'), findsOneWidget);
+      await tester.tap(find.text('Start Check'));
+      await tester.pumpAndSettle();
+
+      // Capture, which opens on its own instruction step rather than the camera.
+      expect(find.byType(CaptureRouteScreen), findsOneWidget);
     });
 
     testWidgets('a non-ideal pre-check diverts to the wait screen and back', (tester) async {
@@ -185,8 +229,7 @@ void main() {
       );
 
       // Report caffeine in the last 30 minutes.
-      await tester.tap(find.text('Caffeine in the last 30 minutes'));
-      await tester.pumpAndSettle();
+      await _answerPrecheck(tester, caffeine: true);
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
 
@@ -196,7 +239,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // Section 31: Waiting returns to Precheck, not onward to Context.
-      expect(find.text('Before your check'), findsOneWidget);
+      expect(find.byType(PrecheckScreen), findsOneWidget);
+      expect(find.byType(CurrentContextScreen), findsNothing);
     });
   });
 
@@ -210,13 +254,13 @@ void main() {
         session: session,
       );
 
-      expect(_specId(tester), 'CTX-01');
+      expect(find.byType(CurrentContextScreen), findsOneWidget);
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
 
       // The real cuff screen, not a walkthrough step and not a stub.
-      expect(find.text('Record a cuff reading'), findsOneWidget);
-      expect(_specId(tester), 'Cuff reading');
+      expect(find.byType(CuffReadingScreen), findsOneWidget);
+      expect(find.byType(WalkthroughScreen), findsNothing);
     });
   });
 
@@ -234,7 +278,7 @@ void main() {
         session: session,
       );
 
-      expect(_specId(tester), 'SIG-02');
+      expect(find.byType(SignalAdjustScreen), findsOneWidget);
       expect(find.textContaining('2 of 3'), findsOneWidget);
       expect(find.text('Try again'), findsOneWidget);
     });
@@ -254,9 +298,9 @@ void main() {
         session: session,
       );
 
-      expect(_specId(tester), 'SIG-03');
+      expect(find.byType(SignalRepeatedFailureScreen), findsOneWidget);
       expect(find.text('Try again'), findsNothing);
-      expect(find.text('Back to home'), findsOneWidget);
+      expect(find.text('Take a break'), findsOneWidget);
     });
   });
 
@@ -268,12 +312,13 @@ void main() {
         initialRoute: Routes.checkContext,
       );
 
-      expect(_specId(tester), 'CTX-01');
+      expect(find.byType(CurrentContextScreen), findsOneWidget);
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
 
       // BP-only: the cuff screen, not the walkthrough.
-      expect(find.text('Record a cuff reading'), findsOneWidget);
+      expect(find.byType(CuffReadingScreen), findsOneWidget);
+      expect(find.byType(WalkthroughScreen), findsNothing);
     });
   });
 
@@ -286,7 +331,7 @@ void main() {
       // The screen itself runs the real sensor gate, which a test has no camera for. Asserting
       // the route resolves is the routing claim; the gate has its own tests.
       expect(router.onGenerateRoute(RouteSettings(name: state.resumeRoute)), isNotNull);
-      expect(state.resumeRoute, Routes.deviceChecking);
+      expect(state.resumeRoute, Routes.devicePermission);
     });
 
     testWidgets('the device check records the verdict and routes on it', (tester) async {

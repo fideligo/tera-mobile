@@ -150,6 +150,10 @@ class ConfirmedCuffReading {
     'source': 'manual_entry',
     'taken_at': (draft.takenAt ?? confirmedAt).toUtc().toIso8601String(),
     'user_confirmed_at': confirmedAt.toUtc().toIso8601String(),
+    // Stated, not left to the server's default. Invariant 9 turns on synthetic data being
+    // unmistakably labelled, and a payload that says what it is beats one that is only ever
+    // false because nobody set it. `SessionSubmitter` sends it for the same reason.
+    'synthetic': false,
   };
 }
 

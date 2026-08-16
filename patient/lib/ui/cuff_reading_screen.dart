@@ -68,6 +68,19 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
   bool _busy = false;
   String? _error;
 
+  /// The extractor's output, when these numbers came from the camera rather than a keyboard.
+  ///
+  /// **This is what the confirmation screen is disclosed from, and it is not optional.** The
+  /// extractor photographs the monitor and then discards the image unread — the numbers it returns
+  /// are fixed constants with no relationship to the device the patient just pointed the phone at.
+  /// Having taken that photograph, a patient has every reason to believe the figures came from it.
+  /// A confirm screen that shows them under "Measured / Just now" with no further comment is
+  /// fabricated data presented as real, which is invariant 9, on the path that then files a
+  /// `cuff_reading` and anchors every later mmHg estimate to it.
+  ///
+  /// Null on the typed path, where the numbers are the patient's own and nothing needs disclosing.
+  CuffOcrReading? _suggestion;
+
   @override
   void dispose() {
     _systolic.dispose();
@@ -126,6 +139,7 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
 
     setState(() {
       _draft = draft;
+      _suggestion = reading;
       _stage = _Stage.confirm;
     });
   }
@@ -149,8 +163,18 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
       return;
     }
 
+    // **Editing is not the same as correcting.** Reaching this stage through Edit and pressing
+    // Save without changing a digit leaves the extractor's numbers exactly where they were, so
+    // the disclosure is cleared only when the values actually moved away from the suggestion.
+    final suggestion = _suggestion;
+    final unchanged =
+        suggestion != null &&
+        draft.systolicMmhg == suggestion.systolicMmhg &&
+        draft.diastolicMmhg == suggestion.diastolicMmhg;
+
     setState(() {
       _draft = draft;
+      if (!unchanged) _suggestion = null;
       _stage = _Stage.confirm;
     });
   }
@@ -588,6 +612,15 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
           ),
         ],
       ),
+      // Where the numbers came from, whenever that is not the patient's own typing.
+      //
+      // Above the buttons, not below them, and not collapsible: it has to be read before Confirm
+      // is pressed, because Confirm files a `cuff_reading` and that row becomes the anchor every
+      // later estimate is computed against.
+      if (_suggestion != null) ...[
+        const SizedBox(height: TeraSpacing.md),
+        _simulatedPanel(_suggestion!),
+      ],
       if (_error != null) ...[
         const SizedBox(height: TeraSpacing.md),
         _errorPanel(_error!),
@@ -736,6 +769,37 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
     child: Text(
       message,
       style: const TextStyle(color: TeraColors.ink, height: 1.4),
+    ),
+  );
+
+  /// Where a scanned reading actually came from, and what the confidence figure is not.
+  ///
+  /// The confidence is shown and never acted on. There is deliberately no threshold above which
+  /// the app saves without asking: a confident misread of a seven-segment display is the failure
+  /// this whole flow exists to catch, and an 8 read as a 6 looks exactly as confident as an 8 read
+  /// as an 8. The line under it says so in the patient's own terms.
+  Widget _simulatedPanel(CuffOcrReading reading) => Container(
+    decoration: systemFlagDecoration(),
+    padding: const EdgeInsets.all(TeraSpacing.md),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          simulatedOcrNotice,
+          style: TextStyle(color: TeraColors.ink, height: 1.4),
+        ),
+        const SizedBox(height: TeraSpacing.sm),
+        Text(
+          'Read with ${(reading.confidence * 100).round()}% confidence — which is how sure the '
+          'reader is, not whether it is right. Only you can do that, against the display in '
+          'front of you.',
+          style: const TextStyle(
+            color: TeraColors.ink,
+            fontSize: TeraText.small,
+            height: 1.4,
+          ),
+        ),
+      ],
     ),
   );
 }

@@ -61,6 +61,19 @@ class SessionSubmitter {
       'n_beats_total': signal.nBeatsTotal,
       'n_beats_usable': signal.nBeatsUsable,
       'ptt_ms': signal.pttMs,
+      // Passed through exactly as the pipeline measured it, and **never filled in here.**
+      //
+      // `QualityMetrics` in `app/schemas/session.py` requires `accel_rate_hz`, `camera_fps`,
+      // `dropped_frame_pct`, `snr_db` and `motion_index`, bounds each, and sets `extra="forbid"`
+      // — so a missing key, a stray key or an out-of-range value is a 422 that loses the whole
+      // session. The pipeline guarantees all five, in range, for every result it accepts, and
+      // `signal_pipeline_test.dart` holds it to that.
+      //
+      // The temptation this comment exists to head off: supplying a default for a figure the
+      // handset could not measure, to get past the 422. `accel_rate_hz` and `camera_fps` were
+      // defaulted to 50 and 30 for exactly that reason, and the invented rates then fed the
+      // server's own `sensor_rate_below_qualified` gate as though they had been observed. A rate
+      // that could not be measured is now a rejected capture, which never reaches this method.
       'quality': signal.quality,
       // Was hard-coded `false`, including for sessions whose intervals the pipeline substituted
       // rather than derived — invariant 9's exact failure mode. It now reports what the pipeline

@@ -245,6 +245,61 @@ void main() {
     });
   });
 
+  group('the quality block is what the API will accept', () {
+    // `QualityMetrics` in `app/schemas/session.py` makes all five mandatory, bounds each, and sets
+    // `extra="forbid"`. A missing key, a stray key or an out-of-range value is a 422 that costs
+    // the whole session — so the contract is asserted here rather than discovered on a handset.
+    final required = <String, (double, double)>{
+      'accel_rate_hz': (0.0, 10000.0),
+      'camera_fps': (0.0, 1000.0),
+      'dropped_frame_pct': (0.0, 100.0),
+      'snr_db': (-100.0, 100.0),
+      'motion_index': (0.0, 1.0),
+    };
+
+    test('an accepted result carries every required figure, in range', () async {
+      final result = await const TeraSignalPipeline().process(
+        _fromReference('clean_seated'),
+      );
+
+      expect(result.accepted, isTrue, reason: result.rejectionReason?.wireValue);
+      for (final entry in required.entries) {
+        final value = result.quality[entry.key];
+        expect(value, isA<double>(), reason: '${entry.key} is missing or not a float');
+        expect(
+          value as double,
+          inInclusiveRange(entry.value.$1, entry.value.$2),
+          reason: '${entry.key} is outside what the API accepts',
+        );
+      }
+    });
+
+    test('it carries nothing the schema would refuse', () async {
+      final result = await const TeraSignalPipeline().process(
+        _fromReference('clean_seated'),
+      );
+
+      final allowed = {...required.keys, 'clock_offset_ms'};
+      expect(result.quality.keys, everyElement(isIn(allowed)));
+    });
+
+    test('a rate that could not be measured is refused, not defaulted', () async {
+      // Two samples: too few for `RateStatistics.fromTimestamps`, which is one of the two cases
+      // that used to be filled in with 50 Hz and 30 fps.
+      final result = await const TeraSignalPipeline().process(
+        _capture(scg: [9.8, 9.9], ppg: [120, 121], fsScg: 200, fsPpg: 30),
+      );
+
+      expect(result.accepted, isFalse);
+      expect(result.pttMs, isEmpty);
+      expect(
+        result.quality['accel_rate_hz'],
+        isNull,
+        reason: 'an unmeasured rate must not be reported as a measured one',
+      );
+    });
+  });
+
   test('a rejected result cannot be constructed without a reason', () {
     expect(
       () => SignalResult(

@@ -192,16 +192,47 @@ class TeraSignalPipeline implements SignalPipeline {
     final accelStats = capture.accelerometer.rateStatistics;
     final frameStats = capture.frames.rateStatistics;
 
+    final scg = [for (final s in capture.accelerometer.samples) s.z];
+    final ppg = [for (final f in capture.frames.samples) f.roiMean];
+
+    // **A rate that could not be measured is a refusal, not a default.**
+    //
+    // These were `?? 50.0` and `?? 30.0`. `RateStatistics.fromTimestamps` returns null for exactly
+    // two reasons — fewer than three samples, or non-monotonic timestamps — and its own comment
+    // says of the second that "dropping the sample is wrong (it hides the fault) so the whole run
+    // is refused instead". Substituting a rate there did precisely what it warns against, and the
+    // fabricated figure then fed the backend's `sensor_rate_below_qualified` gate and the
+    // eligibility cross-check as though it had been observed. 50 Hz is also a quarter of the
+    // 200 Hz floor, so the substitute described a handset that could not be used anyway.
+    if (accelStats == null || frameStats == null) {
+      return SignalResult(
+        accepted: false,
+        // Both null branches are about the timestamps themselves rather than the signal carried
+        // on them: too few to form an interval, or an interval that ran backwards.
+        rejectionReason: SignalRejection.clockUnstable,
+        pttMs: const [],
+        nBeatsTotal: 0,
+        nBeatsUsable: 0,
+        quality: const {},
+        scg: scg,
+        ppg: ppg,
+      );
+    }
+
+    // Every key the API requires, present from here on. `QualityMetrics` in
+    // `app/schemas/session.py` makes all five mandatory with bounds and sets `extra="forbid"`, so
+    // a missing key and a stray key are both a 422. `snr_db` and `motion_index` start at their
+    // worst and are replaced once there is an analysis to derive them from — a rejection carries
+    // no evidence of quality, and should not read as though it did.
     final quality = <String, dynamic>{
-      'accel_rate_hz': accelStats?.meanRateHz ?? 50.0,
-      'camera_fps': frameStats?.meanRateHz ?? 30.0,
-      'dropped_frame_pct': frameStats?.droppedPercent ?? 0.0,
+      'accel_rate_hz': accelStats.meanRateHz,
+      'camera_fps': frameStats.meanRateHz,
+      'dropped_frame_pct': frameStats.droppedPercent,
+      'snr_db': 0.0,
+      'motion_index': 1.0,
     };
     final offset = capture.clockBasis.camera?.clockSeparationMillis;
     if (offset != null) quality['clock_offset_ms'] = offset;
-
-    final scg = [for (final s in capture.accelerometer.samples) s.z];
-    final ppg = [for (final f in capture.frames.samples) f.roiMean];
 
     // **The clock basis is a precondition, not a correction.**
     //
@@ -230,9 +261,9 @@ class TeraSignalPipeline implements SignalPipeline {
     try {
       analysis = analyseCapture(
         scg: scg,
-        fsScg: accelStats?.meanRateHz ?? 50.0,
+        fsScg: accelStats.meanRateHz,
         ppg: ppg,
-        fsPpg: frameStats?.meanRateHz ?? 30.0,
+        fsPpg: frameStats.meanRateHz,
       );
     } on Object {
       // A fault in the chain, not a verdict about the signal. `signalProcessingUnavailable` keeps
@@ -356,7 +387,12 @@ class TeraSignalPipeline implements SignalPipeline {
     final sd = analysis.summary.sd;
     final med = analysis.summary.median;
     if (!sd.isFinite || !med.isFinite || sd <= 0) return 0.0;
-    return 20.0 * (math.log(med / sd) / math.ln10);
+    final db = 20.0 * (math.log(med / sd) / math.ln10);
+    // Clamped to the range `QualityMetrics.snr_db` accepts. An unusually tight run can compute
+    // past 100 dB, and the API answers that with a 422 that costs the whole session — a ratio
+    // beyond this range says "as good as this measure can report", not something worth losing a
+    // capture over.
+    return db.isFinite ? db.clamp(-100.0, 100.0) : 0.0;
   }
 
   /// 0 still, 1 unusable, from the fraction of detected beats that failed to pair.

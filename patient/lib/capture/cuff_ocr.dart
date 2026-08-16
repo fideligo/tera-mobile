@@ -27,10 +27,17 @@ import 'package:meta/meta.dart';
 
 /// Fixed output of the mock. Named rather than inlined so a test can assert the screen shows
 /// exactly these and not something it rounded or reformatted on the way.
-const int mockOcrSystolic = 120;
-const int mockOcrDiastolic = 80;
-const int mockOcrPulse = 72;
-const double mockOcrConfidence = 0.98;
+///
+/// **Deliberately not 120/80.** These are placeholder numbers a patient is asked to check against
+/// the device in front of them, and the textbook-normal reading is the one value nobody checks —
+/// it looks like the right answer, so it gets confirmed on sight. A raised reading at a middling
+/// confidence keeps the confirmation step doing its job. They were briefly 120/80 at 0.98 (commit
+/// 0200c30, alongside several other unrelated changes) with no test updated to match; this is the
+/// original intent restored.
+const int mockOcrSystolic = 152;
+const int mockOcrDiastolic = 96;
+const int mockOcrPulse = 74;
+const double mockOcrConfidence = 0.88;
 
 /// Shown wherever simulated numbers appear. Kept here so it cannot drift from the thing it
 /// describes.
@@ -79,7 +86,7 @@ abstract class CuffOcrExtractor {
 /// Stand-in until a real extractor lands. Returns [mockOcrSystolic] over [mockOcrDiastolic] after
 /// a delay long enough for the UI's waiting state to be visible and judged.
 class MockCuffOcrExtractor implements CuffOcrExtractor {
-  const MockCuffOcrExtractor({this.delay = const Duration(seconds: 3)});
+  const MockCuffOcrExtractor({this.delay = const Duration(seconds: 1)});
 
   final Duration delay;
 

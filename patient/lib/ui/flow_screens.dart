@@ -750,13 +750,14 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
   /// Every reason names something about the *recording*, never about the patient's health — a
   /// refused capture says the phone could not read the signal, and must not read as a finding.
   static String _rejectionDetail(SignalRejection? reason) => switch (reason) {
-    SignalRejection.excessiveMotion =>
-      'Terlalu banyak gerakan selama perekaman.',
+    SignalRejection.excessiveMotion => 'There was too much movement to read the signal.',
     SignalRejection.insufficientBeats =>
-      'Denyut yang terbaca belum cukup untuk satu pengukuran.',
+      'Too few heartbeats came through clearly for a measurement.',
+    SignalRejection.clockUnstable =>
+      'The camera and motion sensor could not be placed on one timeline.',
     SignalRejection.signalProcessingUnavailable =>
-      'Analisis sinyal tidak dapat diselesaikan pada perekaman ini.',
-    _ => 'Sinyal dari kamera dan sensor gerak belum cukup jelas.',
+      'The analysis could not be completed for this recording.',
+    _ => 'The camera and motion signals were not clear enough.',
   };
 
   /// The local quality gate's dialog. Returns true when the patient wants another attempt.
@@ -773,18 +774,18 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
         ),
         backgroundColor: TeraColors.paper,
         title: const Text(
-          'Perekaman belum bisa dipakai',
+          'This recording cannot be used',
           style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
         ),
         content: Text(
-          'Perekaman kurang stabil atau terlalu banyak bergerak. Silakan ulangi '
-          'perekaman.\n\n${_rejectionDetail(result.rejectionReason)}',
+          'Recording unstable. Please keep your hand still and try again.'
+          '\n\n${_rejectionDetail(result.rejectionReason)}',
           style: const TextStyle(color: TeraColors.ink, height: 1.45),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Kembali'),
+            child: const Text('Back to home'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
@@ -792,7 +793,7 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
               backgroundColor: TeraColors.ink,
               foregroundColor: TeraColors.paper,
             ),
-            child: const Text('Ulangi perekaman'),
+            child: const Text('Try again'),
           ),
         ],
       ),

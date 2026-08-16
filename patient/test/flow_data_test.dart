@@ -63,6 +63,7 @@ Future<void> _pumpProcessing(
   MockClient client, {
   CheckMode mode = CheckMode.sensor,
   SignalResult? signal,
+  bool settle = true,
 }) async {
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 1.0;
@@ -103,7 +104,16 @@ Future<void> _pumpProcessing(
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  if (settle) {
+    await tester.pumpAndSettle();
+    return;
+  }
+  // Bounded instead. A run that advances all the way to the insight lands on a
+  // `CircularProgressIndicator`, and an indeterminate progress animation schedules frames
+  // forever — `pumpAndSettle` times out on it no matter what the code under test did.
+  for (var i = 0; i < 12; i++) {
+    await tester.pump(const Duration(milliseconds: 50));
+  }
 }
 
 void main() {
@@ -266,10 +276,17 @@ void main() {
           return http.Response('{}', 200);
         }),
         mode: CheckMode.bpOnly,
+        settle: false,
       );
 
-      // The cuff reading was already filed by CuffReadingScreen; there is no session to submit.
-      expect(paths, isEmpty);
+      // The cuff reading was already filed by CuffReadingScreen; there is no capture to submit.
+      //
+      // Asserted against the submission endpoint rather than against "no request at all": a
+      // BP-only check still owns a check session, so `ProcessingScreen` may reopen one it was not
+      // handed, and its context is filed against it exactly as a sensor check's is. Neither is a
+      // measurement.
+      expect(paths, isNot(contains('/v1/sessions')));
+      expect(paths.where((p) => p.contains('device-profiles')), isEmpty);
     });
 
     testWidgets('a 403 is shown as the contraindication, with no retry offered', (tester) async {

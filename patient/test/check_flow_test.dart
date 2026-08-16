@@ -315,12 +315,18 @@ void main() {
   group('afterSensorCapture', () {
     const capturing = CheckSession(mode: CheckMode.sensor, state: CheckState.capture);
 
-    test('an accepted signal goes to processing', () {
+    test('an accepted signal goes to processing, by way of SIG-01', () {
+      // SIG-01 (`Routes.checkSignalAccepted`) is in section 32's route table and now sits on the
+      // path, confirming the capture before the submission screen. The state is already
+      // `processing`; the route is the screen that announces it. `afterSignalAccepted` is the
+      // second half, and both are asserted here so the pair cannot drift.
       final step = CheckFlow.afterSensorCapture(capturing, SignalQuality.accepted);
 
       expect(step.session.state, CheckState.processing);
-      expect(step.route, Routes.checkProcessing);
+      expect(step.route, Routes.checkSignalAccepted);
       expect(step.session.attemptCount, 1);
+
+      expect(CheckFlow.afterSignalAccepted(step.session).route, Routes.checkProcessing);
     });
 
     test('a retryable reject offers an adjustment, and counts the attempt', () {
@@ -354,7 +360,11 @@ void main() {
       final first = CheckFlow.afterSensorCapture(capturing, SignalQuality.retryableReject);
       final second = CheckFlow.afterSensorCapture(first.session, SignalQuality.accepted);
 
-      expect(second.route, Routes.checkProcessing);
+      expect(second.route, Routes.checkSignalAccepted);
+      expect(
+        CheckFlow.afterSignalAccepted(second.session).route,
+        Routes.checkProcessing,
+      );
     });
   });
 
@@ -375,8 +385,11 @@ void main() {
     test('an unchecked device goes to the device check', () {
       const state = AppFlowState();
 
+      // DEV-00 (`Routes.devicePermission`) is in section 32's route table and comes first: the
+      // probe reads the camera's capabilities, so the permission has to be asked for before it,
+      // not after it fails.
       expect(state.deviceChecked, isFalse);
-      expect(state.resumeRoute, Routes.deviceChecking);
+      expect(state.resumeRoute, Routes.devicePermission);
     });
 
     test('a checked device with incomplete onboarding resumes at the unfinished step', () {
@@ -459,7 +472,7 @@ void main() {
       expect((await store.read()).resumeRoute, Routes.home);
 
       await store.clear();
-      expect((await store.read()).resumeRoute, Routes.deviceChecking);
+      expect((await store.read()).resumeRoute, Routes.devicePermission);
     });
   });
 }

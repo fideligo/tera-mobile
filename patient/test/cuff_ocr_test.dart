@@ -70,22 +70,29 @@ void main() {
     test('returns the documented dummy reading', () async {
       final reading = await const MockCuffOcrExtractor(delay: Duration.zero).extract();
 
-      expect(reading.systolicMmhg, 152);
-      expect(reading.diastolicMmhg, 96);
-      expect(reading.pulseBpm, 74);
-      expect(reading.confidence, 0.88);
+      // Against the named constants, not copies of them. Duplicating the literals here is how
+      // these tests came to disagree with the extractor they describe.
+      expect(reading.systolicMmhg, mockOcrSystolic);
+      expect(reading.diastolicMmhg, mockOcrDiastolic);
+      expect(reading.pulseBpm, mockOcrPulse);
+      expect(reading.confidence, mockOcrConfidence);
     });
 
     test('its JSON shape is the documented one', () {
       const reading = CuffOcrReading(
-        systolicMmhg: 152,
-        diastolicMmhg: 96,
-        pulseBpm: 74,
-        confidence: 0.88,
+        systolicMmhg: mockOcrSystolic,
+        diastolicMmhg: mockOcrDiastolic,
+        pulseBpm: mockOcrPulse,
+        confidence: mockOcrConfidence,
         simulated: true,
       );
 
-      expect(reading.toJson(), {'sys': 152, 'dia': 96, 'pulse': 74, 'confidence': 0.88});
+      expect(reading.toJson(), {
+        'sys': mockOcrSystolic,
+        'dia': mockOcrDiastolic,
+        'pulse': mockOcrPulse,
+        'confidence': mockOcrConfidence,
+      });
     });
 
     test('always marks itself simulated — there is no parameter to claim otherwise', () async {
@@ -111,7 +118,7 @@ void main() {
       // in this build stands behind a machine reading of a display.
       expect(payload['source'], 'manual_entry');
       expect(payload.containsKey('ocr_confidence'), isFalse);
-      expect(payload['systolic_mmhg'], 152);
+      expect(payload['systolic_mmhg'], mockOcrSystolic);
     });
 
     test('confirmation is still the only route to a saveable reading', () {
@@ -125,83 +132,152 @@ void main() {
   });
 
   group('the confirmation UI', () {
-    testWidgets('offers photograph and typing, and starts on neither', (tester) async {
+    // The screen was redesigned (the old "Photograph tensimeter" / "Type the numbers in" fork is
+    // gone; entry starts on the form with "Scan monitor instead" beside it). These follow the new
+    // labels. What they assert has not moved: nothing reaches the API without a confirmation, and
+    // a scanned reading says on the confirmation screen that it was not read from the photograph.
+
+    testWidgets('offers both routes and suggests nothing until asked', (
+      tester,
+    ) async {
       await pumpScreen(tester, _InstantOcr());
 
-      expect(find.text('Photograph tensimeter'), findsOneWidget);
-      expect(find.text('Type the numbers in'), findsOneWidget);
-      expect(find.textContaining('We read'), findsNothing);
+      expect(find.text('Scan monitor instead'), findsOneWidget);
+      expect(find.text('Save'), findsOneWidget);
+      // No suggestion is on screen before one is requested.
+      expect(find.textContaining('Simulated reading'), findsNothing);
+      expect(_requests, 0);
     });
 
-    testWidgets('shows what was read, with both actions and no auto-save', (tester) async {
+    testWidgets('a scan lands on review with both actions and no auto-save', (
+      tester,
+    ) async {
       await pumpScreen(tester, _InstantOcr());
 
-      await tester.tap(find.text('Photograph tensimeter'));
+      await tester.tap(find.text('Scan monitor instead'));
       await tester.pumpAndSettle();
 
-      expect(find.text('We read'), findsOneWidget);
-      expect(find.text('152 / 96'), findsOneWidget);
-      expect(find.text('Correct, save'), findsOneWidget);
+      expect(find.text('Review your reading'), findsOneWidget);
+      expect(find.text('$mockOcrSystolic'), findsWidgets);
+      expect(find.text('$mockOcrDiastolic'), findsWidgets);
       expect(find.text('Edit'), findsOneWidget);
 
       // The strict rule: nothing reached the API on the way here.
       expect(_requests, 0);
     });
 
-    testWidgets('says the numbers are simulated', (tester) async {
+    testWidgets('says the numbers are simulated, before Confirm is reachable', (
+      tester,
+    ) async {
+      // The regression this exists for: the redesigned review screen showed the extractor's fixed
+      // numbers under "Measured / Just now" with no disclosure at all. A patient who has just
+      // photographed their own monitor reads that as their reading. It is not — the image is
+      // discarded unread — and confirming it files a `cuff_reading` that anchors every later
+      // estimate. Invariant 9, on the clinical path.
       await pumpScreen(tester, _InstantOcr());
-      await tester.tap(find.text('Photograph tensimeter'));
+      await tester.tap(find.text('Scan monitor instead'));
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Simulated reading'), findsOneWidget);
       expect(find.textContaining('No photograph was taken'), findsOneWidget);
     });
 
-    testWidgets('reports confidence without letting it stand in for a check', (tester) async {
+    testWidgets('reports confidence without letting it stand in for a check', (
+      tester,
+    ) async {
       await pumpScreen(tester, _InstantOcr());
-      await tester.tap(find.text('Photograph tensimeter'));
+      await tester.tap(find.text('Scan monitor instead'));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('88%'), findsOneWidget);
-      expect(find.textContaining('only you can do that'), findsOneWidget);
+      expect(
+        find.textContaining('${(mockOcrConfidence * 100).round()}%'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Only you can do that'), findsOneWidget);
     });
 
-    testWidgets('Edit drops into the form with the suggestion pre-filled', (tester) async {
+    testWidgets('a typed reading carries no simulated notice', (tester) async {
+      // The disclosure is about where the numbers came from, so it must not appear over a
+      // patient's own typing.
       await pumpScreen(tester, _InstantOcr());
-      await tester.tap(find.text('Photograph tensimeter'));
+
+      // The form labels are siblings of the fields rather than `labelText`, so the fields are
+      // addressed by position: systolic, diastolic, pulse.
+      await tester.enterText(find.byType(TextFormField).at(0), '128');
+      await tester.enterText(find.byType(TextFormField).at(1), '82');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Review your reading'), findsOneWidget);
+      expect(find.textContaining('Simulated reading'), findsNothing);
+      expect(_requests, 0);
+    });
+
+    testWidgets('Edit drops into the form with the suggestion pre-filled', (
+      tester,
+    ) async {
+      await pumpScreen(tester, _InstantOcr());
+      await tester.tap(find.text('Scan monitor instead'));
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Edit'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Type in your cuff reading'), findsOneWidget);
-      expect(find.widgetWithText(TextFormField, '152'), findsOneWidget);
-      expect(find.widgetWithText(TextFormField, '96'), findsOneWidget);
+      expect(
+        find.widgetWithText(TextFormField, '$mockOcrSystolic'),
+        findsOneWidget,
+      );
+      expect(
+        find.widgetWithText(TextFormField, '$mockOcrDiastolic'),
+        findsOneWidget,
+      );
       expect(_requests, 0);
     });
 
-    testWidgets('an implausible suggestion cannot be saved and routes to Edit', (tester) async {
+    testWidgets('Edit without changing a digit keeps the disclosure', (
+      tester,
+    ) async {
+      // Editing is not correcting. Passing back through the form unchanged leaves the extractor's
+      // numbers exactly where they were, so the notice has to survive the round trip.
+      await pumpScreen(tester, _InstantOcr());
+      await tester.tap(find.text('Scan monitor instead'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Simulated reading'), findsOneWidget);
+    });
+
+    testWidgets('an implausible suggestion cannot be saved and routes to Edit', (
+      tester,
+    ) async {
       // Swapped numbers, which is what a misread display most often produces.
-      await pumpScreen(tester, _InstantOcr(systolic: 96, diastolic: 152));
-      await tester.tap(find.text('Photograph tensimeter'));
+      await pumpScreen(
+        tester,
+        _InstantOcr(systolic: mockOcrDiastolic, diastolic: mockOcrSystolic),
+      );
+      await tester.tap(find.text('Scan monitor instead'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Correct, save'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Type in your cuff reading'), findsOneWidget);
+      // It never reaches review: the draft fails validation and drops back to the form.
+      expect(find.text('Review your reading'), findsNothing);
       expect(find.textContaining('higher than the bottom number'), findsOneWidget);
       expect(_requests, 0);
     });
 
-    testWidgets('the typed route still goes through its own confirm step', (tester) async {
+    testWidgets('an incomplete form does not reach review, let alone the API', (
+      tester,
+    ) async {
       await pumpScreen(tester, _InstantOcr());
 
-      await tester.tap(find.text('Type the numbers in'));
+      await tester.enterText(find.byType(TextFormField).at(0), '128');
+      // Diastolic left empty.
+      await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.widgetWithText(TextFormField, 'Top number (systolic), mmHg'), '');
-      expect(find.text('Review'), findsOneWidget);
+      expect(find.text('Review your reading'), findsNothing);
       expect(_requests, 0);
     });
   });
