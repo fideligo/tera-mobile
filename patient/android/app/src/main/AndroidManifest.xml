@@ -22,8 +22,17 @@
     <!-- Re-registers the scheduled reminder after a restart; without it a reboot silently ends it. -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
+    <!--
+        `android:label` is the name under the icon on the home screen. It was the Flutter project
+        name, which is a Dart identifier and not a brand: patients saw "tera_patient".
+
+        Not touched, deliberately: `applicationId` and `namespace` in build.gradle.kts, which still
+        read `id.tera.tera_patient`. Those are the app's identity to the OS and to Play, never
+        shown to anyone, and permanent once published — changing one makes this a different app
+        that installs alongside the old one rather than over it.
+    -->
     <application
-        android:label="tera_patient"
+        android:label="TERA"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

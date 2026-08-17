@@ -44,6 +44,36 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^5.0.0
+  # Generates the launcher icons into android/app/src/main/res from the sources in assets/icon.
+  # Build-time only: nothing imports it, and it ships in no APK.
+  flutter_launcher_icons: ^0.14.3
+
+# Launcher icons. Regenerate with:  dart run flutter_launcher_icons
+#
+# The sources are derived from assets/logo.jpeg by tool/make_icons.py rather than being pointed at
+# directly, for two reasons that both bite on Android:
+#
+#   * A JPEG has no alpha. As an adaptive foreground it paints an opaque white square over the
+#     whole canvas and hides `adaptive_icon_background` completely.
+#   * The artwork reaches the corners of its own bounding box — a measured enclosing radius of 525
+#     against a half-diagonal of 527 — so at full bleed a circular mask cuts the outer letters of
+#     the wordmark and the ECG dot. The generated foreground is scaled so the artwork's enclosing
+#     circle fits inside the 72dp-of-108dp safe circle, which is the only fit that survives every
+#     launcher's mask shape.
+#
+# The background is white because that is the ground the logo was drawn on; the artwork is dark
+# navy, so a brand-coloured background would need a light version of the mark that does not exist.
+flutter_launcher_icons:
+  android: true
+  # No iOS target exists in this repo — `patient/ios` is absent, and `packages/tera_capture` ships
+  # only an `android/` implementation, so there is nothing to generate into and nothing that would
+  # run if there were. Set to true once an iOS target exists.
+  ios: false
+  image_path: "assets/icon/tera_icon.png"
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: "assets/icon/tera_icon_fg.png"
+  # Matches the app's own minSdk. Below 26 there are no adaptive icons and the legacy PNG is used.
+  min_sdk_android: 26
 
 flutter:
   uses-material-design: true

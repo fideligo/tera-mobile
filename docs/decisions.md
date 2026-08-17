@@ -2238,3 +2238,60 @@ large-numeral treatment. That is standing constraint 1, and "standardise the car
 kind of pass that would quietly erase it.
 
 342 passing, 0 failing, no analyzer warnings.
+
+## Launch branding: the name on the home screen, and an icon that survives the mask
+
+**The label was `tera_patient`** — the Flutter project name, which is a Dart identifier and not a
+brand. It is `TERA` now, and `MaterialApp.title` moved from `Tera` to `TERA` with it so the two OS
+surfaces agree: the launcher and the recent-apps switcher are both places the operating system puts
+the name, and having them disagree is the kind of thing nobody notices until a screenshot. In-app
+copy stays "Tera" — that is how the brand is written in a sentence, as opposed to on an icon.
+
+**`applicationId` and `namespace` still read `id.tera.tera_patient`, deliberately.** They contain
+the old project name and they are OS-level, so they fit the brief's wording; changing them would
+still have been wrong. That string is the app's identity to Android and to Play, it is shown to
+nobody, and it is permanent once published. Changing it makes this a *different* app: existing
+installs are orphaned rather than upgraded, and the old one stays on the device beside the new one.
+It has also already been set deliberately to a real reverse-domain (`id.tera.…`, not
+`com.example.…`), so it was somebody's decision rather than a leftover. Left alone.
+
+**The icon sources are generated from `assets/logo.jpeg` rather than pointed at it**, by
+`tool/make_icons.py`, for two reasons that both only appear on a device:
+
+  * A JPEG has no alpha channel. Used directly as an adaptive foreground it paints an opaque white
+    square across the whole canvas, which hides `adaptive_icon_background` entirely — the colour
+    would be configured, generated into `colors.xml`, and never once visible.
+  * The artwork reaches the corners of its own bounding box. Measured: a true enclosing radius of
+    525 px against a bounding-box half-diagonal of 527, so the outer strokes of the "T" and "A" and
+    the ECG dot sit right at the extremes. An adaptive icon is masked to a 72dp circle inside a
+    108dp canvas, so at full bleed the wordmark loses its outer letters on any launcher using a
+    round mask — and which mask you get depends on the launcher, so it would look correct on the
+    development handset and wrong on someone else's.
+
+The foreground is therefore scaled so the artwork's enclosing *circle* fits the safe circle, which
+is the only fit that survives every mask shape.
+
+**A double-padding trap worth knowing about.** `flutter_launcher_icons` writes an `<inset
+android:inset="16%">` around the foreground in the generated `ic_launcher.xml`. Padding to the safe
+radius here as well put the artwork at an effective radius of 0.22 against a safe 0.33 — a
+perfectly correct icon that looks lost in its own canvas. `make_icons.py` pre-compensates for the
+generator's inset instead, and says so where the constant is defined.
+
+The background is white because that is the ground the mark was drawn on. The artwork is dark navy,
+so a brand-coloured background would need a light version of the mark, which does not exist.
+
+**No iOS, and none generated.** `patient/ios` does not exist, and `packages/tera_capture` — the
+whole acquisition layer — ships only an `android/` implementation. Scaffolding an iOS target would
+produce something that builds and then fails at the first sensor call, which is worse than not
+having one. `flutter_launcher_icons` is configured `ios: false` with that written next to it.
+
+**Verified on the artifact, not on the source.** `aapt2 dump badging` on the release APK reports
+`application-label:'TERA'` and resolves `application-icon` to the adaptive XML at every density
+including anydpi. That check is the reason the manifest is correct at all: the first attempt put an
+XML comment *inside* the `<application>` tag's attribute list, which is not well-formed, and the
+integrity step caught it before the build did.
+
+Still unaddressed, and noticed while in here: `notification_service.dart` passes
+`@mipmap/ic_launcher` as the notification small icon. Android renders small icons as a
+white-on-transparent silhouette, so a full-colour launcher icon becomes a white blob in the status
+bar. It wants its own monochrome drawable. Not part of this change.

@@ -130,7 +130,10 @@ class _TeraPatientAppState extends State<TeraPatientApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Tera',
+      // The label Android shows in the recent-apps switcher. Matched to the launcher label so
+      // the two OS surfaces agree; in-app copy stays "Tera", which is how the brand is written in
+      // sentences rather than on an icon.
+      title: 'TERA',
       debugShowCheckedModeBanner: false,
       theme: buildTeraTheme(),
       navigatorKey: _navigator,
