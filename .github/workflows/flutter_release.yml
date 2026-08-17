@@ -26,6 +26,19 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# `contents: write` is what lets the release step create a release and attach the APK.
+#
+# The v0.2.0 tag run failed on exactly this: every step passed, the APK built, the artifact
+# uploaded — and `softprops/action-gh-release` was refused. Artifact upload is happy with a
+# read-only token, so nothing before it noticed. When a repository's default workflow permission
+# is "read repository contents", a job that only ever reads looks fine right up to the one step
+# that writes.
+#
+# Declared at the workflow rather than left to the repository default, so the permission travels
+# with the file and a fork or a settings change cannot silently take it away again.
+permissions:
+  contents: write
+
 concurrency:
   group: flutter-release-${{ github.ref }}
   cancel-in-progress: true
