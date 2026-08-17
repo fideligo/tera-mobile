@@ -138,13 +138,26 @@ ThemeData buildTeraTheme() {
       error: TeraColors.plum,
       brightness: Brightness.light,
     ),
-    // Brand, not ink: the app bar is the primary surface and brand is the primary colour.
-    // Paper on brand measures 9.56:1.
+    // **White, not brand.** This was a brand-filled bar, on the reasoning that the app bar is the
+    // primary surface. In practice almost every screen overrode it back to paper, which is the
+    // clearest signal a default is wrong — and a teal band across the top of every screen fights
+    // the sterile, white-dominant feel the product is going for. Brand now earns its place on the
+    // things a patient acts on: primary buttons, active states, icons.
+    //
+    // Ink on paper measures 13.57:1.
     appBarTheme: const AppBarTheme(
-      backgroundColor: TeraColors.brand,
-      foregroundColor: TeraColors.paper,
+      backgroundColor: TeraColors.paper,
+      foregroundColor: TeraColors.ink,
+      surfaceTintColor: TeraColors.paper,
       elevation: 0,
+      scrolledUnderElevation: 0,
       centerTitle: false,
+      titleTextStyle: TextStyle(
+        fontSize: TeraText.section,
+        fontWeight: FontWeight.w700,
+        color: TeraColors.ink,
+      ),
+      iconTheme: IconThemeData(color: TeraColors.ink),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
@@ -201,14 +214,182 @@ ThemeData buildTeraTheme() {
       thickness: 1,
       space: 1,
     ),
-    // Base body size for anything that does not ask for a size of its own.
+    // The scale, so a widget that asks for `titleLarge` gets the product's answer rather than
+    // Material's. Every screen that hand-rolled a TextStyle was doing so because this was one
+    // entry long, and hand-rolled styles are how six different heading sizes ended up shipping.
+    //
+    // Ink for anything a patient reads as content; neutral700 for supporting text, never a
+    // lighter step at a smaller size (see the persona note above).
     textTheme: const TextTheme(
+      displaySmall: TextStyle(
+        fontSize: TeraText.display,
+        fontWeight: FontWeight.w700,
+        color: TeraColors.ink,
+        height: 1.2,
+      ),
+      headlineSmall: TextStyle(
+        fontSize: TeraText.section,
+        fontWeight: FontWeight.w700,
+        color: TeraColors.ink,
+        height: 1.3,
+      ),
+      titleLarge: TextStyle(
+        fontSize: TeraText.section,
+        fontWeight: FontWeight.w700,
+        color: TeraColors.ink,
+        height: 1.3,
+      ),
+      titleMedium: TextStyle(
+        fontSize: TeraText.body,
+        fontWeight: FontWeight.w600,
+        color: TeraColors.ink,
+        height: 1.4,
+      ),
+      bodyLarge: TextStyle(
+        fontSize: TeraText.body,
+        color: TeraColors.ink,
+        height: 1.5,
+      ),
       bodyMedium: TextStyle(
         fontSize: TeraText.body,
         color: TeraColors.ink,
         height: 1.5,
       ),
+      bodySmall: TextStyle(
+        fontSize: TeraText.small,
+        color: TeraColors.neutral700,
+        height: 1.45,
+      ),
+      labelSmall: TextStyle(
+        fontSize: TeraText.micro,
+        color: TeraColors.neutral700,
+        height: 1.4,
+      ),
     ),
+
+    // Secondary actions. Baltic rather than brand, so a screen with two buttons reads as one
+    // primary and one alternative instead of two equal choices.
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: TeraColors.baltic,
+        padding: const EdgeInsets.symmetric(
+          horizontal: TeraSpacing.md,
+          vertical: TeraSpacing.sm,
+        ),
+        shape: RoundedRectangleBorder(borderRadius: TeraRadius.buttonBorder),
+        textStyle: const TextStyle(
+          fontSize: TeraText.body,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    ),
+
+    cardTheme: CardThemeData(
+      color: TeraColors.paper,
+      surfaceTintColor: TeraColors.paper,
+      elevation: 0,
+      margin: EdgeInsets.zero,
+      shape: RoundedRectangleBorder(
+        borderRadius: TeraRadius.cardBorder,
+        // Paper on page is 1.06:1, so a card without an edge is not a card.
+        side: const BorderSide(color: TeraColors.neutral200),
+      ),
+    ),
+
+    // Dialogs are where an error or a consent question is put to a patient, so they get the same
+    // radius and the same ink as everything else rather than Material's defaults.
+    dialogTheme: DialogThemeData(
+      backgroundColor: TeraColors.paper,
+      surfaceTintColor: TeraColors.paper,
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: TeraRadius.cardBorder),
+      titleTextStyle: const TextStyle(
+        fontSize: TeraText.section,
+        fontWeight: FontWeight.w700,
+        color: TeraColors.ink,
+      ),
+      contentTextStyle: const TextStyle(
+        fontSize: TeraText.body,
+        color: TeraColors.ink,
+        height: 1.45,
+      ),
+    ),
+
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: TeraColors.paper,
+      surfaceTintColor: TeraColors.paper,
+      elevation: 0,
+      showDragHandle: true,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(TeraRadius.card)),
+      ),
+    ),
+
+    snackBarTheme: SnackBarThemeData(
+      backgroundColor: TeraColors.ink,
+      contentTextStyle: const TextStyle(
+        fontSize: TeraText.small,
+        color: TeraColors.paper,
+      ),
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: TeraRadius.buttonBorder),
+    ),
+
+    // Brand is the active state. There is deliberately no green here: `switch on` is a setting the
+    // patient chose, not a clinical outcome, and the palette has no green-for-good to reach for.
+    switchTheme: SwitchThemeData(
+      thumbColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected)
+            ? TeraColors.paper
+            : TeraColors.neutral500,
+      ),
+      trackColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected)
+            ? TeraColors.brand
+            : TeraColors.neutral200,
+      ),
+      trackOutlineColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.selected)
+            ? TeraColors.brand
+            : TeraColors.neutral300,
+      ),
+    ),
+
+    chipTheme: ChipThemeData(
+      backgroundColor: TeraColors.paper,
+      selectedColor: TeraColors.brand,
+      side: const BorderSide(color: TeraColors.neutral300),
+      shape: const StadiumBorder(),
+      labelStyle: const TextStyle(
+        fontSize: TeraText.small,
+        fontWeight: FontWeight.w600,
+        color: TeraColors.ink,
+      ),
+      secondaryLabelStyle: const TextStyle(
+        fontSize: TeraText.small,
+        fontWeight: FontWeight.w600,
+        color: TeraColors.paper,
+      ),
+      padding: const EdgeInsets.symmetric(
+        horizontal: TeraSpacing.md,
+        vertical: TeraSpacing.sm,
+      ),
+    ),
+
+    progressIndicatorTheme: const ProgressIndicatorThemeData(
+      color: TeraColors.brand,
+      linearTrackColor: TeraColors.neutral200,
+      circularTrackColor: TeraColors.neutral200,
+    ),
+
+    listTileTheme: const ListTileThemeData(
+      iconColor: TeraColors.brand,
+      textColor: TeraColors.ink,
+      contentPadding: EdgeInsets.symmetric(horizontal: TeraSpacing.md),
+    ),
+
+    // Main icons, per the brand direction. Anything that needs to recede asks for neutral700.
+    iconTheme: const IconThemeData(color: TeraColors.brand),
   );
 }
 
@@ -251,4 +432,18 @@ BoxDecoration attentionDecoration() => const BoxDecoration(
 BoxDecoration accentDecoration() => BoxDecoration(
   color: TeraColors.mint,
   border: Border.all(color: TeraColors.neutral300),
+);
+
+/// Something the **system** completed: a reading saved, a profile updated, a report built.
+///
+/// Mint, and bordered for the same 1.08:1 reason as [accentDecoration].
+///
+/// **Never a physiological verdict.** This is the exact place the green-for-good instinct bites: a
+/// "your reading is fine" panel in a soft green is a clinical reassurance rendered as a colour, and
+/// the hard rule at the top of this file forbids it. A saved cuff reading is a *system* success and
+/// may use this. A stable trend is not, and uses form — weight and a rule — instead.
+BoxDecoration confirmationDecoration() => BoxDecoration(
+  color: TeraColors.mint,
+  border: Border.all(color: TeraColors.neutral300),
+  borderRadius: TeraRadius.cardBorder,
 );

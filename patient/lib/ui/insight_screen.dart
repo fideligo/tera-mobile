@@ -376,19 +376,8 @@ class _InsightScreenState extends State<InsightScreen> {
     final local = widget.localSignal;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9FA),
-      appBar: AppBar(
-        title: const Text(
-          'Insight',
-          style: TextStyle(
-            color: Color(0xFF1E293B),
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        backgroundColor: Colors.white,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Color(0xFF1E293B)),
-      ),
+      backgroundColor: TeraColors.page,
+      appBar: AppBar(title: const Text('Your result')),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -537,11 +526,11 @@ class _InsightScreenState extends State<InsightScreen> {
                             return const SizedBox.shrink();
                           }
                           return Container(
-                            padding: const EdgeInsets.all(24),
+                            padding: const EdgeInsets.all(TeraSpacing.lg),
                             decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: const Color(0xFFE2E8F0)),
+                              color: TeraColors.paper,
+                              borderRadius: TeraRadius.cardBorder,
+                              border: Border.all(color: TeraColors.neutral200),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.center,
@@ -549,20 +538,20 @@ class _InsightScreenState extends State<InsightScreen> {
                                 const Text(
                                   'BP-RELATED TREND',
                                   style: TextStyle(
-                                    fontSize: 12,
+                                    fontSize: TeraText.micro,
                                     fontWeight: FontWeight.w700,
-                                    color: Color(0xFF64748B),
+                                    color: TeraColors.neutral700,
                                     letterSpacing: 1.2,
                                   ),
                                 ),
-                                const SizedBox(height: 12),
+                                const SizedBox(height: TeraSpacing.sm),
                                 Text(
                                   hero,
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
-                                    fontSize: 28,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF0F172A),
+                                    fontSize: TeraText.display,
+                                    fontWeight: FontWeight.w700,
+                                    color: TeraColors.ink,
                                     height: 1.2,
                                   ),
                                 ),
@@ -594,22 +583,37 @@ class _InsightScreenState extends State<InsightScreen> {
                       ] else if (insight['ai_commentary'] != null &&
                           (insight['ai_commentary'] as String).isNotEmpty) ...[
                         const SizedBox(height: 16),
+                        // **This card was green.** Mint-and-emerald on a health result is a
+                        // colour that says "good", and the palette rule at the top of
+                        // `tokens.dart` is explicit: no green-for-good and no red-for-bad, because
+                        // a hue is a clinical judgement the system is not entitled to make. It is
+                        // worse here than anywhere else — this is the one block written by a
+                        // language model and *not* reviewed by a clinician, so it is the last
+                        // thing that should be tinted with reassurance.
+                        //
+                        // It is set apart by form now: a baltic rule and a label, the same
+                        // vocabulary the rest of the app uses for "this is a different kind of
+                        // thing".
                         Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF0FDF4),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFBBF7D0)),
+                          padding: const EdgeInsets.all(TeraSpacing.md),
+                          decoration: const BoxDecoration(
+                            color: TeraColors.neutral50,
+                            border: Border(
+                              left: BorderSide(
+                                color: TeraColors.baltic,
+                                width: 3,
+                              ),
+                            ),
                           ),
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const Icon(
-                                Icons.auto_awesome,
+                                Icons.auto_awesome_outlined,
                                 size: 20,
-                                color: Color(0xFF16A34A),
+                                color: TeraColors.baltic,
                               ),
-                              const SizedBox(width: 12),
+                              const SizedBox(width: TeraSpacing.sm),
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -617,9 +621,9 @@ class _InsightScreenState extends State<InsightScreen> {
                                     const Text(
                                       'AI-GENERATED · NOT REVIEWED BY A CLINICIAN',
                                       style: TextStyle(
-                                        fontSize: 11,
+                                        fontSize: TeraText.micro,
                                         fontWeight: FontWeight.w700,
-                                        color: Color(0xFF166534),
+                                        color: TeraColors.baltic,
                                         letterSpacing: 0.6,
                                       ),
                                     ),
@@ -627,9 +631,9 @@ class _InsightScreenState extends State<InsightScreen> {
                                     Text(
                                       insight['ai_commentary'] as String,
                                       style: const TextStyle(
-                                        fontSize: 14,
-                                        color: Color(0xFF15803D),
-                                        height: 1.4,
+                                        fontSize: TeraText.small,
+                                        color: TeraColors.ink,
+                                        height: 1.45,
                                       ),
                                     ),
                                   ],
@@ -657,26 +661,26 @@ class _InsightScreenState extends State<InsightScreen> {
                               const Text(
                                 'What this means',
                                 style: TextStyle(
-                                  fontSize: 16,
+                                  fontSize: TeraText.body,
                                   fontWeight: FontWeight.w700,
-                                  color: Color(0xFF1E293B),
+                                  color: TeraColors.ink,
                                 ),
                               ),
-                              const SizedBox(height: 12),
+                              const SizedBox(height: TeraSpacing.sm),
                               Container(
-                                padding: const EdgeInsets.all(16),
+                                padding: const EdgeInsets.all(TeraSpacing.md),
                                 decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  borderRadius: BorderRadius.circular(12),
+                                  color: TeraColors.paper,
+                                  borderRadius: TeraRadius.cardBorder,
                                   border: Border.all(
-                                    color: const Color(0xFFE2E8F0),
+                                    color: TeraColors.neutral200,
                                   ),
                                 ),
                                 child: Text(
                                   whatThisMeans,
                                   style: const TextStyle(
-                                    fontSize: 14,
-                                    color: Color(0xFF334155),
+                                    fontSize: TeraText.small,
+                                    color: TeraColors.ink,
                                     height: 1.5,
                                   ),
                                 ),
@@ -688,41 +692,40 @@ class _InsightScreenState extends State<InsightScreen> {
                       ),
 
                       // 23.4 Your Next Best Step
+                      // The one thing on this screen a patient is meant to *do*, so it is the one
+                      // element that gets the accent. Mint is a system-side highlight here — "here
+                      // is your next action" — and not a verdict on the reading above it.
                       Container(
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFEFF6FF), // Light blue
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: const Color(0xFFBFDBFE)),
-                        ),
+                        padding: const EdgeInsets.all(TeraSpacing.md),
+                        decoration: confirmationDecoration(),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             const Row(
                               children: [
                                 Icon(
-                                  Icons.directions_walk,
-                                  color: Color(0xFF2563EB),
+                                  Icons.flag_outlined,
+                                  color: TeraColors.brand,
                                   size: 20,
                                 ),
-                                SizedBox(width: 8),
+                                SizedBox(width: TeraSpacing.sm),
                                 Text(
                                   'Your next best step',
                                   style: TextStyle(
-                                    fontSize: 16,
+                                    fontSize: TeraText.body,
                                     fontWeight: FontWeight.w700,
-                                    color: Color(0xFF1E40AF),
+                                    color: TeraColors.ink,
                                   ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: TeraSpacing.sm),
                             Text(
                               insight['next_best_step'] as String? ??
                                   'Keep monitoring your blood pressure as usual.',
                               style: const TextStyle(
-                                fontSize: 15,
-                                color: Color(0xFF1E3A8A),
+                                fontSize: TeraText.small,
+                                color: TeraColors.ink,
                                 height: 1.5,
                                 fontWeight: FontWeight.w500,
                               ),
@@ -737,21 +740,7 @@ class _InsightScreenState extends State<InsightScreen> {
               const SizedBox(height: 16),
               FilledButton(
                 onPressed: () => TeraFlow.toHome(context),
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF0F172A),
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                child: const Text(
-                  'Done',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
+                child: const Text('Done'),
               ),
             ],
           ),

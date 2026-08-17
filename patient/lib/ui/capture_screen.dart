@@ -413,10 +413,14 @@ class _CaptureScreenState extends State<CaptureScreen> {
                         decoration: BoxDecoration(
                           color: Colors.black,
                           borderRadius: BorderRadius.circular(TeraRadius.card),
+                          // Brand when the finger is placed, plum when it is not. Plum is the
+                          // system-state colour and that is exactly what this is: the app cannot
+                          // read the camera, which says nothing about the patient. Red was doing
+                          // the same job in a hue the palette forbids.
                           border: Border.all(
                             color: _isFingerLocked
                                 ? TeraColors.brand
-                                : Colors.red,
+                                : TeraColors.plum,
                             width: 6,
                           ),
                         ),
@@ -443,9 +447,13 @@ class _CaptureScreenState extends State<CaptureScreen> {
                         Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            // Paper, not red. A recording indicator on top of a live camera
+                            // preview needs contrast, not a hue — and a red heart pulsing over a
+                            // blood-pressure capture is the most loaded image the app could put
+                            // in front of someone mid-measurement.
                             const Icon(
                               Icons.favorite,
-                              color: Colors.red,
+                              color: TeraColors.paper,
                               size: 48,
                             ),
                             const SizedBox(height: 8),

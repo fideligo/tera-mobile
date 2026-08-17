@@ -37,6 +37,7 @@ import '../capture/eligibility_check.dart';
 import '../routing/check_session.dart';
 import '../routing/app_router.dart';
 import '../routing/routes.dart';
+import 'flow_stub_screen.dart';
 import 'tokens.dart';
 
 /// DEV-00 — "First, let's check your phone".
@@ -48,6 +49,7 @@ class DevicePermissionScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    key: screenKey('DEV-01'),
     backgroundColor: TeraColors.paper,
     body: SafeArea(
       child: Padding(
@@ -311,6 +313,7 @@ class DeviceVerdictScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    key: screenKey(specId),
     backgroundColor: TeraColors.paper,
     body: SafeArea(
       child: Padding(

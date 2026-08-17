@@ -2187,3 +2187,54 @@ nothing is interpreted (invariant 6). The mapping is pure and tested.
 
 Flutter: 331 passing, 0 failing, no analyzer errors. Backend: 361 passing, 7 failing — the matrix
 question above, unchanged by this pass except for the 500 that is now fixed.
+
+## The UI pass: spec ids out, the palette enforced
+
+**Spec ids were the app-bar title.** `FlowStubScreen` and `OnboardingStepScaffold` both rendered
+`specId`, so a patient partway through setup read "ONB-01" above their own date of birth, and
+`PROC-01` sat over their result. They are [Key]s now — `screenKey('ONB-01')` — which keeps the
+traceability the ids exist for while taking them out of the product. The routing tests find screens
+through that key instead of reading the app bar, which is also the more durable assertion: a routing
+test should not fail because someone improved a heading.
+
+**The app bar is white.** It was brand-filled, on the reasoning that the bar is the primary surface.
+Almost every screen overrode it back to paper, which is the clearest evidence a default is wrong,
+and a teal band across the top of every screen fights the sterile white the product wants. Brand
+earns its place on what a patient acts on: primary buttons, active states, icons. Ink on paper is
+13.57:1.
+
+**The theme was one `bodyMedium` entry.** Everything else was hand-rolled per screen, which is how
+six different heading sizes shipped. It now carries a full type scale plus text buttons, cards,
+dialogs, bottom sheets, snack bars, switches, chips, progress indicators, list tiles and a default
+icon colour — so a screen that asks for `titleLarge` gets the product's answer rather than
+Material's.
+
+**Three colours were saying things the product may not say.** `tokens.dart` has always opened with
+"no green-for-good and no red-for-bad", and three places had drifted:
+
+- the AI commentary card was mint-and-emerald — a green panel around the one block written by a
+  language model and explicitly *not* reviewed by a clinician, which is the last thing that should
+  be tinted with reassurance. It is set apart by form now: a baltic rule and a label.
+- the cuff scanner line was `greenAccent`, sweeping the screen immediately before a patient confirms
+  a blood-pressure reading. Mint carries the same viewfinder affordance without the verdict.
+- History's status badge was green for completed and plum for rejected, turning "the capture
+  worked" into a pair of clinical judgements. Only the refused state keeps a colour now.
+
+Also gone: Material red on the sign-in errors and the history load failure (both are *system*
+states, which is what plum is for), and a red heart pulsing over the live camera preview
+mid-capture.
+
+**`theme_test.dart` is new and is the point of the exercise.** The two rules at the top of
+`tokens.dart` — all colour through tokens, no red or green — had never been checked, and both had
+eroded: twenty raw hex values in the insight screen alone, three different navies, six near-
+identical greys. The test scans `lib/` for `Colors.red`/`Colors.green` and for raw hex outside the
+two files entitled to it (`tokens.dart` defines the palette; `pdf_export_service.dart` uses
+`PdfColor`, a different type in a different colour space), and asserts the five brand values, the
+button radii, the 48dp targets and the theme's brand wiring. A rule in a doc comment is a rule until
+someone is in a hurry.
+
+**Not touched, deliberately:** the estimate card stays outlined against a cuff reading's filled,
+large-numeral treatment. That is standing constraint 1, and "standardise the cards" is exactly the
+kind of pass that would quietly erase it.
+
+342 passing, 0 failing, no analyzer warnings.

@@ -63,21 +63,13 @@ Future<void> _pump(
   await tester.pumpAndSettle();
 }
 
-/// The app bar title, which is how a *stub* route is identified here.
+/// Finds a screen by the spec section it implements.
 ///
-/// **Only for screens that are still [FlowStubScreen]s.** Real screens are asserted by type
-/// instead. The spec id used to be the app-bar title everywhere, which is what these tests read;
-/// as screens graduated from stub to real they were given titles a patient can read ("Before your
-/// check", "About this check") and the ids went with them. Identifying a real screen by its
-/// user-facing copy would make every wording change a routing failure, so the ones that have
-/// graduated are found by widget type and the ids are left to the stubs that still show them.
-String? _specId(WidgetTester tester) {
-  final appBar = find.byType(AppBar);
-  if (appBar.evaluate().isEmpty) return null;
-  final title = find.descendant(of: appBar, matching: find.byType(Text));
-  if (title.evaluate().isEmpty) return null;
-  return tester.widget<Text>(title.first).data;
-}
+/// The spec id used to be the app-bar title, so these tests read it from there. It is a [Key] now
+/// — a patient reading "PROF-04" above their own record learns nothing — so the lookup goes
+/// through [screenKey] instead. That is also the more durable assertion: a routing test should not
+/// break because someone improved a heading.
+Finder _screen(String specId) => find.byKey(screenKey(specId));
 
 /// Answer all five PRE-01 questions.
 ///
@@ -164,7 +156,7 @@ void main() {
         initialRoute: Routes.historyDetailFor('evt-123'),
       );
 
-      expect(_specId(tester), 'HIST-02');
+      expect(_screen('HIST-02'), findsOneWidget);
       expect(find.textContaining('evt-123'), findsOneWidget);
     });
 
@@ -233,7 +225,7 @@ void main() {
       await tester.tap(find.text('Next'));
       await tester.pumpAndSettle();
 
-      expect(_specId(tester), 'PRE-02');
+      expect(_screen('PRE-02'), findsOneWidget);
 
       await tester.tap(find.text('I am ready'));
       await tester.pumpAndSettle();
@@ -368,7 +360,7 @@ void main() {
       );
       await _pump(tester, _flow(state), initialRoute: state.resumeRoute);
 
-      expect(_specId(tester), 'ONB-03');
+      expect(_screen('ONB-03'), findsOneWidget);
     });
   });
 

@@ -287,9 +287,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: const Color(
-                        0xFFF2F5F8,
-                      ), // Matching the light grey/blueish background
+                      color: TeraColors.neutral100,
                       borderRadius: BorderRadius.circular(16),
                       boxShadow: [
                         BoxShadow(
@@ -388,7 +386,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFFAFAFA),
+                      color: TeraColors.page,
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(color: TeraColors.neutral200),
                       boxShadow: [

@@ -105,7 +105,7 @@ class _SignInScreenState extends State<SignInScreen> {
                     style: TextStyle(
                       fontSize: 28,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF0D2B45),
+                      color: TeraColors.ink,
                       letterSpacing: -0.3,
                     ),
                   ),
@@ -152,7 +152,7 @@ class _SignInScreenState extends State<SignInScreen> {
                               children: [
                                 TextSpan(
                                   text: '*',
-                                  style: TextStyle(color: Color(0xFFD32F2F)),
+                                  style: TextStyle(color: TeraColors.plum),
                                 ),
                               ],
                             ),
@@ -195,7 +195,7 @@ class _SignInScreenState extends State<SignInScreen> {
                               children: [
                                 TextSpan(
                                   text: '*',
-                                  style: TextStyle(color: Color(0xFFD32F2F)),
+                                  style: TextStyle(color: TeraColors.plum),
                                 ),
                               ],
                             ),
@@ -263,7 +263,7 @@ class _SignInScreenState extends State<SignInScreen> {
                     child: FilledButton(
                       onPressed: _busy ? null : _submit,
                       style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF0D2B45),
+                        backgroundColor: TeraColors.ink,
                         foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(
@@ -369,7 +369,7 @@ class _SignInScreenState extends State<SignInScreen> {
                           style: TextStyle(
                             fontSize: TeraText.small,
                             fontWeight: FontWeight.w600,
-                            color: Color(0xFF0D2B45),
+                            color: TeraColors.ink,
                             decoration: TextDecoration.underline,
                           ),
                         ),

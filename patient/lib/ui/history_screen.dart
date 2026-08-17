@@ -250,12 +250,15 @@ class _HistoryScreenState extends State<HistoryScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline, color: Colors.red, size: 48),
+              // Plum, not red. A history that would not load is something the *system* failed at
+              // and says nothing about the patient — which is the exact distinction plum exists
+              // for, and the reason red is not in this palette.
+              const Icon(Icons.error_outline, color: TeraColors.plum, size: 48),
               const SizedBox(height: TeraSpacing.md),
               Text(
                 _error!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.red),
+                style: const TextStyle(color: TeraColors.ink),
               ),
               const SizedBox(height: TeraSpacing.md),
               OutlinedButton(
@@ -360,19 +363,24 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       horizontal: 8,
                       vertical: 4,
                     ),
+                    // **Only the refused state gets a colour.** A completed check is the ordinary
+                    // outcome and is left neutral; tinting it green would make the badge a pair of
+                    // verdicts — good and bad — over what is really "the capture worked" and "the
+                    // capture did not". Plum marks the one the system could not use, which is the
+                    // job plum has everywhere else in the app.
                     decoration: BoxDecoration(
                       color: status == 'completed'
-                          ? Colors.green.withValues(alpha: 0.1)
+                          ? TeraColors.neutral100
                           : TeraColors.plum.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(TeraRadius.pill),
                     ),
                     child: Text(
                       status.toString().toUpperCase(),
                       style: TextStyle(
-                        fontSize: 10,
+                        fontSize: TeraText.micro,
                         fontWeight: FontWeight.bold,
                         color: status == 'completed'
-                            ? Colors.green.shade700
+                            ? TeraColors.neutral700
                             : TeraColors.plum,
                       ),
                     ),

@@ -17,6 +17,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:tera_patient/ui/flow_stub_screen.dart';
 import 'package:tera_patient/api/api_client.dart';
 import 'package:tera_patient/auth/auth_controller.dart';
 import 'package:tera_patient/auth/token_store.dart';
@@ -456,7 +457,7 @@ void main() {
         profileComplete: false,
       );
 
-      expect(find.text('ONB-01'), findsOneWidget);
+      expect(find.byKey(screenKey('ONB-01')), findsOneWidget);
       expect(find.text('Start Check-In'), findsNothing);
     });
 
@@ -469,7 +470,7 @@ void main() {
         ),
       );
 
-      expect(find.text('ONB-03'), findsOneWidget);
+      expect(find.byKey(screenKey('ONB-03')), findsOneWidget);
     });
   });
 

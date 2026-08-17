@@ -366,11 +366,16 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
             child: Container(
               height: 2,
               width: 250,
+              // Mint, not green. The scanner line is a viewfinder affordance, but this one sweeps
+              // across the screen immediately before a patient confirms a blood-pressure reading,
+              // and a green sweep there reads as "scanned successfully" — a verdict the app has
+              // not earned and, per `tokens.dart`, may not express in hue at all. Mint is the
+              // palette's accent and carries the same affordance on a dark ground.
               decoration: BoxDecoration(
-                color: Colors.greenAccent,
+                color: TeraColors.mint,
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.greenAccent.withValues(alpha: 0.5),
+                    color: TeraColors.mint.withValues(alpha: 0.5),
                     blurRadius: 10,
                     spreadRadius: 2,
                   ),

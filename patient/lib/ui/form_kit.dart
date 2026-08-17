@@ -16,6 +16,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import 'flow_stub_screen.dart';
 import 'tokens.dart';
 
 /// A field label with the design's asterisk.
@@ -384,8 +385,11 @@ class OnboardingStepScaffold extends StatelessWidget {
     this.subtitle,
   });
 
-  /// Kept in the app bar. Screens graduate from stub to real and the identifier survives that —
-  /// `app_router_test.dart` reads it to tell one route from another.
+  /// Traceability, carried as a [Key] rather than shown.
+  ///
+  /// It used to be the app-bar title, which meant a patient partway through onboarding read
+  /// "ONB-01" above their own date of birth. `app_router_test.dart` finds the screen through
+  /// [screenKey] now, so the identifier still tells one route from another without being copy.
   final String specId;
 
   final int step;
@@ -398,8 +402,11 @@ class OnboardingStepScaffold extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    key: screenKey(specId),
     backgroundColor: TeraColors.page,
-    appBar: AppBar(title: Text(specId)),
+    // The step counter, not the section id. It is the one thing a person partway through a
+    // three-screen setup actually wants from a title bar.
+    appBar: AppBar(title: Text('Step $step of $totalSteps')),
     body: Column(
       children: [
         Padding(

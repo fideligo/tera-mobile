@@ -30,6 +30,7 @@ import '../routing/app_router.dart';
 import '../routing/check_payload.dart';
 import '../routing/check_session.dart';
 import '../routing/routes.dart';
+import 'flow_stub_screen.dart';
 import 'tokens.dart';
 
 class BpReferenceScreen extends StatelessWidget {
@@ -89,8 +90,9 @@ class BpReferenceScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    key: screenKey('BPREF-01'),
     backgroundColor: TeraColors.page,
-    appBar: AppBar(title: const Text('BPREF-01')),
+    appBar: AppBar(title: const Text('Your BP reference')),
     body: SafeArea(
       child: ListView(
         padding: const EdgeInsets.all(TeraSpacing.lg),

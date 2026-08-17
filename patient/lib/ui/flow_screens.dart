@@ -1554,7 +1554,8 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
   Widget build(BuildContext context) {
     final error = _error;
     return Scaffold(
-      appBar: AppBar(title: const Text('PROC-01')),
+      key: screenKey('PROC-01'),
+      appBar: AppBar(title: const Text('Your result')),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(16),
