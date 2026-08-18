@@ -246,6 +246,48 @@ void main() {
     });
   });
 
+  // ---------------------------------------------------- the state machine leak
+
+  group('a correctly placed fingertip is never read as an absent one', () {
+    // **The measurement behind this group.** Luma is `0.299R + 0.587G + 0.114B`, weighted towards
+    // green, and a fingertip lit from behind by the torch is the most green-starved frame the
+    // sensor produces. A frame that is unmistakably a covered lens to anyone looking at it lands
+    // near luma 73 — which is why the confirmation button, gated on luma > 100, could not be
+    // reached on a handset, and why the same arithmetic is a hazard for the abort check.
+    const fingerLuma = 0.299 * 200 + 0.587 * 20 + 0.114 * 10;
+
+    test('the frame that broke the button computes where we think it does', () {
+      expect(fingerLuma, closeTo(73, 1));
+      expect(fingerLuma, lessThan(100));
+    });
+
+    test('a dark but strongly red frame is a finger, not an empty lens', () {
+      // Luma alone would eventually abort this mid-capture. Requiring red as well cannot make the
+      // check fire more often than it did, only less, which is the safe direction for a rule whose
+      // false positive discards a minute the patient has already given.
+      expect(
+        lensReadsUncovered(meanLuma: 40, meanRed: 200),
+        isFalse,
+        reason: 'a torch-lit fingertip the exposure has pulled down',
+      );
+    });
+
+    test('a genuinely uncovered lens is still caught', () {
+      expect(lensReadsUncovered(meanLuma: 10, meanRed: 12), isTrue);
+    });
+
+    test('both channels must agree before a capture is thrown away', () {
+      // Neither alone is enough: a bright frame is not uncovered whatever its red, and a red frame
+      // is not uncovered whatever its luma.
+      expect(lensReadsUncovered(meanLuma: 200, meanRed: 10), isFalse);
+      expect(lensReadsUncovered(meanLuma: 10, meanRed: 200), isFalse);
+    });
+
+    test('the working frame clears the abort check with room to spare', () {
+      expect(lensReadsUncovered(meanLuma: fingerLuma, meanRed: 200), isFalse);
+    });
+  });
+
   // ------------------------------------------------------------------------- task 2
 
   group('the pre-flight gate', () {

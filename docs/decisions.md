@@ -2684,3 +2684,64 @@ invariant-2 suites re-run at 25 passing after the schema documentation change.
 Still true and unchanged by any of this: **none of it has been observed working on a handset.** The
 timestamp fix in particular is reasoned from the Android batching behaviour and the code, not from a
 capture that completed.
+
+## The confirmation button could not be pressed, and why luma was the wrong feature
+
+Reported from a handset as a state-machine leak: the baseline was thought to be starting when the
+camera turned on, reading ambient room light, so that placing a finger caused a colour shift large
+enough to trip the motion abort before the button could be reached.
+
+The symptom is exactly right and the mechanism was somewhere else. No baseline runs in the waiting
+state — `_baselineRed` is null until the lock phase completes, and `fingerHasLeftLens` is only
+reached from `_processRecordingFrame`, which only runs while `_isRecording`. Nothing could abort
+there because nothing was checking.
+
+**The button was disabled.** It was gated on `_fingerDetected`, which required a mean luma above 100
+for five consecutive frames. Luma is `0.299R + 0.587G + 0.114B` — weighted towards green — and a
+fingertip pressed to the lens with the torch behind it is the most green-starved image the sensor
+will ever produce. At roughly `R=200, G=20, B=10` the frame is unmistakably a covered lens to anyone
+looking at it and computes to a luma of about **73**. The gate wanted 100.
+
+So the detector was inverted in practice: the better the finger was placed, the redder the frame,
+and the further it sat from letting the patient continue. It could not be satisfied by doing the
+thing it was asking for.
+
+### What changed
+
+The waiting state now analyses nothing. `_onFrame` has exactly two live branches — recording and
+locking — and every other phase, including the chest-placement countdown, ignores the frame
+entirely. The stream keeps running only because `CameraPreview` needs it. `_checkFingerLock`,
+`_fingerDetected` and `_consecutiveLockedFrames` are gone rather than retuned.
+
+The button is unconditionally enabled. The objection to that is a patient starting a capture with no
+finger on the lens, and that case is already handled one phase later and considerably better by the
+uncovered-lens check during recording, which explains itself and offers a retry. **A greyed-out
+button explains nothing and offers nothing** — and this is the second time an untested camera
+heuristic has silently removed the patient's ability to act, after the auto-advance that used to
+fire at thirty covered frames. The rule taken from both: nothing the camera sees may decide whether
+the person holding the phone is allowed to proceed.
+
+Lock window 2500 ms to 2000 ms, inside the 1-2 s the brief asks for. About 60 frames at 30 fps,
+which is several cardiac cycles, so the mean is a DC level and not a point on a pulse.
+
+### The same arithmetic was a live hazard in the abort check
+
+`lensReadsUncovered` tested luma against 50. A correctly-placed fingertip sits near 73. That is a
+23-level margin on an untested threshold, guarding a check that discards a full minute of a
+patient's time when it fires — and the margin shrinks exactly when the capture is going well,
+because a well-perfused finger under a locked exposure is redder and therefore lower in luma.
+
+It now requires **both** a low luma and a low red. A covered lens under a torch has a high red
+channel by construction, whatever the exposure has done to its brightness, so adding the second
+condition can only make the check fire less often than luma alone. That is the safe direction for a
+rule whose false positive costs a capture, and it does not weaken the true case: a genuinely
+uncovered lens is dark in both.
+
+`hardware_tuning_test.dart` now computes that 73 from the BT.601 coefficients rather than asserting
+it as a magic number, so the claim is checkable rather than quoted.
+
+### Counts
+
+400 patient tests (395 before), 0 analyzer errors. Still not observed on a handset: the button being
+pressable is the specific thing the next device test should confirm first, because it is the gate
+everything downstream sits behind.

@@ -38,11 +38,24 @@ const double fingerLiftRedDropFraction = 0.45;
 /// person, and immune to any single bad frame or short burst of them.
 const int fingerLiftFrameCount = 10;
 
-/// Below this mean luma the lens is treated as uncovered, whatever the red channel says.
-///
-/// A fingertip against the lens with the torch on reads far brighter than this; an uncovered lens
-/// in a lit room reads far darker.
+/// Below this mean luma the lens *may* be uncovered. Necessary, not sufficient — see
+/// [lensReadsUncovered].
 const int uncoveredLensLumaThreshold = 50;
+
+/// And below this mean red. Both must hold.
+///
+/// **Luma alone is the wrong feature here, and getting that wrong has already cost a device
+/// test.** Luma is `0.299R + 0.587G + 0.114B`, weighted towards green — and a fingertip pressed
+/// against a lens with the torch behind it is the most green-starved image the sensor will ever
+/// produce. Around `R=200, G=20, B=10` the frame is unmistakably a covered lens to anyone looking
+/// at it and computes to a luma of roughly 73. A luma threshold that sounds generous is therefore
+/// not generous at all: the better the finger is placed, the redder the frame, and the closer luma
+/// creeps to the floor meant to detect the finger being *absent*.
+///
+/// Requiring red to be low as well can only ever make this fire less often than luma alone, which
+/// is the correct direction for a check whose false positive throws away a minute of a patient's
+/// time. A covered lens under a torch has a high red channel by construction, whatever its luma.
+const int uncoveredLensRedThreshold = 60;
 
 /// Consecutive dark frames before the recording is stopped — about half a second at 30 fps.
 const int uncoveredLensFrameCount = 15;
@@ -60,5 +73,9 @@ bool fingerHasLeftLens({required double red, required double baselineRed}) {
 }
 
 /// Whether this frame reads as an uncovered lens.
-bool lensReadsUncovered(double meanLuma) =>
-    meanLuma < uncoveredLensLumaThreshold;
+///
+/// Both channels must agree. A dark frame that is still strongly red is a finger under a torch
+/// that the exposure has pulled down, not an empty lens; see [uncoveredLensRedThreshold].
+bool lensReadsUncovered({required double meanLuma, required double meanRed}) =>
+    meanLuma < uncoveredLensLumaThreshold &&
+    meanRed < uncoveredLensRedThreshold;

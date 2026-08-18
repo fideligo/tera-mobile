@@ -49,8 +49,6 @@ class _CaptureScreenState extends State<CaptureScreen> {
   int _countdown = 5;
   int _recordingSeconds = 60;
 
-  int _consecutiveLockedFrames = 0;
-
   // ------------------------------------------------------------ motion rejection
 
   /// Red-channel readings taken during the lock phase, averaged into [_baselineRed].
@@ -76,9 +74,6 @@ class _CaptureScreenState extends State<CaptureScreen> {
   /// in-flight frames each raising their own dialog on top of the last.
   int _consecutiveLostFrames = 0;
   bool _fingerLossHandled = false;
-
-  /// Whether the current frame reads as a covered lens. Drives the confirmation button.
-  bool _fingerDetected = false;
 
   final List<AccelSample> _accelSamples = [];
   final List<FrameSample> _frameSamples = [];
@@ -158,15 +153,31 @@ class _CaptureScreenState extends State<CaptureScreen> {
     _cameraController!.startImageStream(_onFrame);
   }
 
-  /// One place deciding what a delivered frame is for, so the three phases cannot disagree.
+  /// One place deciding what a delivered frame is for, so the phases cannot disagree.
+  ///
+  /// **Exactly two phases read a frame. Everything else is a viewfinder.**
+  ///
+  /// The waiting state used to run a detector over every frame to decide whether the confirmation
+  /// button was offered, and on a real handset that button could not be reached at all. The
+  /// detector wanted a mean luma above 100, and luma is `0.299R + 0.587G + 0.114B` — weighted
+  /// towards green, and a fingertip lit from behind by the torch is the most green-starved frame
+  /// the sensor will ever produce. Around `R=200, G=20, B=10` it computes to about 73. **The
+  /// better the finger was placed, the redder the frame, and the further the detector sat from
+  /// letting the patient continue.**
+  ///
+  /// The lesson is not a better threshold. It is that nothing the camera sees may decide whether
+  /// the patient can act: an input the app can disable on the strength of an untested heuristic is
+  /// an input that can be lost entirely, with no way for the person holding the phone to tell why
+  /// or to argue with it. The waiting state now analyses nothing, aborts on nothing, and holds no
+  /// state a frame can move.
   void _onFrame(CameraImage image) {
     if (_isRecording) {
       _processRecordingFrame(image);
     } else if (_isLocking) {
       _collectLockSample(image);
-    } else if (!_isFingerLocked && !_isCountingDown) {
-      _checkFingerLock(image);
     }
+    // Every other phase — waiting, and the chest-placement countdown — deliberately ignores the
+    // frame. The stream stays running only because `CameraPreview` needs it.
   }
 
   /// Mean luma over a small centred patch of the Y plane.
@@ -242,34 +253,6 @@ class _CaptureScreenState extends State<CaptureScreen> {
       }
     }
     return n == 0 ? 0.0 : sum / n;
-  }
-
-  void _checkFingerLock(CameraImage image) {
-    final avgLuma = _meanLuma(image);
-
-    final covered = avgLuma > 100;
-    if (covered) {
-      _consecutiveLockedFrames++;
-    } else {
-      _consecutiveLockedFrames = 0;
-    }
-
-    // A short run rather than one frame, so the button does not flicker on and off under a finger
-    // that is already correctly placed. Five frames is about 165 ms — below noticing.
-    final detected = _consecutiveLockedFrames >= 5;
-
-    // Rebuild only when the answer *changes*, not on every frame. Without this the confirmation
-    // button never enabled: `_consecutiveLockedFrames` climbed but nothing told the UI, so the
-    // control stayed greyed out under a finger that was already correctly placed.
-    if (detected != _fingerDetected) {
-      setState(() => _fingerDetected = detected);
-    }
-
-    // **Nothing advances on its own from here.** This used to call `_lockFinger()` once thirty
-    // consecutive frames read as covered — about a second — so the screen started measuring a
-    // baseline while the patient was still settling their finger, and the button that was supposed
-    // to be the gate was frequently never reached. The frame check now does one thing: it decides
-    // whether the button is offered.
   }
 
   /// The patient says the finger is in place. The only way out of the waiting state.
@@ -408,9 +391,12 @@ class _CaptureScreenState extends State<CaptureScreen> {
     _lockSamples.add(_meanRed(image));
   }
 
-  /// How long the lock phase runs. Long enough for a stable mean over roughly 75 frames, short
-  /// enough that a patient holding still does not wonder whether the app has stopped.
-  static const int _lockDurationMs = 2500;
+  /// How long the lock phase runs.
+  ///
+  /// Two seconds is roughly 60 frames at 30 fps — several cardiac cycles, so the mean settles to a
+  /// DC level rather than a point on a pulse — and short enough that a patient holding still does
+  /// not start wondering whether the app has stopped.
+  static const int _lockDurationMs = 2000;
 
   Timer? _countdownTimer;
   Timer? _lockTimer;
@@ -484,15 +470,20 @@ class _CaptureScreenState extends State<CaptureScreen> {
     // the moment the frame arrived.
     final frameNanos = _frameTimestampNanos();
     final red = _meanRed(image);
+    final luma = _meanLuma(image);
 
-    // Finger gone entirely: the lens is dark, whatever the red channel says about it.
+    // Finger gone entirely: the frame is dark *and* it has lost its red cast.
     //
     // **Sustained, not instantaneous.** This aborted the whole minute on a single dark frame,
     // which is far too twitchy to survive real hardware: one auto-exposure adjustment, one
     // buffered frame delivered late, or one frame captured while the torch was still ramping is
     // enough to throw away a capture the patient sat through. A finger genuinely leaving the lens
     // stays gone for many consecutive frames, so that is what this requires.
-    if (lensReadsUncovered(_meanLuma(image))) {
+    //
+    // Both channels, since the same luma arithmetic that made the confirmation button unreachable
+    // applies here too: a correctly-placed fingertip is green-starved and its luma sits nearer
+    // this floor than it looks. See `lensReadsUncovered`.
+    if (lensReadsUncovered(meanLuma: luma, meanRed: red)) {
       _consecutiveLostFrames++;
       if (_consecutiveLostFrames >= uncoveredLensFrameCount) {
         _abortForMotion();
@@ -629,11 +620,9 @@ class _CaptureScreenState extends State<CaptureScreen> {
       _frameSamples.clear();
       _lockSamples.clear();
       _baselineRed = null;
-      _consecutiveLockedFrames = 0;
       _consecutiveLostFrames = 0;
       _consecutiveMovedFrames = 0;
       _fingerLossHandled = false;
-      _fingerDetected = false;
     });
 
     final controller = _cameraController;
@@ -948,11 +937,14 @@ class _CaptureScreenState extends State<CaptureScreen> {
               ),
             ),
 
-            // **The gate.** Nothing before this point does anything but show the feed: no
-            // baseline, no countdown, no recording. It stays disabled until the frame check says
-            // the lens is covered, so the button cannot start a capture of an empty lens — that
-            // check no longer advances the screen by itself, it only decides whether this is
-            // offered.
+            // **The gate, and the only thing that opens it.**
+            //
+            // Always enabled, deliberately. It was conditioned on a luma heuristic and on a real
+            // handset it never came on — `_onFrame` records why the physics ran against it. The
+            // objection to an unconditional button is that a patient could start a capture with no
+            // finger on the lens; that case is already covered, one phase later and far better, by
+            // the uncovered-lens check during recording, which explains itself and offers a retry.
+            // A greyed-out button explains nothing and offers nothing.
             if (!_isRecording && !_isCountingDown && !_isLocking)
               Padding(
                 padding: const EdgeInsets.fromLTRB(
@@ -964,12 +956,10 @@ class _CaptureScreenState extends State<CaptureScreen> {
                 child: SizedBox(
                   width: double.infinity,
                   child: FilledButton(
-                    onPressed: _fingerDetected ? _confirmFingerPlaced : null,
+                    onPressed: _confirmFingerPlaced,
                     style: FilledButton.styleFrom(
                       backgroundColor: TeraColors.ink,
                       foregroundColor: TeraColors.paper,
-                      disabledBackgroundColor: TeraColors.neutral300,
-                      disabledForegroundColor: TeraColors.neutral500,
                       padding: const EdgeInsets.symmetric(
                         vertical: TeraSpacing.md,
                       ),
@@ -977,11 +967,9 @@ class _CaptureScreenState extends State<CaptureScreen> {
                         borderRadius: BorderRadius.circular(TeraRadius.button),
                       ),
                     ),
-                    child: Text(
-                      _fingerDetected
-                          ? 'Jari saya sudah pas'
-                          : 'Letakkan jari pada kamera',
-                      style: const TextStyle(
+                    child: const Text(
+                      'Jari saya sudah pas',
+                      style: TextStyle(
                         fontSize: TeraText.body,
                         fontWeight: FontWeight.bold,
                       ),
