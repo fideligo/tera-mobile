@@ -11,6 +11,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sound_mode_advanced/sound_mode_advanced.dart';
 import 'package:tera_capture/tera_capture.dart';
+import 'package:tera_patient/capture/dsp/tera_ptt.dart';
 import 'package:tera_patient/capture/frame_gate.dart';
 import 'package:tera_patient/capture/preflight_check.dart';
 import 'package:tera_patient/signal/signal_pipeline.dart';
@@ -341,6 +342,104 @@ void main() {
       // `readRingerMode` itself rather than a stub of it.
       expect(await readRingerMode(), RingerModeStatus.unknown);
       expect(await runPreflight(), PreflightStatus.unreadable);
+    });
+  });
+
+  // ---------------------------------------- a refusal states its own arithmetic
+
+  group('every gate refusal carries the figures that produced it', () {
+    PttSummary summaryWith({required int n, double sd = 2.0}) =>
+        PttSummary(n: n, median: 240, sd: sd, iqr: 3, pairYield: 1.0);
+
+    test('a dual-estimator refusal names both rates and the EC13 limit', () {
+      // The patient saw "Sinyal terlalu berisik" for this and for a capture with no signal at all,
+      // and the log said nothing either way — which is how a tolerance bug survived a device test.
+      final result = qualityGate(
+        scgHr: 130,
+        scgSpectralHr: 110,
+        ppgHr: 130,
+        ppgSpectralHr: 130,
+        summary: summaryWith(n: 40),
+      );
+
+      expect(result.passed, isFalse);
+      final detail = result.detail!;
+      expect(detail, contains('130'), reason: 'the measured rate');
+      expect(detail, contains('110'), reason: 'the rate it disagreed with');
+      expect(detail, contains('EC13'), reason: 'which limit was applied');
+      expect(detail, contains('13.0'), reason: 'the limit at 130 bpm');
+    });
+
+    test('a capture inside EC13 at an elevated rate is no longer refused', () {
+      // **The regression.** 12 bpm apart at 130 bpm is inside EC13's 13 and outside both old flat
+      // constants, so this was refused as noise where the ML reference accepts it.
+      final result = qualityGate(
+        scgHr: 130,
+        scgSpectralHr: 118,
+        ppgHr: 130,
+        ppgSpectralHr: 130,
+        summary: summaryWith(n: 40),
+      );
+
+      expect(result.passed, isTrue);
+    });
+
+    test('a resting-rate disagreement the old constant let through is caught', () {
+      // The same fix in the other direction: 8 bpm apart at 60 bpm cleared the old flat 10 and is
+      // outside EC13's 6. Tightening here is not collateral damage, it is the spec.
+      final result = qualityGate(
+        scgHr: 60,
+        scgSpectralHr: 52,
+        ppgHr: 60,
+        ppgSpectralHr: 60,
+        summary: summaryWith(n: 40),
+      );
+
+      expect(result.passed, isFalse);
+    });
+
+    test('the cross-sensor refusal names both sensors and its limit', () {
+      final result = qualityGate(
+        scgHr: 70,
+        scgSpectralHr: 70,
+        ppgHr: 95,
+        ppgSpectralHr: 95,
+        summary: summaryWith(n: 40),
+      );
+
+      expect(result.passed, isFalse);
+      expect(result.detail, contains('chest'));
+      expect(result.detail, contains('finger'));
+      expect(result.detail, contains('EC13'));
+    });
+
+    test('a spread refusal names the spread and the ceiling', () {
+      final result = qualityGate(
+        scgHr: 70,
+        scgSpectralHr: 70,
+        ppgHr: 70,
+        ppgSpectralHr: 70,
+        summary: summaryWith(n: 40, sd: 25),
+      );
+
+      expect(result.passed, isFalse);
+      expect(result.detail, contains('25.0'));
+      expect(result.detail, contains('10.0'), reason: 'the ceiling it missed');
+    });
+
+    test('no refusal detail is ever blank, whatever failed', () {
+      // A blank where an explanation belongs is how this survived a whole device test.
+      for (final summary in [summaryWith(n: 2), summaryWith(n: 40, sd: 99)]) {
+        final result = qualityGate(
+          scgHr: 70,
+          scgSpectralHr: 70,
+          ppgHr: 70,
+          ppgSpectralHr: 70,
+          summary: summary,
+        );
+        expect(result.detail, isNotNull);
+        expect(result.detail, isNotEmpty);
+      }
     });
   });
 }

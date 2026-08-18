@@ -2745,3 +2745,128 @@ it as a magic number, so the claim is checkable rather than quoted.
 400 patient tests (395 before), 0 analyzer errors. Still not observed on a handset: the button being
 pressable is the specific thing the next device test should confirm first, because it is the gate
 everything downstream sits behind.
+
+## "Sinyal terlalu berisik" — what it actually was
+
+Reported as the Python backend refusing the payload, suspected to be the gravity DC offset or an
+axis mismatch. Neither, and the backend is not involved at all. Three things had to be established
+before the real cause was visible.
+
+### There are no notebooks, and gravity was never the problem
+
+`files from aiml team/` contains no `.ipynb` at all — `notebooks/` holds one output CSV and nothing
+else. The authority is `final_round/ptt/tera_ptt.py`, and it is unambiguous:
+
+```python
+def _envelope(x, fs, lo, hi):
+    xf = _bandpass(x - np.nanmean(x), fs, lo, hi)   # 1.0-25.0 Hz for SCG
+```
+
+The DC is removed **twice**: explicitly by mean subtraction, and again by a band-pass whose lower
+corner is 1 Hz. So the reference takes raw accelerometer data *including* gravity and strips the
+offset itself. `RECORDING_SPEC.md` states the input side directly — "accelerometer, **raw, gravity
+included**, m/s², do **not** use the linear-acceleration sensor" — and `HANDOFF_TM1.md` repeats it:
+"Do not remove gravity on the phone; the backend does that and needs the unfiltered signal for its
+own quality checks."
+
+**No change was needed and none was made.** `capture_screen.dart` already uses
+`accelerometerEventStream` (raw, gravity included), and `signal_ops.dart`'s `envelope()` already
+does `x - mean(x)` before the band-pass — a line-for-line match. Switching to
+`userAccelerometerEvents` would have been a regression: Android's linear-acceleration sensor is a
+fusion product with its own undocumented high-pass, and it modifies the 1-25 Hz band the fiducial
+lives in. The handover forbids it in as many words.
+
+Axis handling was already ported: all three axes analysed, the one passing the gate with the
+tightest PTT spread wins, Z kept when none passes.
+
+### Nothing rejects a waveform on the server, because none arrives
+
+`poor_signal_quality` appears in the backend exactly once, as a value in `models/enums.py`. No
+service emits it; ingest stores whatever reason the handset sent. There is no filtering, no
+normalisation and no noise gate on the ingest path, because invariant 2 means no waveform crosses
+the wire — the deepest granularity the API accepts is one derived interval per beat.
+
+So the request to "replicate the ML preprocessing in the FastAPI ingestion layer before the signal
+is passed to the inference model" has nothing to act on. There is no signal there and no model
+being passed one. **The refusal was on the handset**, in `qualityGate`.
+
+(Noted while checking: `backend/app/ml/` holds copies of `tera_ptt.py` and `contract.py` that are
+byte-identical to the handover, and **nothing in `app/` imports either**. Only `test_ml_registry.py`
+touches the package. It is reference material sitting on the server, not a code path. Left in place
+— it is the correct copy, and it is what a future server-side reader should compare against.)
+
+### The actual cause: a flat tolerance where the reference has a function
+
+The reference has no flat HR tolerance anywhere. It has ANSI/AAMI EC13:
+
+```python
+def hr_tolerance_bpm(hr_bpm):
+    return float(max(0.10 * hr_bpm, 5.0))
+```
+
+The Dart port had two flat constants instead — `hrTolBpm = 10.0` for the dual-estimator check and
+`crossHrTolBpm = 8.0` for the cross-sensor one. EC13 scales with rate because a counting error
+scales with rate, so a constant is wrong in both directions at once:
+
+| HR | EC13 | old dual (10) | old cross (8) |
+|----|------|---------------|---------------|
+| 60 | 6 | too lax | too lax |
+| 80 | 8 | too lax | exact |
+| 100 | 10 | exact | **too strict** |
+| 130 | 13 | **too strict** | **too strict** |
+
+The cross-sensor constant was the worse one: stricter than the reference at every rate above 80 bpm.
+An elevated heart rate is the state of a nervous person taking their first reading, and much of the
+population this product exists for — so the gate was tightest exactly where it should have been
+loosest. `GateFailure.chestBeatDetectionUnreliable` and `fingerBeatDetectionUnreliable` both map to
+`poorSignalQuality`, which is the "Sinyal terlalu berisik" the handset was showing.
+
+`hrToleranceBpm(hr)` now replaces both, ported exactly, with the cross-sensor check applying it at
+the *lower* of the two rates as the reference does.
+
+**The test that should have caught this was holding the port to the divergence.**
+`ptt_reference_test.dart` asserted `expect(hrTolBpm, 10.0)` and `expect(crossHrTolBpm, 8.0)` under
+the heading "nothing has been retuned in the port". Both *were* retunes. A test that pins a constant
+to the value the code happens to have proves only that nobody has changed it since; it says nothing
+about whether it was ever right. It now asserts the EC13 relationship against the reference's own
+coefficients, and the reference-vector cases still agree with the Python on every gate verdict —
+which is the check that matters, and which the change restored rather than broke.
+
+### Task 4: every refusal now states its own arithmetic
+
+`GateResult.detail` has carried the measured figures since the chain landed and **nothing ever read
+it.** A capture refused for missing EC13 by half a bpm and one refused for having no detectable
+pulse reached the patient, and the log, as the same sentence. That is why the cause of this bug had
+to be guessed at from the outside.
+
+Every refusal now prints both figures and the limit that was applied, per axis:
+
+```
+[Tera] gate FAILED on axis z: chestBeatDetectionUnreliable — chest beat detection unreliable:
+peak 128.0 bpm vs spectral 110.0 bpm = 18.0 bpm apart, EC13 limit 12.8 bpm at 128 bpm
+[Tera] gate passed on axis x: PTT median 238.4 ms, SD 6.1 ms, n=41
+[Tera] axis chosen: x (best PTT spread)
+```
+
+Passing axes log too, so a capture that fails on Z and succeeds on X is visible as that rather than
+as a silent recovery.
+
+### Also fixed: the heart rate was being thrown away
+
+`run_best_axis` keeps the best HR seen on **any** axis — "a recording can fail the PTT gate on every
+axis and still have counted the heartbeat cleanly on one of them, and that number is worth
+returning." The first port missed it and read the HR only from the winning or primary analysis, so a
+refused capture showed no pulse figure even when one had been measured. Heart rate is a separate and
+easier question than transit time: PTT needs both sensors, a shared clock and beats that pair; a
+rate needs one sensor that can count.
+
+### Counts
+
+409 patient tests (400 before), 0 analyzer errors. The reference-vector suite still matches the
+Python on every beat time, interval and gate verdict.
+
+Unresolved and worth knowing: `minUsableBeats = 30` in `signal_pipeline.dart` is our backend's
+figure and is stricter than the reference's `MIN_PAIRS = 12`. A capture that clears the ML gate at
+12-29 pairs is still refused here, as `insufficient_beats` rather than as noise. That is a
+deliberate mirror of the server constant, not a port error — but it is a second, tighter gate behind
+the first and nobody has checked which one real captures hit.

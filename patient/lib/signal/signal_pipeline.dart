@@ -47,7 +47,8 @@ library;
 
 import 'dart:math' as math;
 
-import 'package:meta/meta.dart';
+import 'package:flutter/foundation.dart';
+
 // For the rateStatistics extensions on CaptureRecording; extension methods are only in scope
 // when their defining library is imported.
 import 'package:tera_capture/tera_capture.dart';
@@ -73,12 +74,14 @@ const double pttMaxMs = 400.0;
 /// Longest array the API will accept, from invariant 2's bound (`max_ptt_array_length`).
 const int maxPttArrayLength = 300;
 
-/// How far the time-domain and frequency-domain heart-rate estimates may disagree, in bpm, before
-/// the session is rejected as `poorSignalQuality`.
-///
-/// An engineering choice pending validation, in the same register as the backend's
-/// `min_usable_beats`: there are no real captures to set it from yet. Record the validated figure
-/// in `docs/decisions.md` once there are.
+/// **Superseded and deliberately left as a pointer.** The dual-estimator tolerance is not a
+/// constant: it is `hrToleranceBpm` in `capture/dsp/tera_ptt.dart`, the ANSI/AAMI EC13 readout
+/// tolerance, which scales with heart rate. This declaration was never read by the gate — the gate
+/// used two *different* flat constants in the DSP file — so a reader tuning this one would have
+/// changed nothing at all.
+@Deprecated(
+  'Use hrToleranceBpm(hr) from capture/dsp/tera_ptt.dart; EC13 scales with rate',
+)
 const double dualEstimatorToleranceBpm = 5.0;
 
 /// Why a session was not usable. Values match the backend's `rejection_reason` enum.
@@ -306,6 +309,17 @@ class TeraSignalPipeline implements SignalPipeline {
     PttAnalysis? primary;
     PttAnalysis? best;
     String bestAxis = 'z';
+
+    // **The heart rate found on *any* axis, kept even when every axis fails the PTT gate.**
+    //
+    // Ported from `run_best_axis`, and missing from the first port. Heart rate is a separate and
+    // easier question than transit time: PTT needs both sensors, a shared clock and beats that
+    // pair, while a rate needs one sensor that can count. A recording can fail the PTT gate on
+    // every axis and still have counted the heartbeat cleanly on one of them, and the reference is
+    // explicit that "that number is worth returning". Without this the result screen showed no
+    // figure at all for a refused capture whose pulse had in fact been measured.
+    double? hrFallback;
+
     PttAnalysis analysis;
     try {
       for (final entry in candidates.entries) {
@@ -321,8 +335,35 @@ class TeraSignalPipeline implements SignalPipeline {
           best = result;
           bestAxis = entry.key;
         }
+        if (hrFallback == null && result.ppgHr.isFinite && result.ppgHr > 0) {
+          hrFallback = result.ppgHr;
+        }
+
+        // **Task 4: every refusal states its own arithmetic.** `GateResult.detail` has always
+        // carried the measured figures and the limit they missed, and nothing ever read it — so a
+        // capture refused on a 0.4 bpm overshoot and one refused for having no signal at all
+        // reached the patient, and the log, as the same sentence. Guessing at the cause from that
+        // is what a device test should never have to do.
+        if (!result.gate.passed) {
+          debugPrint(
+            '[Tera] gate FAILED on axis ${entry.key}: '
+            '${result.gate.failure?.name ?? "unspecified"} — '
+            '${result.gate.detail ?? "no detail"}',
+          );
+        } else {
+          debugPrint(
+            '[Tera] gate passed on axis ${entry.key}: '
+            'PTT median ${result.summary.median.toStringAsFixed(1)} ms, '
+            'SD ${result.summary.sd.toStringAsFixed(1)} ms, '
+            'n=${result.summary.n}',
+          );
+        }
       }
       analysis = best ?? primary!;
+      debugPrint(
+        '[Tera] axis chosen: $bestAxis '
+        '(${best == null ? "no axis passed; reporting the primary" : "best PTT spread"})',
+      );
     } on Object {
       // A fault in the chain, not a verdict about the signal. `signalProcessingUnavailable` keeps
       // the two distinguishable, which is the whole reason that value exists.
@@ -351,9 +392,10 @@ class TeraSignalPipeline implements SignalPipeline {
     // The PPG heart rate survives even when the SCG side is too slow to pair beats against, which
     // is what makes it usable as an offline result on its own — and what lets the result screen
     // show a measured figure even for a capture this gate refuses.
+    // The winning axis's figure when it has one, otherwise whichever axis did count the pulse.
     final heartRateBpm = analysis.ppgHr.isFinite && analysis.ppgHr > 0
         ? analysis.ppgHr
-        : null;
+        : hrFallback;
     final pttMedianMs =
         analysis.summary.median.isFinite && analysis.summary.median > 0
         ? analysis.summary.median

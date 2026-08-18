@@ -51,7 +51,10 @@ void main() {
   });
 
   test('the fixture carries the cases the port is pinned against', () {
-    expect(cases.map((c) => c.name), containsAll(<String>['clean_seated', 'motion_corrupt', 'too_short']));
+    expect(
+      cases.map((c) => c.name),
+      containsAll(<String>['clean_seated', 'motion_corrupt', 'too_short']),
+    );
   });
 
   group('beat detection matches the reference', () {
@@ -67,14 +70,26 @@ void main() {
 
         final hr = c.expectedDouble('scg_hr');
         if (hr != null) {
-          expect(detected.peakHr, closeTo(hr, 1e-6), reason: '${c.name}: SCG peak HR');
+          expect(
+            detected.peakHr,
+            closeTo(hr, 1e-6),
+            reason: '${c.name}: SCG peak HR',
+          );
         } else {
-          expect(detected.peakHr.isNaN, isTrue, reason: '${c.name}: SCG peak HR should be NaN');
+          expect(
+            detected.peakHr.isNaN,
+            isTrue,
+            reason: '${c.name}: SCG peak HR should be NaN',
+          );
         }
 
         final spec = c.expectedDouble('scg_spectral_hr');
         if (spec != null) {
-          expect(detected.spectralHr, closeTo(spec, 1e-6), reason: '${c.name}: SCG spectral HR');
+          expect(
+            detected.spectralHr,
+            closeTo(spec, 1e-6),
+            reason: '${c.name}: SCG spectral HR',
+          );
         }
       }
     });
@@ -82,9 +97,15 @@ void main() {
     test('SCG beat times, to the microsecond', () {
       for (final c in cases) {
         final detected = detectScgBeats(c.scg, c.fsScg);
-        final expected = (c.expect['scg_times'] as List).map((v) => (v as num).toDouble()).toList();
+        final expected = (c.expect['scg_times'] as List)
+            .map((v) => (v as num).toDouble())
+            .toList();
 
-        expect(detected.times.length, expected.length, reason: '${c.name}: beat count');
+        expect(
+          detected.times.length,
+          expected.length,
+          reason: '${c.name}: beat count',
+        );
         for (int i = 0; i < expected.length; i++) {
           expect(
             detected.times[i],
@@ -99,11 +120,19 @@ void main() {
       for (final c in cases) {
         final detected = detectPpgFeet(c.ppg, c.fsPpg);
 
-        expect(detected.times.length, c.expect['n_ppg_feet'], reason: '${c.name}: PPG foot count');
+        expect(
+          detected.times.length,
+          c.expect['n_ppg_feet'],
+          reason: '${c.name}: PPG foot count',
+        );
 
         final hr = c.expectedDouble('ppg_hr');
         if (hr != null) {
-          expect(detected.peakHr, closeTo(hr, 1e-6), reason: '${c.name}: PPG peak HR');
+          expect(
+            detected.peakHr,
+            closeTo(hr, 1e-6),
+            reason: '${c.name}: PPG peak HR',
+          );
         }
       }
     });
@@ -111,11 +140,21 @@ void main() {
     test('PPG foot times, to the microsecond', () {
       for (final c in cases) {
         final detected = detectPpgFeet(c.ppg, c.fsPpg);
-        final expected = (c.expect['ppg_times'] as List).map((v) => (v as num).toDouble()).toList();
+        final expected = (c.expect['ppg_times'] as List)
+            .map((v) => (v as num).toDouble())
+            .toList();
 
-        expect(detected.times.length, expected.length, reason: '${c.name}: foot count');
+        expect(
+          detected.times.length,
+          expected.length,
+          reason: '${c.name}: foot count',
+        );
         for (int i = 0; i < expected.length; i++) {
-          expect(detected.times[i], closeTo(expected[i], 1e-6), reason: '${c.name}: PPG foot $i');
+          expect(
+            detected.times[i],
+            closeTo(expected[i], 1e-6),
+            reason: '${c.name}: PPG foot $i',
+          );
         }
       }
     });
@@ -130,11 +169,21 @@ void main() {
           ppg: c.ppg,
           fsPpg: c.fsPpg,
         );
-        final expected = (c.expect['ptt_ms'] as List).map((v) => (v as num).toDouble()).toList();
+        final expected = (c.expect['ptt_ms'] as List)
+            .map((v) => (v as num).toDouble())
+            .toList();
 
-        expect(analysis.pttMs.length, expected.length, reason: '${c.name}: paired count');
+        expect(
+          analysis.pttMs.length,
+          expected.length,
+          reason: '${c.name}: paired count',
+        );
         for (int i = 0; i < expected.length; i++) {
-          expect(analysis.pttMs[i], closeTo(expected[i], 1e-6), reason: '${c.name}: interval $i');
+          expect(
+            analysis.pttMs[i],
+            closeTo(expected[i], 1e-6),
+            reason: '${c.name}: interval $i',
+          );
         }
       }
     });
@@ -160,7 +209,11 @@ void main() {
           final (key, actual) = field;
           final want = c.expectedDouble(key);
           if (want == null) {
-            expect(actual.isNaN, isTrue, reason: '${c.name}: $key should be NaN');
+            expect(
+              actual.isNaN,
+              isTrue,
+              reason: '${c.name}: $key should be NaN',
+            );
           } else {
             expect(actual, closeTo(want, 1e-6), reason: '${c.name}: $key');
           }
@@ -182,7 +235,8 @@ void main() {
         expect(
           analysis.gate.passed,
           c.expect['gate_ok'],
-          reason: '${c.name}: gate verdict — reference said "${c.expect['gate_reason']}", '
+          reason:
+              '${c.name}: gate verdict — reference said "${c.expect['gate_reason']}", '
               'port said "${analysis.gate.detail ?? 'ok'}"',
         );
       }
@@ -190,7 +244,12 @@ void main() {
 
     test('a clean seated capture is accepted with a tight spread', () {
       final c = cases.firstWhere((c) => c.name == 'clean_seated');
-      final analysis = analyseCapture(scg: c.scg, fsScg: c.fsScg, ppg: c.ppg, fsPpg: c.fsPpg);
+      final analysis = analyseCapture(
+        scg: c.scg,
+        fsScg: c.fsScg,
+        ppg: c.ppg,
+        fsPpg: c.fsPpg,
+      );
 
       expect(analysis.gate.passed, isTrue);
       expect(analysis.summary.sd, lessThan(maxPttSdMs));
@@ -201,7 +260,12 @@ void main() {
       // The check a single-sensor product cannot run: chest and finger disagreeing about the
       // heart rate means they are not seeing the same heartbeats.
       final c = cases.firstWhere((c) => c.name == 'motion_corrupt');
-      final analysis = analyseCapture(scg: c.scg, fsScg: c.fsScg, ppg: c.ppg, fsPpg: c.fsPpg);
+      final analysis = analyseCapture(
+        scg: c.scg,
+        fsScg: c.fsScg,
+        ppg: c.ppg,
+        fsPpg: c.fsPpg,
+      );
 
       expect(analysis.gate.passed, isFalse);
       expect(analysis.gate.failure, GateFailure.sensorsDisagree);
@@ -209,7 +273,12 @@ void main() {
 
     test('a capture shorter than three seconds yields nothing', () {
       final c = cases.firstWhere((c) => c.name == 'too_short');
-      final analysis = analyseCapture(scg: c.scg, fsScg: c.fsScg, ppg: c.ppg, fsPpg: c.fsPpg);
+      final analysis = analyseCapture(
+        scg: c.scg,
+        fsScg: c.fsScg,
+        ppg: c.ppg,
+        fsPpg: c.fsPpg,
+      );
 
       expect(analysis.gate.passed, isFalse);
       expect(analysis.gate.failure, GateFailure.insufficientBeats);
@@ -223,12 +292,50 @@ void main() {
       // tera_ptt.py and the proposal's 10 ms sensing budget.
       expect(pttMinSeconds, 0.08);
       expect(pttMaxSeconds, 0.40);
-      expect(hrTolBpm, 10.0);
-      expect(crossHrTolBpm, 8.0);
       expect(minPairs, 12);
       expect(minPairYield, 0.50);
       expect(maxPttSdMs, 10.0);
       expect(scgOnsetFrac, 0.82);
+    });
+
+    test('the HR tolerance is EC13, not a flat number', () {
+      // **This assertion previously read `expect(hrTolBpm, 10.0)` and `expect(crossHrTolBpm, 8.0)`
+      // under the heading "nothing has been retuned in the port".** Both were retunes. The
+      // reference has no flat tolerance anywhere; it has `hr_tolerance_bpm(hr)`, and the test was
+      // holding the port to the divergence instead of to the source.
+      expect(ec13Relative, 0.10);
+      expect(ec13FloorBpm, 5.0);
+
+      // Ten percent of the rate, or five bpm, whichever is greater.
+      expect(hrToleranceBpm(40), 5.0, reason: 'floor applies below 50 bpm');
+      expect(hrToleranceBpm(50), 5.0, reason: 'floor and relative meet here');
+      expect(hrToleranceBpm(60), closeTo(6.0, 1e-9));
+      expect(hrToleranceBpm(100), closeTo(10.0, 1e-9));
+      expect(hrToleranceBpm(130), closeTo(13.0, 1e-9));
+    });
+
+    test('a rate the chain could not estimate falls back to the floor', () {
+      // Never zero, and never infinite: a tolerance of zero refuses everything and a tolerance of
+      // infinity accepts everything, and both are reachable from a division on an empty capture.
+      expect(hrToleranceBpm(double.nan), ec13FloorBpm);
+      expect(hrToleranceBpm(0), ec13FloorBpm);
+      expect(hrToleranceBpm(-30), ec13FloorBpm);
+      expect(hrToleranceBpm(double.infinity), isNot(0));
+    });
+
+    test('the old constants were stricter than the reference where it matters', () {
+      // The failure this fixes, stated as arithmetic. An elevated heart rate is the state of a
+      // nervous person taking a first reading, and the old cross-sensor constant was tightest
+      // exactly there — refusing captures the reference accepts and reporting them as noise.
+      const oldFlatCross = 8.0;
+      expect(hrToleranceBpm(100), greaterThan(oldFlatCross));
+      expect(hrToleranceBpm(130), greaterThan(oldFlatCross));
+
+      const oldFlatDual = 10.0;
+      expect(hrToleranceBpm(130), greaterThan(oldFlatDual));
+
+      // And too lax at a resting rate, which is the same defect in the other direction.
+      expect(hrToleranceBpm(60), lessThan(oldFlatDual));
     });
   });
 }

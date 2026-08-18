@@ -40,12 +40,36 @@ import 'signal_ops.dart';
 const double pttMinSeconds = 0.08;
 const double pttMaxSeconds = 0.40;
 
-/// Dual-estimator tolerance: peak-detected HR against spectral HR, on one sensor.
-const double hrTolBpm = 10.0;
+/// ANSI/AAMI EC13 readout tolerance: ten percent of the rate, or five bpm, whichever is greater.
+///
+/// **This replaces two flat constants — 10 bpm dual-estimator and 8 bpm cross-sensor — and the
+/// difference is not cosmetic.** EC13 scales with heart rate because a counting error scales with
+/// heart rate: at 60 bpm a 10 bpm disagreement is a sixth of the signal, at 130 bpm it is well
+/// inside one beat's worth of edge placement. A flat number is therefore wrong in both directions
+/// at once, and the port had one:
+///
+/// | HR | EC13 | old flat dual | old flat cross |
+/// |----|------|---------------|----------------|
+/// | 60 | 6 | 10 (too lax) | 8 (too lax) |
+/// | 80 | 8 | 10 | 8 |
+/// | 100 | 10 | 10 | 8 (too strict) |
+/// | 130 | 13 | 10 (too strict) | 8 (too strict) |
+///
+/// The cross-sensor constant was the worse of the two: stricter than the reference at every rate
+/// above 80 bpm. An elevated heart rate is the state of a nervous person taking their first
+/// reading, and of much of the population this product exists for — so the gate was tightest
+/// exactly where it should have been loosest, and refused captures the ML reference accepts.
+///
+/// Applying a single-device readout spec to the agreement between two of our own estimates is the
+/// conservative reading, and the reference says so: if each estimator is independently allowed E,
+/// their difference could reach 2E, and this demands E.
+const double ec13Relative = 0.10;
+const double ec13FloorBpm = 5.0;
 
-/// Cross-sensor tolerance: chest HR against finger HR. The check a single-sensor product cannot
-/// run, and a direct test of the simultaneity the whole method assumes.
-const double crossHrTolBpm = 8.0;
+double hrToleranceBpm(double hrBpm) {
+  if (!hrBpm.isFinite || hrBpm <= 0) return ec13FloorBpm;
+  return math.max(ec13Relative * hrBpm, ec13FloorBpm);
+}
 
 /// Paired beats needed before a median means anything.
 const int minPairs = 12;
@@ -343,13 +367,17 @@ GateResult qualityGate({
         detail: '$name heart rate could not be estimated',
       );
     }
-    if ((a - b).abs() > hrTolBpm) {
+    // EC13 at this sensor's own peak-detected rate, as the reference does.
+    final tol = hrToleranceBpm(a);
+    if ((a - b).abs() > tol) {
       return GateResult(
         passed: false,
         failure: failure,
         detail:
-            '$name beat detection unreliable '
-            '(${(a - b).abs().toStringAsFixed(0)} bpm disagreement)',
+            '$name beat detection unreliable: '
+            'peak ${a.toStringAsFixed(1)} bpm vs spectral ${b.toStringAsFixed(1)} bpm '
+            '= ${(a - b).abs().toStringAsFixed(1)} bpm apart, EC13 limit '
+            '${tol.toStringAsFixed(1)} bpm at ${a.toStringAsFixed(0)} bpm',
       );
     }
   }
@@ -357,13 +385,16 @@ GateResult qualityGate({
   // The strongest check, and the one a single-sensor product has no way to run: if the chest and
   // the finger disagree about the heart rate, they are not seeing the same heartbeats, so no
   // transit time exists between them.
-  if ((scgHr - ppgHr).abs() > crossHrTolBpm) {
+  // EC13 at the *lower* of the two rates: the conservative reading, and the reference's.
+  final crossTol = hrToleranceBpm(math.min(scgHr, ppgHr));
+  if ((scgHr - ppgHr).abs() > crossTol) {
     return GateResult(
       passed: false,
       failure: GateFailure.sensorsDisagree,
       detail:
-          'chest and finger disagree by '
-          '${(scgHr - ppgHr).abs().toStringAsFixed(0)} bpm, not the same heartbeats',
+          'chest ${scgHr.toStringAsFixed(1)} bpm vs finger ${ppgHr.toStringAsFixed(1)} bpm '
+          '= ${(scgHr - ppgHr).abs().toStringAsFixed(1)} bpm apart, EC13 limit '
+          '${crossTol.toStringAsFixed(1)} bpm — not the same heartbeats',
     );
   }
 
@@ -372,7 +403,8 @@ GateResult qualityGate({
       passed: false,
       failure: GateFailure.lowPairYield,
       detail:
-          'only ${(100 * summary.pairYield).toStringAsFixed(0)}% of beats paired',
+          'only ${(100 * summary.pairYield).toStringAsFixed(1)}% of beats paired, '
+          'need ${(100 * minPairYield).toStringAsFixed(0)}%',
     );
   }
 
@@ -380,7 +412,9 @@ GateResult qualityGate({
     return GateResult(
       passed: false,
       failure: GateFailure.pttTooVariable,
-      detail: 'PTT too variable (${summary.sd.toStringAsFixed(0)} ms spread)',
+      detail:
+          'PTT spread ${summary.sd.toStringAsFixed(1)} ms, '
+          'ceiling ${maxPttSdMs.toStringAsFixed(1)} ms',
     );
   }
 
