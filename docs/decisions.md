@@ -2342,3 +2342,90 @@ a test asserts the tiles point at something rather than nothing.
 `minPasswordLength` was nearly duplicated into `account_screens.dart` before the compiler caught it:
 `api_client.dart` already mirrors the server's figure for the sign-up form. Two copies of one rule is
 how two forms come to disagree about it.
+
+## Real OCR, finger locking, and a calibration button that calibrates
+
+**The OCR is real now, and the flow around it is unchanged on purpose.** `CameraCuffOcrExtractor`
+took a photograph, discarded it unread, and returned 152/96. It runs ML Kit's Latin text recogniser
+on the actual image now - on-device, because a cloud OCR call would send a photograph of a
+patient's blood pressure to a third party, which is the one thing a health record cannot do
+casually. What has *not* changed: the suggestion still lands on a confirm stage, the confidence is
+still shown and never acted on, and the reading is still filed as `manual_entry`, because what the
+record attests is that a person read the display and agreed. `source = 'photograph'` would assert
+the system stands behind the digits, and it does not.
+
+`parseCuffText` is pure and separately tested, against the three shapes a tensimeter prints: an
+explicit `128/82`, three stacked lines, and a scattering of digits with the labels lost. **Writing
+those tests found two bugs where it guessed instead of refusing**, and both were the dangerous
+direction:
+
+  * `82/128` - an impossible pair stated explicitly - fell through the explicit-pair rule and was
+    reordered by the later rules into `128/82`, then offered as a reading. Silently correcting a
+    machine's misreading of a medical device is exactly what this must not do; a failed explicit
+    pair now ends the parse.
+  * `82 71 128` was read as stacked and yielded 82/71, which passes every plausibility check and is
+    wrong. A cuff prints its systolic first *and* largest, so the stacked reading is only trusted
+    when the leading number is the largest recognised; otherwise the digits came back scattered and
+    the largest-two rule applies.
+
+An unreadable photograph is an ordinary event - a display at an angle, a reflection, an unlit LCD -
+so `CuffOcrUnreadable` drops straight to typing with the reason stated once, rather than being
+reported as a camera error.
+
+**The lock phase measures the finger before anything is recorded against it.** Tapping "My finger
+is ready" no longer starts the minute. What follows is the chest-placement countdown, then a 2.5 s
+lock that averages the red channel into `baseline_red`, then the capture - and the order matters:
+**the lock is placed after the countdown rather than before it, which is the one change to the
+sequence the brief describes.** A baseline is only useful if it describes the finger as it will sit
+for the next minute, and moving the phone onto the sternum moves the finger with it. Measured
+before that move, the baseline would describe a position the capture never uses, and the motion
+check would then fire on the move itself - aborting every capture for the one action the screen had
+just asked for.
+
+**Red, not luma, and that is a signal change rather than a cosmetic one.** Fingertip PPG works
+because haemoglobin absorbs red light and the absorption changes with each pulse. The frame value
+being thresholded and recorded was luma - a weighted mix dominated by green - which threw away most
+of the modulation the method depends on. `_meanRed` does the BT.601 conversion off the Y and V
+planes, deriving the V index through `uvRowStride` and `uvPixelStride` rather than assuming them.
+
+**Motion aborts on five consecutive frames, not one.** The brief says immediately; five frames is
+about 165 ms at 30 fps, which is indistinguishable from immediate to a person. One frame is not,
+and the finger-loss check right beside it carries the comment recording why: a single auto-exposure
+adjustment, a late-delivered buffered frame, or a frame caught while the torch was still ramping is
+enough to throw away a minute the patient has already sat through. That correction has been made
+once already and is not worth making twice.
+
+The torch goes off with the abort and comes back on only if they retry, `_resetToWaiting` is the one
+place that returns every phase to its start, and the baseline is cleared with it - a baseline from
+an abandoned attempt describes a finger position that no longer applies.
+
+**Two timer leaks fixed while in there.** `_startCountdown` held a bare `Timer.periodic` whose
+handle nobody kept, so `dispose` could not cancel it: leaving the screen mid-countdown left a timer
+calling `setState` against a dead `State`. `dispose` now cancels all three timers and tears the
+camera down inside a guard, because disposing a controller mid-stream throws on some devices and a
+throw inside `dispose` takes the route down with it.
+
+**Profile's calibrate button could never calibrate.** It opened `CuffReadingScreen` alone, which
+files a cuff reading and nothing else - but a calibration is a *pairing*. `POST /v1/calibrations`
+takes a `reference_cuff_reading_id` and `session_ids` together and derives `baseline_mean_ms` from
+those sessions' own PTT, so a cuff reading with no capture beside it leaves nothing to anchor and
+`pressure_estimate.estimate()` keeps returning `None` for want of a baseline. The button reported
+success and the patient stayed uncalibrated.
+
+It runs the full flow now, through a new `launchCheck` shared with Home's spot check. **Shared
+rather than copied because of invariant 8**: a check begins with symptom triage, always, and a
+patient reporting chest pain must not be walked through a cuff screen first. Putting the triage push
+inside the launcher makes forgetting it impossible rather than merely discouraged.
+
+**Costs worth stating.** The release APK went from 55.3 MB to 85.8 MB - ML Kit's Latin model is
+bundled into the artifact. The unbundled variant, which fetches the model through Play Services on
+first use, trades that for a first-run download and a dependency on Play being present; worth
+revisiting if size becomes the binding constraint. R8 also had to be told to ignore the Chinese,
+Devanagari, Japanese and Korean recognisers the plugin names and the app never constructs;
+`android/app/proguard-rules.pro` says why they are safe to leave out.
+
+The abort copy is Indonesian ("Jari bergerak, mohon ulang perekaman") as specified. Every other
+string in the app is English, including the retry dialog three sections above it that was
+deliberately translated *out* of Indonesian earlier in this series. Flagged rather than reconciled:
+the wording was given verbatim, and which language the product speaks is not a decision to make in
+passing.

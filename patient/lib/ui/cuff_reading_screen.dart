@@ -42,16 +42,17 @@ class CuffReadingScreen extends StatefulWidget {
     required this.onDone,
     this.checkSessionId,
     this.isReference = false,
-    this.ocr = const CameraCuffOcrExtractor(),
+    this.ocr,
   });
 
   final ApiClient api;
   final VoidCallback onDone;
   final String? checkSessionId;
-  final bool isReference;
 
-  /// Injectable so a test can drive the flow without waiting on the mock's delay.
-  final CuffOcrExtractor ocr;
+  /// Injectable for tests. Null builds the real one, which owns a native text recogniser and
+  /// is therefore not a `const` default the way the mock was.
+  final CuffOcrExtractor? ocr;
+  final bool isReference;
 
   @override
   State<CuffReadingScreen> createState() => _CuffReadingScreenState();
@@ -63,6 +64,10 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
   final _diastolic = TextEditingController();
   final _pulse = TextEditingController();
 
+  /// Created once and closed in [dispose]. `TextRecognizer` holds a native handle; building one
+  /// per photograph leaks them, and never closing it leaks the last one for the life of the app.
+  late final CuffOcrExtractor _ocr = widget.ocr ?? CameraCuffOcrExtractor();
+
   late _Stage _stage = widget.isReference ? _Stage.choose : _Stage.enter;
   DraftCuffReading? _draft;
   bool _busy = false;
@@ -70,30 +75,35 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
 
   /// The extractor's output, when these numbers came from the camera rather than a keyboard.
   ///
-  /// **This is what the confirmation screen is disclosed from, and it is not optional.** The
-  /// extractor photographs the monitor and then discards the image unread — the numbers it returns
-  /// are fixed constants with no relationship to the device the patient just pointed the phone at.
-  /// Having taken that photograph, a patient has every reason to believe the figures came from it.
-  /// A confirm screen that shows them under "Measured / Just now" with no further comment is
-  /// fabricated data presented as real, which is invariant 9, on the path that then files a
-  /// `cuff_reading` and anchors every later mmHg estimate to it.
+  /// **This is what the confirmation screen is disclosed from, and it is not optional.** A machine
+  /// read those digits off a small display, and an 8 read as a 6 looks exactly as confident as an
+  /// 8 read as an 8. The confirm screen shows the numerals under "Measured / Just now"; without a
+  /// line saying where they came from, a patient has every reason to take them as their own
+  /// reading — on the path that files a `cuff_reading` and anchors every later mmHg estimate to
+  /// it. `MockCuffOcrExtractor`'s output carries a stronger version of the same notice, because
+  /// placeholder numbers shown unlabelled are invariant 9's exact failure.
   ///
   /// Null on the typed path, where the numbers are the patient's own and nothing needs disclosing.
   CuffOcrReading? _suggestion;
 
   @override
   void dispose() {
+    // Only the one we made. An injected extractor belongs to whoever injected it.
+    if (widget.ocr == null && _ocr is CameraCuffOcrExtractor) {
+      (_ocr as CameraCuffOcrExtractor).dispose();
+    }
     _systolic.dispose();
     _diastolic.dispose();
     _pulse.dispose();
     super.dispose();
   }
 
-  /// Opens the camera, then fills the fields from the extractor.
+  /// Photograph the display, read it on-device, and pre-fill the fields from what it said.
   ///
-  /// The default extractor takes a real photograph and then returns fixed numbers without reading
-  /// it — see `CameraCuffOcrExtractor`. The confirmation step and the simulated-reading notice
-  /// are what keep that honest, and neither is skippable.
+  /// The recognition is real now — ML Kit, locally, with the image discarded afterwards — but it
+  /// changes nothing about the flow it feeds. The suggestion still lands on a confirm stage, the
+  /// confidence is still shown and never acted on, and a reading saved from here is still
+  /// `manual_entry`, because what the record attests is that a person read the display and agreed.
   Future<void> _photograph() async {
     setState(() {
       _stage = _Stage.reading;
@@ -102,10 +112,22 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
 
     final CuffOcrReading reading;
     try {
-      reading = await widget.ocr.extract();
+      reading = await _ocr.extract();
     } on CuffOcrCancelled {
       // Backed out at the camera. Return to the choice, pre-fill nothing.
       if (mounted) setState(() => _stage = _Stage.choose);
+      return;
+    } on CuffOcrUnreadable {
+      // A photograph was taken and no plausible pair came out of it. That is an ordinary event —
+      // a display at an angle, a reflection, an unlit LCD — and not an error to apologise for, so
+      // it drops straight to typing with the reason stated once.
+      if (mounted) {
+        setState(() {
+          _error =
+              'Those numbers could not be read from the photograph. Type them in instead.';
+          _stage = _Stage.enter;
+        });
+      }
       return;
     } on Object catch (e) {
       if (mounted) {
@@ -783,15 +805,24 @@ class _CuffReadingScreenState extends State<CuffReadingScreen> {
   /// the app saves without asking: a confident misread of a seven-segment display is the failure
   /// this whole flow exists to catch, and an 8 read as a 6 looks exactly as confident as an 8 read
   /// as an 8. The line under it says so in the patient's own terms.
+  ///
+  /// Two notices, because the extractor now has two kinds of output and the difference matters:
+  /// a real reading is a machine's guess at a real display, and the mock's numbers are not a
+  /// reading of anything. Invariant 9 is about the second being labelled as such.
+  static const String _simulatedNotice =
+      'Simulated reading. No photograph was read and these numbers came from nothing on your '
+      'device — they are placeholders while this feature is built. Replace them with what your '
+      'cuff shows.';
+
   Widget _simulatedPanel(CuffOcrReading reading) => Container(
     decoration: systemFlagDecoration(),
     padding: const EdgeInsets.all(TeraSpacing.md),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
-          simulatedOcrNotice,
-          style: TextStyle(color: TeraColors.ink, height: 1.4),
+        Text(
+          reading.simulated ? _simulatedNotice : ocrSuggestionNotice,
+          style: const TextStyle(color: TeraColors.ink, height: 1.4),
         ),
         const SizedBox(height: TeraSpacing.sm),
         Text(

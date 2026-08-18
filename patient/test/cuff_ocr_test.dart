@@ -179,7 +179,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.textContaining('Simulated reading'), findsOneWidget);
-      expect(find.textContaining('No photograph was taken'), findsOneWidget);
+      expect(find.textContaining('came from nothing on your device'), findsOneWidget);
     });
 
     testWidgets('reports confidence without letting it stand in for a check', (

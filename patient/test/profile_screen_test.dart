@@ -353,7 +353,10 @@ void main() {
       await _pump(tester, _api(_happy()));
 
       expect(find.textContaining('set 9 days ago'), findsOneWidget);
-      expect(find.text('Recalibrate with a cuff'), findsOneWidget);
+      // Renamed: the button starts the full calibration run — capture, then cuff — rather than
+      // opening the cuff screen alone, which could never produce a calibration.
+      expect(find.text('Recalibrate'), findsOneWidget);
+      expect(find.textContaining('a recording and a cuff reading together'), findsOneWidget);
     });
 
     testWidgets('a refresh due is named, and never called expired', (
@@ -388,7 +391,7 @@ void main() {
       );
 
       expect(find.text('Not calibrated'), findsOneWidget);
-      expect(find.text('Calibrate with a cuff'), findsOneWidget);
+      expect(find.text('Calibrate'), findsOneWidget);
     });
   });
 

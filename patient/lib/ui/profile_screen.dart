@@ -35,6 +35,7 @@ import '../export/pdf_export_service.dart';
 import '../notifications/notification_service.dart';
 import '../routing/app_flow_state.dart';
 import '../routing/app_router.dart';
+import '../routing/check_launcher.dart';
 import '../routing/check_session.dart';
 import '../routing/routes.dart';
 import 'account_screens.dart';
@@ -215,16 +216,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (saved == true && mounted) await _load();
   }
 
-  Future<void> _recordCuffReading() async {
-    final navigator = Navigator.of(context);
-    await navigator.push(
-      MaterialPageRoute<void>(
-        builder: (_) => CuffReadingScreen(
-          api: widget.api,
-          isReference: true,
-          onDone: () => navigator.pop(),
-        ),
-      ),
+  /// Start a calibration run: capture first, then the cuff reading, then submission.
+  ///
+  /// **This used to open `CuffReadingScreen` on its own, and that could not calibrate anything.**
+  /// A calibration is a pairing — `POST /v1/calibrations` takes a `reference_cuff_reading_id` and
+  /// `session_ids` together, and the server derives `baseline_mean_ms` from those sessions' PTT.
+  /// A cuff reading filed with no capture beside it leaves nothing to anchor, so
+  /// `pressure_estimate.estimate()` keeps returning `None` for want of a baseline. The button
+  /// reported success and the patient stayed uncalibrated.
+  ///
+  /// It routes through [launchCheck] rather than pushing the flow directly, so this entry point
+  /// inherits the symptom triage that has to precede any capture (invariant 8) instead of
+  /// reimplementing it.
+  Future<void> _startCalibration() async {
+    final flow = widget.flow;
+    final controller = auth;
+    if (flow == null || controller == null) return;
+
+    await launchCheck(
+      context,
+      flow: flow,
+      auth: controller,
+      forceCalibration: true,
     );
     if (mounted) await _load();
   }
@@ -782,11 +795,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ],
           const SizedBox(height: TeraSpacing.md),
           OutlinedButton(
-            onPressed: _isGuest ? null : _recordCuffReading,
+            // Disabled without a flow as well as for a guest: the launcher needs one, and a
+            // button that silently does nothing is worse than one that is visibly unavailable.
+            onPressed: (_isGuest || widget.flow == null) ? null : _startCalibration,
             child: Text(
               (_reference?['has_reference'] as bool? ?? false)
-                  ? 'Recalibrate with a cuff'
-                  : 'Calibrate with a cuff',
+                  ? 'Recalibrate'
+                  : 'Calibrate',
+            ),
+          ),
+          const SizedBox(height: TeraSpacing.sm),
+          const Text(
+            'Calibrating takes a recording and a cuff reading together — one without the other '
+            'cannot set your baseline.',
+            style: TextStyle(
+              color: TeraColors.neutral700,
+              fontSize: TeraText.micro,
+              height: 1.4,
             ),
           ),
         ],

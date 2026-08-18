@@ -44,6 +44,11 @@ dependencies:
   # constant in source drifts from the artifact the moment one is bumped without the other, and the
   # whole point of showing it is that a bug report names the build it came from.
   package_info_plus: ^8.1.2
+  # Reads the numbers off a tensimeter display. On-device ML Kit text recognition: the photograph
+  # never leaves the handset, which is the only arrangement compatible with a health record — a
+  # cloud OCR call would send a picture of a patient's blood pressure to a third party.
+  google_mlkit_text_recognition: ^0.15.0
+
   # Opens the privacy policy and support links in the system browser. An in-app webview would put
   # a Tera-branded chrome around a page Tera does not control, which is the wrong claim to make
   # about someone else's document.

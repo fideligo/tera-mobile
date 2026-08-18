@@ -15,6 +15,7 @@ import '../capture/phr_profile.dart';
 import '../capture/session_context.dart';
 import '../routing/check_payload.dart';
 import '../routing/app_router.dart';
+import '../routing/check_launcher.dart';
 import '../routing/routes.dart';
 import 'context_intake_screen.dart';
 import 'guest_gate_screen.dart';
@@ -828,90 +829,13 @@ class _HomeScreenState extends State<HomeScreen> {
   /// is offered, and putting it after the eligibility probe would make someone reporting chest
   /// pain wait through six seconds of sensor measurement — which can itself end in "this phone
   /// cannot be used", swallowing the report entirely.
+  /// Start a spot check. Whether it is also a calibration run is the launcher's question to ask.
   void _startSpotCheck(BuildContext context) {
-    final navigator = Navigator.of(context);
     final flow = widget.flow;
-
-    // Invariant 8 comes first either way. The PM spec's startCheck() begins at the BP reference
-    // or the pre-check; a patient reporting chest pain must not be walked through either.
-    navigator.push(
-      MaterialPageRoute<void>(
-        builder: (_) => SymptomTriageScreen(
-          api: auth.api,
-          onDone: () => navigator.popUntil((route) => route.isFirst),
-          onProceed: () async {
-            if (flow != null) {
-              // Section 38: eligible + needs reference -> BPREF, otherwise PRECHECK; not
-              // eligible -> PRECHECK in BP-only mode.
-              // **First-time calibration is decided by the record, not by local state.**
-              //
-              // `flow.startCheck()` consults `BpReferenceStatus`, which lives in this install's
-              // storage — so a reinstall or a second handset would walk a patient with months of
-              // history back through first-time calibration, and a cleared server account would
-              // skip it for someone who has never calibrated. The server's own count is the only
-              // thing that answers "has this person ever recorded a reading".
-              //
-              // Unreachable is treated as "not first time": the calibration path needs the
-              // network anyway to be worth anything, and sending someone down it on a failed
-              // request would be the worse of the two guesses.
-              var isFirstTime = false;
-              if (auth.isSignedIn) {
-                try {
-                  // `type=cuff_reading`, not every entry.
-                  //
-                  // "Has this person ever calibrated" is a question about cuff readings
-                  // specifically. Asking for any history at all counted a rejected capture, or a
-                  // trend from a check that was never calibrated, as evidence of calibration —
-                  // so the very first check would file *something*, and every check after it
-                  // skipped the cuff step forever on that basis.
-                  final history = await auth.api.getJson(
-                    '/v1/history?range=all&type=cuff_reading&limit=1',
-                  );
-                  final entries = history['entries'] as List<dynamic>? ?? [];
-                  isFirstTime = entries.isEmpty;
-                } on Object {
-                  isFirstTime = false;
-                }
-              }
-
-              final step = flow.startCheck();
-
-              // The check session is opened here, before the first screen that collects anything,
-              // so PRE-01 and CTX-01 have somewhere to go in both modes.
-              String? checkSessionId;
-              try {
-                final resolved = await SessionContextResolver(
-                  api: auth.api,
-                ).resolveEpisode();
-                checkSessionId = await CheckSessionClient(
-                  api: auth.api,
-                ).open(episodeId: resolved.episodeId, mode: step.session.mode);
-              } on Object {
-                // Opening failed - most often the contraindication gate at the door, or no
-                // network. The flow still runs and the answers are still collected locally; they
-                // simply have nothing to attach to, which the processing screen reports.
-              }
-
-              navigator.pushReplacementNamed(
-                // History exists, so this is not a first run: go straight into the check the
-                // state machine chose. No history, and the calibration intro explains recording
-                // with a cuff alongside the phone before it hands over to that same flow.
-                isFirstTime ? Routes.checkCalibrationIntro : step.route,
-                arguments: CheckArgs(
-                  step.session,
-                  CheckPayload(
-                    checkSessionId: checkSessionId,
-                    firstTimeCalibration: isFirstTime,
-                  ),
-                ),
-              );
-              return;
-            }
-            throw UnimplementedError('Legacy testing route is removed.');
-          },
-        ),
-      ),
-    );
+    if (flow == null) {
+      throw UnimplementedError('Legacy testing route is removed.');
+    }
+    launchCheck(context, flow: flow, auth: auth);
   }
 }
 
