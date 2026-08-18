@@ -2295,3 +2295,50 @@ Still unaddressed, and noticed while in here: `notification_service.dart` passes
 `@mipmap/ic_launcher` as the notification small icon. Android renders small icons as a
 white-on-transparent silhouette, so a full-colour launcher icon becomes a white blob in the status
 bar. It wants its own monochrome drawable. Not part of this change.
+
+## The Profile tab's account half: name, password, deletion, metadata
+
+**The display name is local, and now provably so.** `PhrProfile.displayName` already existed and
+already lived in `tera.phr_profile`; what was missing was a way to set it and a test that it never
+travels. `/v1/auth/register-patient` mints a pseudonym and its docstring says deriving a name from
+the sign-up details would put one into the clinical record sideways, so the guarantee matters:
+`profile_screen_test.dart` now asserts that saving a name produces *no request at all*, and that no
+POST body anywhere carries a name field. The row says "Local display name" and names the
+consequence a patient can act on — it does not follow you to another device, and signing out
+removes it (it is in `teraSecureKeys`, so the wipe takes it).
+
+**A real bug came out of writing that test.** The name dialog created its `TextEditingController`
+at the call site and disposed it the moment `showDialog` returned — which is too early. The route is
+still running its exit animation and the field is still mounted, so the dispose landed mid-teardown
+and threw "used after being disposed", six times per open. It is a `_DisplayNameDialog` widget now,
+owning its controller, which ties the lifetime to the thing that uses it.
+
+**Deletion is plum, not red.** Standing constraint 5 reserves plum for system state and
+differentiates physiological state by form rather than hue. A destructive *account* action is system
+state, so plum is the correct register; introducing a red that exists nowhere else in the product
+would make this the loudest thing on the screen, which is not the same as the clearest.
+
+**The close screen states both halves.** Deleted: the email, the password, the ability to sign in,
+everything on the phone. Kept: the readings under a pseudonym, and a security log recording that the
+account existed and closed. That last line is there because it is true — the audit log is
+append-only and every prior sign-in already wrote the address into it — and because a promise of
+total erasure that the database will not honour is worse than an accurate limit.
+
+**Two gates before the button enables**: the password, which the server checks, and the typed word
+`DELETE`, which stops a mis-tap reaching it. Neither is decorative.
+
+**The version is read from the package, off the critical path.** A constant in Dart drifts from the
+artifact the first time one is bumped without the other, and the entire point of printing a build
+number is that a bug report names the build it came from. It is fetched outside `_load` because
+`PackageInfo.fromPlatform` does not throw without a platform channel — it never completes, so
+awaiting it left the whole profile on a shimmer that never resolved, waiting on the least important
+string on the screen.
+
+**Privacy policy and support open in the system browser.** An in-app webview would wrap Tera's
+chrome around a document Tera does not control, which is the wrong claim to make about someone
+else's page. Both URLs are constants so there is one place to change when the real pages exist, and
+a test asserts the tiles point at something rather than nothing.
+
+`minPasswordLength` was nearly duplicated into `account_screens.dart` before the compiler caught it:
+`api_client.dart` already mirrors the server's figure for the sign-up form. Two copies of one rule is
+how two forms come to disagree about it.

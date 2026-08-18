@@ -19,11 +19,13 @@ import 'package:http/testing.dart';
 import 'package:tera_patient/api/api_client.dart';
 import 'package:tera_patient/auth/auth_controller.dart';
 import 'package:tera_patient/auth/token_store.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:tera_patient/capture/phr_profile.dart';
 import 'package:tera_patient/notifications/notification_service.dart';
 import 'package:tera_patient/routing/app_flow_state.dart';
 import 'package:tera_patient/routing/app_router.dart';
 import 'package:tera_patient/routing/check_session.dart';
+import 'package:tera_patient/ui/account_screens.dart';
 import 'package:tera_patient/ui/profile_edit_sheet.dart';
 import 'package:tera_patient/ui/profile_screen.dart';
 
@@ -125,6 +127,7 @@ Future<void> _pump(
   AppFlowState? flowState,
   PhrProfile local = const PhrProfile(displayName: 'Rafi'),
   bool settle = true,
+  bool guest = false,
 }) async {
   tester.view.physicalSize = const Size(1080, 2400);
   tester.view.devicePixelRatio = 1.0;
@@ -132,6 +135,9 @@ Future<void> _pump(
 
   final store = InMemoryPhrProfileStore();
   await store.write(local);
+
+  final auth = AuthController(api: api);
+  if (guest) auth.continueAsGuest();
 
   TeraFlow? flow;
   if (flowState != null) {
@@ -147,6 +153,7 @@ Future<void> _pump(
     MaterialApp(
       home: ProfileScreen(
         api: api,
+        auth: guest ? auth : null,
         flow: flow,
         profileStore: store,
         // In memory, so the screen does not reach for the Keystore, which has no platform channel
@@ -156,6 +163,21 @@ Future<void> _pump(
     ),
   );
   if (settle) await tester.pumpAndSettle();
+}
+
+/// Bring `finder` into the built range of the profile's ListView.
+///
+/// The profile is eight sections deep and a ListView only builds what fits, so anything below
+/// Device & calibration simply does not exist until it is scrolled to. Enlarging the test surface
+/// instead trips a framework assertion in `_RawViewElement` when the next test resets it, which is
+/// a worse trade than one extra line here.
+Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(
+    finder,
+    400,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -466,6 +488,234 @@ void main() {
 
       // Saved and dismissed.
       expect(find.text('Your health record'), findsNothing);
+    });
+  });
+  group('the display name never leaves the phone', () {
+    testWidgets('saving a name makes no request at all', (tester) async {
+      // The guarantee, asserted rather than described. `/v1/auth/register-patient` mints a
+      // pseudonym and its docstring says deriving a name from the sign-up details would put one
+      // into the clinical record sideways — so the name lives in the Keystore and neither
+      // `ProfileEditSheet._changes` nor `PhrSubmitter.toPayload` has a field for it.
+      await _pump(tester, _api(_happy()));
+      final before = requests.length;
+
+      await tester.tap(find.byTooltip('Edit display name'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, 'Rafi Ghali');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(
+        requests.length,
+        before,
+        reason: 'a display name must never reach the API: $requests',
+      );
+      expect(find.text('Rafi Ghali'), findsOneWidget);
+    });
+
+    testWidgets('no request body ever carries a name field', (tester) async {
+      // Belt and braces: even the clinical edit, which does post, must not grow a name field.
+      await _pump(tester, _api(_happy()));
+      await tester.tap(find.text('Edit'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).at(1), '71');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      for (final r in requests.where((r) => r.method == 'POST')) {
+        final body = r.body.toLowerCase();
+        expect(body, isNot(contains('display_name')));
+        expect(body, isNot(contains('"name"')));
+      }
+    });
+
+    testWidgets('it is labelled as local, and says what sign-out does to it', (
+      tester,
+    ) async {
+      await _pump(tester, _api(_happy()));
+
+      expect(find.textContaining('Local display name'), findsOneWidget);
+      expect(find.textContaining('signing out removes it'), findsOneWidget);
+    });
+  });
+
+  group('security and the danger zone', () {
+    testWidgets('both are offered, and deletion is not dressed up', (tester) async {
+      await _pump(tester, _api(_happy()));
+
+      await _scrollTo(tester, find.text('Change password'));
+      expect(find.text('Change password'), findsOneWidget);
+
+      await _scrollTo(tester, find.textContaining('kept under a pseudonym'));
+      expect(find.text('Delete account'), findsWidgets);
+      // The section states the retention position before the patient taps into it, so the
+      // consequence is visible without committing to the flow.
+      await _scrollTo(tester, find.textContaining('kept under a pseudonym'));
+      expect(find.textContaining('kept under a pseudonym'), findsOneWidget);
+    });
+
+    testWidgets('a guest is offered neither', (tester) async {
+      // A guest has no account to secure and none to delete.
+      await _pump(tester, _api(_happy()), guest: true);
+
+      await _scrollTo(tester, find.text('Change password'));
+      final changePassword = tester.widget<ListTile>(
+        find.ancestor(
+          of: find.text('Change password'),
+          matching: find.byType(ListTile),
+        ),
+      );
+      expect(changePassword.onTap, isNull);
+    });
+  });
+
+  group('production metadata', () {
+    testWidgets('the version footer degrades honestly without a platform', (
+      tester,
+    ) async {
+      // `PackageInfo.fromPlatform` never completes without a platform channel, which is why it
+      // is fetched off the load path. The footer names the app and declines to invent a version.
+      await _pump(tester, _api(_happy()));
+
+      await _scrollTo(tester, find.text('TERA'));
+      expect(find.text('TERA'), findsOneWidget);
+      expect(find.textContaining('v1.0.0'), findsNothing);
+    });
+
+    testWidgets('the version is shown once the platform answers', (tester) async {
+      PackageInfo.setMockInitialValues(
+        appName: 'TERA',
+        packageName: 'id.tera.tera_patient',
+        version: '0.2.0',
+        buildNumber: '42',
+        buildSignature: '',
+      );
+      await _pump(tester, _api(_happy()));
+      await tester.pumpAndSettle();
+
+      await _scrollTo(tester, find.text('TERA v0.2.0 (build 42)'));
+      expect(find.text('TERA v0.2.0 (build 42)'), findsOneWidget);
+    });
+
+    testWidgets('the policy and support tiles are present and wired', (tester) async {
+      await _pump(tester, _api(_happy()));
+
+      await _scrollTo(tester, find.text('Privacy policy'));
+      expect(find.text('Privacy policy'), findsOneWidget);
+      expect(find.text('Help & support'), findsOneWidget);
+      // Wired to a real destination rather than a dead tile.
+      expect(privacyPolicyUrl, startsWith('https://'));
+      expect(supportUrl, startsWith('https://'));
+    });
+  });
+
+  group('the close-account screen states both halves', () {
+    testWidgets('it names what is deleted and what is kept', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CloseAccountScreen(
+            api: _api(_happy()),
+            onClosed: () {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Deleted'), findsOneWidget);
+      expect(find.text('Kept, with nothing linking it to you'), findsOneWidget);
+      // The promise the system can actually keep. Claiming a total erasure would be the more
+      // serious failure, since the clinical rows are trigger-protected and cannot be removed.
+      expect(find.textContaining('under a pseudonym'), findsOneWidget);
+    });
+
+    testWidgets('the button stays disabled until both gates are satisfied', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: CloseAccountScreen(api: _api(_happy()), onClosed: () {}),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      FilledButton deleteButton() => tester.widget<FilledButton>(
+        find.widgetWithText(FilledButton, 'Delete my account'),
+      );
+
+      expect(deleteButton().onPressed, isNull, reason: 'nothing entered yet');
+
+      await tester.enterText(find.byType(TextFormField).at(0), 'a-password');
+      await tester.pumpAndSettle();
+      expect(deleteButton().onPressed, isNull, reason: 'password alone is not enough');
+
+      await tester.enterText(find.byType(TextFormField).at(1), 'delete me');
+      await tester.pumpAndSettle();
+      expect(deleteButton().onPressed, isNull, reason: 'the word has to match');
+
+      await tester.enterText(find.byType(TextFormField).at(1), 'DELETE');
+      await tester.pumpAndSettle();
+      expect(deleteButton().onPressed, isNotNull);
+    });
+  });
+
+  group('changing a password', () {
+    testWidgets('a mismatched confirmation never reaches the API', (tester) async {
+      final api = _api(_happy());
+      await tester.pumpWidget(
+        MaterialApp(home: ChangePasswordScreen(api: api, onDone: () {})),
+      );
+      await tester.pumpAndSettle();
+      final before = requests.length;
+
+      await tester.enterText(find.byType(TextFormField).at(0), 'current-password');
+      await tester.enterText(find.byType(TextFormField).at(1), 'a-new-long-password');
+      await tester.enterText(find.byType(TextFormField).at(2), 'a-different-password');
+      await tester.tap(find.widgetWithText(FilledButton, 'Change password'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('do not match'), findsOneWidget);
+      expect(requests.length, before);
+    });
+
+    testWidgets('a short password is refused locally, naming the length', (
+      tester,
+    ) async {
+      final api = _api(_happy());
+      await tester.pumpWidget(
+        MaterialApp(home: ChangePasswordScreen(api: api, onDone: () {})),
+      );
+      await tester.pumpAndSettle();
+      final before = requests.length;
+
+      await tester.enterText(find.byType(TextFormField).at(0), 'current-password');
+      await tester.enterText(find.byType(TextFormField).at(1), 'short');
+      await tester.enterText(find.byType(TextFormField).at(2), 'short');
+      await tester.tap(find.widgetWithText(FilledButton, 'Change password'));
+      await tester.pumpAndSettle();
+
+      // Caught here rather than turned into a 422 whose body is a Pydantic error list.
+      expect(find.textContaining('$minPasswordLength characters'), findsOneWidget);
+      expect(requests.length, before);
+    });
+
+    testWidgets('a wrong current password reads as one, not as a lost session', (
+      tester,
+    ) async {
+      // The server answers 403 precisely so the client's transparent-refresh path does not read
+      // it as a dead session and sign the patient out mid-form.
+      final api = _api({'/v1/auth/password': (403, {'detail': 'nope'})});
+      await tester.pumpWidget(
+        MaterialApp(home: ChangePasswordScreen(api: api, onDone: () {})),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextFormField).at(0), 'wrong-password');
+      await tester.enterText(find.byType(TextFormField).at(1), 'a-new-long-password');
+      await tester.enterText(find.byType(TextFormField).at(2), 'a-new-long-password');
+      await tester.tap(find.widgetWithText(FilledButton, 'Change password'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('That is not your current password.'), findsOneWidget);
     });
   });
 }

@@ -23,7 +23,9 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:printing/printing.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api/api_client.dart';
 import '../auth/auth_controller.dart';
@@ -35,6 +37,7 @@ import '../routing/app_flow_state.dart';
 import '../routing/app_router.dart';
 import '../routing/check_session.dart';
 import '../routing/routes.dart';
+import 'account_screens.dart';
 import 'cuff_reading_screen.dart';
 import 'profile_edit_sheet.dart';
 import 'tokens.dart';
@@ -85,6 +88,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   bool _exporting = false;
 
+  /// The running build, read from the package rather than restated in Dart. Null until it
+  /// arrives, or if the platform channel is unavailable — the footer then says so rather than
+  /// printing a version nobody can check against.
+  PackageInfo? _packageInfo;
+
   bool _loading = true;
 
   /// Set when the account itself could not be read. Rendered as a banner above whatever did
@@ -108,6 +116,25 @@ class _ProfileScreenState extends State<ProfileScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+    _loadPackageInfo();
+  }
+
+  /// The build string, fetched off the critical path.
+  ///
+  /// **Deliberately not awaited inside [_load].** `PackageInfo.fromPlatform` does not throw when
+  /// there is no platform channel behind it — it never completes. Awaiting it in the load meant
+  /// `_loading` stayed true forever, so the whole profile sat on a shimmer that never resolved,
+  /// waiting on a version string. Nothing on this screen should be gated by the least important
+  /// thing on it; the footer fills in when the answer arrives, and reads "TERA" until it does.
+  Future<void> _loadPackageInfo() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (mounted) setState(() => _packageInfo = info);
+    } on Object {
+      // Unavailable. The footer names the app without a version, which is honest; inventing
+      // "1.0.0" would defeat the point of printing it, which is that a bug report identifies the
+      // exact build it came from.
+    }
   }
 
   Future<void> _load() async {
@@ -307,6 +334,96 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // ------------------------------------------------------------- display name
+
+  /// Set the name this phone greets the patient by.
+  ///
+  /// **Local only, and structurally so.** `/v1/auth/register-patient` takes a subject and a
+  /// password and mints a pseudonym; the docstring there says outright that deriving a name from
+  /// the sign-up details would put one into the clinical record sideways. So the name lives in
+  /// `PhrProfile.displayName`, which is written to `tera.phr_profile` in the Keystore, and the two
+  /// things that build API payloads — `ProfileEditSheet._changes` and `PhrSubmitter.toPayload` —
+  /// neither read it nor have a field for it. `profile_screen_test.dart` asserts that a saved name
+  /// produces no request at all.
+  Future<void> _editDisplayName() async {
+    final name = await showDialog<String>(
+      context: context,
+      builder: (_) => _DisplayNameDialog(initial: _local.displayName ?? ''),
+    );
+    if (name == null || !mounted) return;
+
+    // An empty box clears it rather than storing "", so the greeting falls back to the neutral
+    // wording instead of rendering a blank where a name should be.
+    final next = _local.copyWith(displayName: name.isEmpty ? null : name);
+    await _store.write(next);
+    if (mounted) setState(() => _local = next);
+  }
+
+  // ----------------------------------------------------------------- account
+
+  Future<void> _changePassword() async {
+    final navigator = Navigator.of(context);
+    await navigator.push(
+      MaterialPageRoute<void>(
+        builder: (_) => ChangePasswordScreen(
+          api: widget.api,
+          // The server revokes every refresh token on success, this device's included, so there
+          // is no session left to return to. Signing out locally and going to the door is the
+          // only honest destination.
+          onDone: () async {
+            try {
+              await auth?.signOut();
+            } on Object {
+              // The credential is already changed server-side; a failed revoke must not strand
+              // the patient on a screen belonging to a session that no longer works.
+            }
+            navigator.pushNamedAndRemoveUntil(Routes.login, (r) => false);
+          },
+        ),
+      ),
+    );
+  }
+
+  /// Close the account, then run the same wipe sign-out runs.
+  ///
+  /// `wipeLocalPatientData` is reached through [AuthController.signOut] rather than called here, so
+  /// there is exactly one definition of "remove this patient from this device" and the registry
+  /// test that guards it covers this path too.
+  Future<void> _deleteAccount() async {
+    final navigator = Navigator.of(context);
+    await navigator.push(
+      MaterialPageRoute<void>(
+        builder: (_) => CloseAccountScreen(
+          api: widget.api,
+          onClosed: () async {
+            try {
+              await auth?.signOut();
+            } on Object {
+              // The account is already gone server-side. The local wipe inside signOut is the
+              // half that still matters, and it runs whether or not the revoke call succeeds.
+            }
+            navigator.pushNamedAndRemoveUntil(Routes.login, (r) => false);
+          },
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------------ links
+
+  Future<void> _open(String url, String label) async {
+    final uri = Uri.parse(url);
+    try {
+      final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!ok) throw StateError('no handler');
+    } on Object {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open $label. Try $url in your browser.')),
+      );
+    }
+  }
+
   /// Clear the session and go back to the door.
   ///
   /// Two halves, and both matter. [AuthController.signOut] wipes every local store — not just the
@@ -390,8 +507,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
             _reminderSection(),
             const SizedBox(height: TeraSpacing.md),
             _exportSection(),
+            const SizedBox(height: TeraSpacing.md),
+            _accountSecuritySection(),
+            const SizedBox(height: TeraSpacing.md),
+            _aboutSection(),
             const SizedBox(height: TeraSpacing.lg),
             _signOutButton(),
+            const SizedBox(height: TeraSpacing.md),
+            _dangerZone(),
+            const SizedBox(height: TeraSpacing.md),
+            _versionFooter(),
             const SizedBox(height: TeraSpacing.lg),
           ],
         ),
@@ -445,11 +570,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: TeraSpacing.sm),
           const _ShimmerLine(width: 240),
         ] else ...[
-          _Row(
+          _EditableRow(
             label: 'Name',
             value: _isGuest
                 ? 'Guest'
                 : (name == null || name.isEmpty ? 'Not set' : name),
+            onEdit: _isGuest ? null : _editDisplayName,
           ),
           _Row(
             label: 'Email',
@@ -457,8 +583,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           const SizedBox(height: TeraSpacing.sm),
           const Text(
-            'Your name is kept on this phone only — Tera does not store it on the server, so it '
-            'will not follow you to another device.',
+            'Local display name — kept on this phone only. Tera does not store it on the server, '
+            'so it will not follow you to another device, and signing out removes it.',
             style: TextStyle(
               color: TeraColors.neutral700,
               fontSize: TeraText.micro,
@@ -805,6 +931,108 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ],
   );
 
+  Widget _accountSecuritySection() => _Card(
+    title: 'Security',
+    children: [
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.lock_outline, color: TeraColors.ink),
+        title: const Text(
+          'Change password',
+          style: TextStyle(color: TeraColors.ink, fontSize: TeraText.small),
+        ),
+        subtitle: const Text(
+          'Signs you out on every device',
+          style: TextStyle(color: TeraColors.neutral700, fontSize: TeraText.micro),
+        ),
+        trailing: const Icon(Icons.chevron_right, color: TeraColors.neutral500),
+        onTap: _isGuest ? null : _changePassword,
+        enabled: !_isGuest,
+      ),
+    ],
+  );
+
+  Widget _aboutSection() => _Card(
+    title: 'About',
+    children: [
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.privacy_tip_outlined, color: TeraColors.ink),
+        title: const Text(
+          'Privacy policy',
+          style: TextStyle(color: TeraColors.ink, fontSize: TeraText.small),
+        ),
+        trailing: const Icon(Icons.open_in_new, size: 18, color: TeraColors.neutral500),
+        onTap: () => _open(privacyPolicyUrl, 'the privacy policy'),
+      ),
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.help_outline, color: TeraColors.ink),
+        title: const Text(
+          'Help & support',
+          style: TextStyle(color: TeraColors.ink, fontSize: TeraText.small),
+        ),
+        trailing: const Icon(Icons.open_in_new, size: 18, color: TeraColors.neutral500),
+        onTap: () => _open(supportUrl, 'support'),
+      ),
+    ],
+  );
+
+  /// Deletion, kept below sign-out and visually separated.
+  ///
+  /// Plum rather than a warning red: the palette reserves plum for system state and differentiates
+  /// physiological state by form, never hue (standing constraint 5). A destructive *account*
+  /// action is system state, so plum is the right register — and introducing a red that exists
+  /// nowhere else in the product would make this the single loudest thing on the screen.
+  Widget _dangerZone() => _Card(
+    title: 'Delete account',
+    children: [
+      const Text(
+        'Removes your sign-in details permanently. Your readings are kept under a pseudonym with '
+        'no name or contact attached — health-record rules require that, and the next screen sets '
+        'out exactly what goes and what stays.',
+        style: TextStyle(
+          color: TeraColors.ink,
+          fontSize: TeraText.small,
+          height: 1.45,
+        ),
+      ),
+      const SizedBox(height: TeraSpacing.md),
+      OutlinedButton(
+        onPressed: _isGuest ? null : _deleteAccount,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: TeraColors.plum,
+          side: const BorderSide(color: TeraColors.plum),
+          padding: const EdgeInsets.symmetric(vertical: TeraSpacing.md),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(TeraRadius.button),
+          ),
+        ),
+        child: const Text(
+          'Delete account',
+          style: TextStyle(fontSize: TeraText.body, fontWeight: FontWeight.bold),
+        ),
+      ),
+    ],
+  );
+
+  /// The build, for a bug report to name.
+  ///
+  /// Read from the package at runtime rather than written into Dart: a constant in source drifts
+  /// from the artifact the first time one is bumped without the other, and a version string that
+  /// might be lying is worse than none.
+  Widget _versionFooter() => Center(
+    child: Text(
+      _packageInfo == null
+          ? 'TERA'
+          : 'TERA v${_packageInfo!.version} (build ${_packageInfo!.buildNumber})',
+      style: const TextStyle(
+        color: TeraColors.neutral500,
+        fontSize: TeraText.micro,
+      ),
+    ),
+  );
+
   Widget _signOutButton() => OutlinedButton(
     onPressed: _logOut,
     style: OutlinedButton.styleFrom(
@@ -821,6 +1049,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     ),
   );
 }
+
+/// Where the two About links point.
+///
+/// Constants rather than inline strings so there is one place to change when the real pages land,
+/// and so a test can assert the tiles are wired to something rather than to nothing. Both are
+/// opened in the system browser: an in-app webview would wrap Tera's chrome around a document
+/// Tera does not control.
+const String privacyPolicyUrl = 'https://tera.id/privacy';
+const String supportUrl = 'https://tera.id/support';
 
 /// One request's outcome, kept whole so a 404 can be told from a failure.
 class _Fetched {
@@ -868,6 +1105,108 @@ class _Card extends StatelessWidget {
         ...children,
       ],
     ),
+  );
+}
+
+/// The display-name prompt.
+///
+/// A widget rather than an inline `AlertDialog` with a controller created beside it, because a
+/// controller created at the call site has to be disposed there too — and disposing it the moment
+/// `showDialog` returns is too early. The route is still running its exit animation and the field
+/// is still mounted, so the dispose lands mid-teardown and throws "A TextEditingController was
+/// used after being disposed". Owning it here ties its lifetime to the widget that uses it.
+class _DisplayNameDialog extends StatefulWidget {
+  const _DisplayNameDialog({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_DisplayNameDialog> createState() => _DisplayNameDialogState();
+}
+
+class _DisplayNameDialogState extends State<_DisplayNameDialog> {
+  late final TextEditingController _controller =
+      TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(TeraRadius.card),
+    ),
+    backgroundColor: TeraColors.paper,
+    title: const Text(
+      'Display name',
+      style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
+    ),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _controller,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          decoration: const InputDecoration(
+            labelText: 'What should Tera call you?',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: TeraSpacing.md),
+        const Text(
+          'Kept on this phone only. Tera does not store your name on its servers, so it will not '
+          'follow you to another device, and signing out removes it.',
+          style: TextStyle(
+            color: TeraColors.neutral700,
+            fontSize: TeraText.micro,
+            height: 1.4,
+          ),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+        style: FilledButton.styleFrom(
+          backgroundColor: TeraColors.ink,
+          foregroundColor: TeraColors.paper,
+        ),
+        child: const Text('Save'),
+      ),
+    ],
+  );
+}
+
+/// A [_Row] with an edit affordance on the end.
+class _EditableRow extends StatelessWidget {
+  const _EditableRow({required this.label, required this.value, this.onEdit});
+
+  final String label;
+  final String value;
+  final VoidCallback? onEdit;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(child: _Row(label: label, value: value)),
+      if (onEdit != null)
+        IconButton(
+          onPressed: onEdit,
+          iconSize: 18,
+          visualDensity: VisualDensity.compact,
+          tooltip: 'Edit display name',
+          icon: const Icon(Icons.edit_outlined, color: TeraColors.baltic),
+        ),
+    ],
   );
 }
 
