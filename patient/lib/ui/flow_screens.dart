@@ -23,6 +23,7 @@ import '../routing/check_payload.dart';
 import '../routing/app_router.dart';
 import '../routing/check_session.dart';
 import '../routing/routes.dart';
+import '../signal/rejection_messages.dart';
 import '../signal/signal_pipeline.dart';
 import 'capture_screen.dart';
 import 'cuff_reading_screen.dart';
@@ -748,16 +749,12 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
   ///
   /// Every reason names something about the *recording*, never about the patient's health — a
   /// refused capture says the phone could not read the signal, and must not read as a finding.
-  static String _rejectionDetail(SignalRejection? reason) => switch (reason) {
-    SignalRejection.excessiveMotion => 'There was too much movement to read the signal.',
-    SignalRejection.insufficientBeats =>
-      'Too few heartbeats came through clearly for a measurement.',
-    SignalRejection.clockUnstable =>
-      'The camera and motion sensor could not be placed on one timeline.',
-    SignalRejection.signalProcessingUnavailable =>
-      'The analysis could not be completed for this recording.',
-    _ => 'The camera and motion signals were not clear enough.',
-  };
+  /// What the patient is told, from the one table that words a refusal.
+  ///
+  /// Was a second copy of the same switch, in English, while the capture screen's abort spoke
+  /// Indonesian — two wordings for one `SignalRejection` depending on which screen you failed on.
+  static String _rejectionDetail(SignalRejection? reason) =>
+      patientMessageFor(reason);
 
   /// The local quality gate's dialog. Returns true when the patient wants another attempt.
   ///
@@ -777,8 +774,7 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
           style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
         ),
         content: Text(
-          'Recording unstable. Please keep your hand still and try again.'
-          '\n\n${_rejectionDetail(result.rejectionReason)}',
+          _rejectionDetail(result.rejectionReason),
           style: const TextStyle(color: TeraColors.ink, height: 1.45),
         ),
         actions: [

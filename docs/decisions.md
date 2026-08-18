@@ -2429,3 +2429,118 @@ string in the app is English, including the retry dialog three sections above it
 deliberately translated *out* of Indonesian earlier in this series. Flagged rather than reconciled:
 the wording was given verbatim, and which language the product speaks is not a decision to make in
 passing.
+
+## The ML handover, read and integrated on-device
+
+Azka's handover is thorough and its physics is right. Two things about it had to be established
+before any of it could be applied, and both changed what "integrate this" meant.
+
+**It is written against a different app.** `HANDOFF_TM1.md` names
+`screening_local_datasource.dart`, `screening_cubit.dart`, `screening_page.dart`,
+`sensor_payload_model.dart`, an `infantId` parameter and a `fusion_hr` / `is_anomaly` response.
+None of those exist here; this is `patient/` with `capture_screen.dart`, `signal_pipeline.dart` and
+`session_submitter.dart`. The drop-in `tera_capture_datasource.dart` is a drop-in for a file we do
+not have, and the nine-file "response chain" table describes a codebase that is not this one. So
+nothing was copy-pasteable and the reasoning had to be transferred by hand.
+
+**There is no model to load.** The task asked for the model format and the input tensor shapes;
+the honest answer is that there are none. `tera_ptt.py` is numpy DSP — band-pass, envelope, peak
+detection, beat pairing — and `requirements.txt` says "the pipeline itself needs ONLY numpy". The
+one `.joblib` in the handover powers a single optional `irregular_rhythm` flag, is excluded from
+the zip, and its own README says to run without it. There is no network, no tensor, no inference
+server to stand up.
+
+### Where it runs, and why that was a question worth asking
+
+The handover's request payload is `scg`, `scg_x`, `scg_y`, `ppg`, `t_scg`, `t_ppg` — raw sample
+arrays. Invariant 2 forbids exactly that, `test_no_raw_waveform_fields_accepted` enforces it, and
+`tera_ptt.dart`'s header already records the decision and its reason: the chain runs on the handset
+because invariant 2 "is a regulatory claim in the pitch, not a preference". Our Dart port is
+checked against Azka's Python line by line, beat times to the microsecond.
+
+Raised with the product owner and settled: **the chain stays on-device and the handover's fixes
+come to it.** The algorithm is the same algorithm; what moved is where it executes and therefore
+what crosses the wire.
+
+### Blocker 1 — the timestamps, which is the one that mattered
+
+Azka's first blocker is that the app sends two untimestamped lists, making PTT "not just inaccurate,
+it is impossible". Ours *has* timestamps, so this looked inapplicable — and it was not. Both streams
+were stamped with `DateTime.now()` inside their own callback, which is not one clock; it is two
+independent measurements of when Dart got round to handling them.
+
+For the accelerometer that is actively wrong rather than imprecise. **Android batches sensor
+events**: five samples arrive in one burst and every one takes the burst's delivery time, so the
+sample spacing the rate statistics derive is fiction and the beat times are quantised to whenever
+the platform channel happened to fire. `AccelerometerEvent.timestamp` carries the platform's own
+`SensorEvent` stamp, taken when the sample was measured, and we were discarding it.
+
+There is now one `Stopwatch` started with the recording. The first accelerometer event pins the
+platform clock to it and every later one is placed relative to that, so it does not matter whether
+the platform stamp is boot-based or epoch-based — only the difference from the first event is used.
+Camera frames are stamped on arrival, before any pixel work, because the `camera` plugin exposes no
+platform timestamp. That leaves a small fixed inter-stream offset, which Azka names and accepts:
+a fixed offset cancels in a *change*, which is all Tera claims.
+
+`_finishRecording` prints the measured rates. **That is the single number the handover asks for
+back** and it cannot be answered from here — it needs a real handset.
+
+### Blocker 2 — one axis was being thrown away
+
+`signal_pipeline.dart` read `sample.z` and nothing else, while the capture had `x` and `y` sitting
+beside it. The aortic-valve signature is on the axis normal to the chest wall, and which physical
+axis that is depends on how the phone was held — telling someone to hold it flat does not make them
+hold it flat. A capture at an angle failed with no way to ask whether another axis would have
+worked.
+
+`run_best_axis` is ported: all three are analysed, the one that passes the gate with the tightest
+PTT spread wins, and Z's result is kept when none passes so a refusal still describes the axis the
+instructions asked for. Blocker 3 needed nothing — we already request `fastestInterval`, not the
+20 ms the other app used.
+
+### Data contract, both directions
+
+The chosen axis is reported in `quality.scg_axis`, and `SessionQuality` gained the field to accept
+it. That is the whole of the contract change, and the test caught it before a handset would have:
+`QualityMetrics` is `extra="forbid"`, so adding a key on the phone without adding it to the schema
+is a 422 on every submit. A run of captures that only ever worked on X is a fact about how the
+phone is being held, and it is worth a column rather than a discarded local variable.
+
+### Refusals now say the same thing wherever they are decided
+
+`rejection_messages.dart` is the single table. Three places worded the same `SignalRejection`
+differently — the capture screen's abort in Indonesian, the post-capture dialog in English, and the
+submitter falling through to "could not be used" for anything the server refused. The server gates
+again on ingest and can refuse for a reason the handset never produced locally, so `rejection.reason`
+is now mapped back through the enum and shown as a sentence rather than as a wire value.
+
+Two properties are asserted rather than described: every enum value has wording (a missing one
+renders as a blank, which the backend already learned the expensive way with
+`PRIORITY_ACTION_WORDING`), and no refusal contains a clinical word. A refused capture is a fact
+about a recording, and a failure message is the easiest place in the product to drift into a
+finding about the person.
+
+**The task asked for HTTP 400/422 on an ML failure. That is not done, deliberately.** Invariant 3
+requires rejected sessions to be *retained*, and CLAUDE.md §5 records the argument in full: a
+session rejected for `sensor_rate_below_qualified` reports low rates because that is why it failed,
+and a 422 would discard the row. The reason bubbles through the response body instead, which is
+where it already was, and now reaches the patient in words.
+
+### Not done, and named rather than left
+
+Three things in the handover are real and are not in this change:
+
+  * **Posture mismatch.** The reference records posture on both the anchor and the session and
+    refuses a mismatch, because changing position alters venous return and the hydrostatic column
+    by about the size of the signal. We send `posture: 'seated'` hard-coded and compare nothing.
+  * **`cuff_age_s`.** The reference refuses a calibration whose cuff reading is more than five
+    minutes from its capture. Our first-run flow takes the cuff immediately after the recording, so
+    the interval is right in practice — but it is not recorded and not enforced.
+  * **Azka's `display` block.** Not adopted: it is Indonesian, prescriptive, and mandates
+    `show_value: false`. Our invariant 1 was amended on 14 August to compute and show estimated
+    mmHg, and the product owner confirmed that stands. Our `language.py` and its invariant-6
+    vocabulary guard keep control of wording; his chain feeds it better PTT.
+
+The last of those is a genuine disagreement between the ML team's clinical position and ours, not
+an oversight. Azka argues no BP numeral should ever appear beside a trend. Worth resolving with him
+directly rather than by whichever code happens to ship.

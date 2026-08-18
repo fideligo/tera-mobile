@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:tera_capture/tera_capture.dart';
+import '../signal/rejection_messages.dart';
+import '../signal/signal_pipeline.dart';
 import 'tokens.dart';
 
 class CaptureResult {
@@ -103,6 +105,44 @@ class _CaptureScreenState extends State<CaptureScreen> {
   final List<FrameSample> _frameSamples = [];
 
   DateTime? _recordingStartTime;
+
+  // ------------------------------------------------------ the shared clock
+  //
+  // **PTT is a delay between two streams, so both have to be on one clock.** The two streams were
+  // each stamped with `DateTime.now()` at the moment their callback ran, which is not one clock —
+  // it is two independent measurements of when Dart got around to handling them.
+  //
+  // For the accelerometer that is actively wrong rather than merely imprecise. Android *batches*
+  // sensor events: five samples arrive in a single burst and every one of them takes the delivery
+  // time of the burst, so the sample spacing the rate statistics derive is fiction and the beat
+  // times are quantised to whenever the platform channel fired. `AccelerometerEvent.timestamp`
+  // carries the platform's own `SensorEvent` stamp, taken when the sample was *measured*.
+  //
+  // It is re-based rather than used directly: the platform stamp may be boot-based while the
+  // camera side is not, and only the difference from the first event is meaningful. So the first
+  // event pins the platform clock to this Stopwatch, and every later one is placed relative to it.
+  final Stopwatch _clock = Stopwatch();
+  int? _accelBaseUs;
+  double? _accelBaseClockS;
+
+  /// Nanoseconds since the capture started, for a sample the platform stamped [eventUs].
+  int _accelTimestampNanos(int eventUs) {
+    final nowS = _clock.elapsedMicroseconds / 1e6;
+    if (_accelBaseUs == null) {
+      _accelBaseUs = eventUs;
+      _accelBaseClockS = nowS;
+      return (nowS * 1e9).round();
+    }
+    final t = _accelBaseClockS! + (eventUs - _accelBaseUs!) / 1e6;
+    return (t * 1e9).round();
+  }
+
+  /// Nanoseconds since the capture started, read now.
+  ///
+  /// Camera frames get this: the `camera` plugin exposes no platform timestamp, so arrival is the
+  /// best available and it is taken *before* any pixel work so the arithmetic cannot push the
+  /// stamp later than the moment the frame landed.
+  int _frameTimestampNanos() => (_clock.elapsedMicroseconds * 1000);
 
   @override
   void initState() {
@@ -355,6 +395,13 @@ class _CaptureScreenState extends State<CaptureScreen> {
     });
 
     _recordingStartTime = DateTime.now();
+    // One clock, started once, read by both streams. Everything downstream that calls a PTT a
+    // delay depends on this line.
+    _accelBaseUs = null;
+    _accelBaseClockS = null;
+    _clock
+      ..reset()
+      ..start();
 
     // **`samplingPeriod` is not optional here.** The default interval delivered 1027 samples in
     // 60 s on the test handset — about 17 Hz. Seismocardiography needs the aortic-valve-opening
@@ -366,13 +413,19 @@ class _CaptureScreenState extends State<CaptureScreen> {
           samplingPeriod: SensorInterval.fastestInterval,
         ).listen((AccelerometerEvent event) {
           if (!_isRecording) return;
+          final deliveredAtNanos = _clock.elapsedMicroseconds * 1000;
           _accelSamples.add(AccelSample(
             x: event.x,
             y: event.y,
             z: event.z,
-            timestampNanos: DateTime.now().microsecondsSinceEpoch * 1000,
-            realtimeAtDeliveryNanos: 0,
-            uptimeAtDeliveryNanos: 0,
+            // The platform's measurement stamp, re-based onto the shared clock. Not the delivery
+            // time — Android batches, and a burst of five samples would otherwise share one.
+            timestampNanos: _accelTimestampNanos(
+              event.timestamp.microsecondsSinceEpoch,
+            ),
+            // Kept so the clock-basis check can still see how far delivery lagged measurement.
+            realtimeAtDeliveryNanos: deliveredAtNanos,
+            uptimeAtDeliveryNanos: deliveredAtNanos,
           ));
         });
 
@@ -396,6 +449,9 @@ class _CaptureScreenState extends State<CaptureScreen> {
   void _processRecordingFrame(CameraImage image) {
     if (_recordingStartTime == null) return;
 
+    // Stamped before any pixel work, so the arithmetic below cannot push the timestamp later than
+    // the moment the frame arrived.
+    final frameNanos = _frameTimestampNanos();
     final red = _meanRed(image);
 
     // Finger gone entirely: the lens is dark, whatever the red channel says about it.
@@ -434,11 +490,11 @@ class _CaptureScreenState extends State<CaptureScreen> {
 
     _frameSamples.add(FrameSample(
       roiMean: red,
-      timestampNanos: DateTime.now().microsecondsSinceEpoch * 1000,
+      timestampNanos: frameNanos,
       processingNanos: 10000000,
       frameNumber: _frameSamples.length,
-      realtimeAtDeliveryNanos: 0,
-      uptimeAtDeliveryNanos: 0,
+      realtimeAtDeliveryNanos: frameNanos,
+      uptimeAtDeliveryNanos: frameNanos,
     ));
   }
   
@@ -487,9 +543,11 @@ class _CaptureScreenState extends State<CaptureScreen> {
           'Perekaman dihentikan',
           style: TextStyle(fontWeight: FontWeight.w700, color: TeraColors.ink),
         ),
-        content: const Text(
-          'Jari bergerak, mohon ulang perekaman',
-          style: TextStyle(color: TeraColors.ink, height: 1.45),
+        content: Text(
+          // From the shared table, so the motion abort and the post-capture refusal cannot drift
+          // into saying different things about the same reason.
+          patientMessageFor(SignalRejection.excessiveMotion),
+          style: const TextStyle(color: TeraColors.ink, height: 1.45),
         ),
         actions: [
           FilledButton(
@@ -553,13 +611,21 @@ class _CaptureScreenState extends State<CaptureScreen> {
   }
 
   void _finishRecording() async {
+    // **The single number the ML handover asks for back.** Android treats the requested sampling
+    // period as a hint, not a contract, so what was asked for says nothing about what arrived.
+    // This is measured from the platform timestamps, which is the only figure worth reporting.
+    final elapsedS = _clock.elapsedMicroseconds / 1e6;
+    final accelHz = elapsedS <= 0 ? 0.0 : _accelSamples.length / elapsedS;
+    final ppgHz = elapsedS <= 0 ? 0.0 : _frameSamples.length / elapsedS;
     debugPrint(
-      '[TERA] recording finished: frames=${_frameSamples.length} '
-      'accel=${_accelSamples.length}',
+      '[Tera] recording finished in ${elapsedS.toStringAsFixed(1)}s: '
+      'accel ${_accelSamples.length} samples = ${accelHz.toStringAsFixed(1)} Hz, '
+      'camera ${_frameSamples.length} frames = ${ppgHz.toStringAsFixed(1)} fps',
     );
     setState(() {
       _isRecording = false;
     });
+    _clock.stop();
 
     await _accelSub?.cancel();
     await _cameraController?.stopImageStream();

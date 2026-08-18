@@ -119,6 +119,8 @@ class SignalResult {
     // `signal_pipeline_test.dart` and `flow_data_test.dart` at compile time, and those two files
     // are the ones that assert this pipeline never fabricates an interval. The gate went missing
     // behind a test suite that could not run.
+    this.axis = 'z',
+    this.axesTried = const ['z'],
     this.scg = const [],
     this.ppg = const [],
     this.rejectionReason,
@@ -157,6 +159,16 @@ class SignalResult {
   final double? pttMedianMs;
 
   final bool accepted;
+
+  /// Which accelerometer axis the intervals were derived from.
+  ///
+  /// `z`, `x` or `y`. Reported because a recording that only worked on `x` is telling us the phone
+  /// was not held the way the instructions describe, and that is worth knowing before a batch of
+  /// field captures is interpreted.
+  final String axis;
+
+  /// The axes the chain actually tried, in order.
+  final List<String> axesTried;
 
   /// One interval per usable beat, milliseconds. Empty when rejected.
   final List<double> pttMs;
@@ -257,14 +269,42 @@ class TeraSignalPipeline implements SignalPipeline {
       );
     }
 
+    // **Every axis, not just Z.** The aortic-valve signature sits on the axis normal to the chest
+    // wall, and which physical axis that is depends on how the patient held the phone — telling
+    // someone to hold it flat does not make them hold it flat. This chain read `s.z` and nothing
+    // else, so a capture where the phone sat at an angle failed with no way to ask whether another
+    // axis would have worked, even though the samples were right there.
+    //
+    // Best = passes the gate with the tightest PTT spread. If none pass, Z's result is kept, so a
+    // refusal still describes the axis the instructions asked for rather than the luckiest one.
+    // Ported from `run_best_axis` in the ML team's `contract.py`, which is where the reasoning and
+    // the two tests covering it live.
+    final candidates = <String, List<double>>{
+      'z': scg,
+      'x': [for (final sample in capture.accelerometer.samples) sample.x],
+      'y': [for (final sample in capture.accelerometer.samples) sample.y],
+    };
+
+    PttAnalysis? primary;
+    PttAnalysis? best;
+    String bestAxis = 'z';
     PttAnalysis analysis;
     try {
-      analysis = analyseCapture(
-        scg: scg,
-        fsScg: accelStats.meanRateHz,
-        ppg: ppg,
-        fsPpg: frameStats.meanRateHz,
-      );
+      for (final entry in candidates.entries) {
+        final result = analyseCapture(
+          scg: entry.value,
+          fsScg: accelStats.meanRateHz,
+          ppg: ppg,
+          fsPpg: frameStats.meanRateHz,
+        );
+        primary ??= result;
+        final usable = result.gate.passed && result.summary.sd.isFinite;
+        if (usable && (best == null || result.summary.sd < best.summary.sd)) {
+          best = result;
+          bestAxis = entry.key;
+        }
+      }
+      analysis = best ?? primary!;
     } on Object {
       // A fault in the chain, not a verdict about the signal. `signalProcessingUnavailable` keeps
       // the two distinguishable, which is the whole reason that value exists.
@@ -286,6 +326,9 @@ class TeraSignalPipeline implements SignalPipeline {
     // landed.
     quality['snr_db'] = _snrDb(analysis);
     quality['motion_index'] = _motionIndex(analysis);
+    // Recorded in the quality block so it reaches the clinical record, where a run of captures
+    // that only ever worked on X is a fact about how the phone is being held.
+    quality['scg_axis'] = bestAxis;
 
     // The PPG heart rate survives even when the SCG side is too slow to pair beats against, which
     // is what makes it usable as an offline result on its own — and what lets the result screen
@@ -318,6 +361,8 @@ class TeraSignalPipeline implements SignalPipeline {
       return SignalResult(
         accepted: false,
         rejectionReason: _reasonFor(analysis.gate.failure),
+        axis: bestAxis,
+        axesTried: const ['z', 'x', 'y'],
         pttMs: const [],
         nBeatsTotal: analysis.nScgBeats,
         nBeatsUsable: 0,
@@ -332,6 +377,8 @@ class TeraSignalPipeline implements SignalPipeline {
       return SignalResult(
         accepted: false,
         rejectionReason: SignalRejection.insufficientBeats,
+        axis: bestAxis,
+        axesTried: const ['z', 'x', 'y'],
         pttMs: const [],
         nBeatsTotal: analysis.nScgBeats,
         nBeatsUsable: 0,
@@ -349,6 +396,8 @@ class TeraSignalPipeline implements SignalPipeline {
 
     return SignalResult(
       accepted: true,
+      axis: bestAxis,
+      axesTried: const ['z', 'x', 'y'],
       pttMs: bounded,
       nBeatsTotal: analysis.nScgBeats,
       nBeatsUsable: bounded.length,

@@ -8,6 +8,7 @@ library;
 import 'dart:math';
 
 import '../api/api_client.dart';
+import '../signal/rejection_messages.dart';
 import '../signal/signal_pipeline.dart';
 import 'capture_session.dart';
 
@@ -18,7 +19,14 @@ class SubmissionOutcome {
     required this.sessionId,
     this.trendDirection,
     this.duplicate = false,
+    this.rejectionReason,
   });
+
+  /// Why the *server* refused, when it did and when the handset recognises the value.
+  ///
+  /// Carried alongside [message] rather than only as prose, so a caller can branch on the reason
+  /// — offering a retry for a noisy recording and not for a phone whose sensor is too slow.
+  final SignalRejection? rejectionReason;
 
   /// The id the backend stored this under. CTX-01 is filed against it, so it has to come back
   /// out of here rather than being generated and forgotten.
@@ -123,12 +131,26 @@ class SessionSubmitter {
       );
     }
 
+    // **The server's reason, in the patient's language, not a generic sentence.**
+    //
+    // The backend gates a session again on ingest — the plausibility check and the achieved-rate
+    // check both run there — so it can refuse for a reason the handset never produced locally. It
+    // reports that as `rejection.reason`, a wire value like `sensor_rate_below_qualified`, and
+    // this used to fall through to "could not be used", which tells a patient nothing they can act
+    // on and hides which of several very different failures occurred.
+    //
+    // Mapped through the same table the local gate uses, so one reason reads the same wherever it
+    // was decided. An unmapped value keeps the server's own sentence rather than being flattened.
+    final wireReason = rejection?['reason'] as String?;
+    final mapped = rejectionFromWire(wireReason);
     return SubmissionOutcome(
       accepted: false,
-      message:
-          (rejection?['message'] as String?) ??
-          (action?['message'] as String?) ??
-          'This spot check was recorded but could not be used.',
+      rejectionReason: mapped,
+      message: mapped != null
+          ? patientMessageFor(mapped)
+          : (rejection?['message'] as String?) ??
+                (action?['message'] as String?) ??
+                'Perekaman tersimpan, tetapi belum bisa dipakai.',
       sessionId: (response['session_id'] as String?) ?? sessionId,
     );
   }

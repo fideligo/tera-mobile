@@ -279,7 +279,10 @@ void main() {
         _fromReference('clean_seated'),
       );
 
-      final allowed = {...required.keys, 'clock_offset_ms'};
+      // `scg_axis` was added to `SessionQuality` on the backend in the same change that made the
+      // handset try all three accelerometer axes. Adding it here without adding it there would be
+      // a 422 on every submit, which is exactly what this test exists to catch.
+      final allowed = {...required.keys, 'clock_offset_ms', 'scg_axis'};
       expect(result.quality.keys, everyElement(isIn(allowed)));
     });
 
