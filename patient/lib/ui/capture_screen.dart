@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:camera/camera.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:tera_capture/tera_capture.dart';
+import '../capture/frame_gate.dart';
 import '../signal/rejection_messages.dart';
 import '../signal/signal_pipeline.dart';
 import 'tokens.dart';
@@ -62,26 +63,13 @@ class _CaptureScreenState extends State<CaptureScreen> {
   /// oscillation, so a *large* departure is the finger moving or lifting rather than a heartbeat.
   double? _baselineRed;
 
-  /// How far the red channel may depart from [_baselineRed] before the capture is abandoned.
+  /// **The two thresholds and their frame counts now live in `capture/frame_gate.dart`.**
   ///
-  /// In 0-255 units. A pulse waveform moves the mean by a couple of levels; a finger lifting off
-  /// the lens moves it by tens. 28 sits well above the first and well below the second, which is
-  /// the only place a threshold can sit without either aborting on a heartbeat or missing a lift.
-  ///
-  /// An engineering figure pending real captures, in the same register as `min_usable_beats`.
-  static const double _motionThresholdRed = 28.0;
-
-  /// Consecutive deviating frames required before the capture is abandoned.
-  ///
-  /// **Not one, deliberately, and this is a correction that has already been made once.** The
-  /// finger-loss check aborted on a single dark frame and had to be changed, because one
-  /// auto-exposure adjustment, one late-delivered buffered frame, or one frame caught while the
-  /// torch was still ramping is enough to throw away a minute the patient has already sat
-  /// through. Five frames is about 165 ms at 30 fps: indistinguishable from immediate to a person,
-  /// and immune to a single bad frame. Aborting on one frame would reintroduce the exact bug the
-  /// comment below it records.
-  static const int _motionFrameCount = 5;
-
+  /// They were tuned here against no hardware and both were wrong on it. Moving them out is not
+  /// tidying: the red-channel rule was an absolute level, which cannot be right on two handsets at
+  /// once, and stating it as a fraction of the baseline is a change of meaning that deserved
+  /// somewhere it could be read and tested. Nothing in this file can be exercised without a
+  /// `CameraImage`.
   int _consecutiveMovedFrames = 0;
 
   /// Consecutive below-threshold frames seen during recording, and the guard that stops several
@@ -91,15 +79,6 @@ class _CaptureScreenState extends State<CaptureScreen> {
 
   /// Whether the current frame reads as a covered lens. Drives the confirmation button.
   bool _fingerDetected = false;
-
-  /// Below this mean luma the lens is treated as uncovered. A fingertip against the lens with the
-  /// torch on reads far brighter than this; an uncovered lens in a lit room reads far darker.
-  static const int _fingerLostLumaThreshold = 50;
-
-  /// How many consecutive frames must be below that before the recording is stopped. At roughly
-  /// 30 fps this is about half a second — long enough to ignore a single bad frame, short enough
-  /// that a patient is not left recording nothing.
-  static const int _fingerLostFrameCount = 15;
 
   final List<AccelSample> _accelSamples = [];
   final List<FrameSample> _frameSamples = [];
@@ -268,12 +247,16 @@ class _CaptureScreenState extends State<CaptureScreen> {
   void _checkFingerLock(CameraImage image) {
     final avgLuma = _meanLuma(image);
 
-    final detected = avgLuma > 100;
-    if (detected) {
+    final covered = avgLuma > 100;
+    if (covered) {
       _consecutiveLockedFrames++;
     } else {
       _consecutiveLockedFrames = 0;
     }
+
+    // A short run rather than one frame, so the button does not flicker on and off under a finger
+    // that is already correctly placed. Five frames is about 165 ms — below noticing.
+    final detected = _consecutiveLockedFrames >= 5;
 
     // Rebuild only when the answer *changes*, not on every frame. Without this the confirmation
     // button never enabled: `_consecutiveLockedFrames` climbed but nothing told the UI, so the
@@ -282,25 +265,21 @@ class _CaptureScreenState extends State<CaptureScreen> {
       setState(() => _fingerDetected = detected);
     }
 
-    if (_consecutiveLockedFrames > 30) {
-      _lockFinger();
-    }
+    // **Nothing advances on its own from here.** This used to call `_lockFinger()` once thirty
+    // consecutive frames read as covered — about a second — so the screen started measuring a
+    // baseline while the patient was still settling their finger, and the button that was supposed
+    // to be the gate was frequently never reached. The frame check now does one thing: it decides
+    // whether the button is offered.
   }
 
-  void _forceLock() {
-    if (!_isFingerLocked && !_isCountingDown) {
-      _lockFinger();
+  /// The patient says the finger is in place. The only way out of the waiting state.
+  void _confirmFingerPlaced() {
+    if (_isFingerLocked || _isLocking || _isCountingDown || _isRecording) {
+      return;
     }
-  }
-
-  void _lockFinger() {
-    debugPrint('[TERA] finger confirmed -> chest placement countdown');
-    setState(() {
-      _isFingerLocked = true;
-      _isCountingDown = true;
-    });
-
-    _startCountdown();
+    debugPrint('[TERA] finger confirmed -> locking baseline');
+    setState(() => _isFingerLocked = true);
+    _beginLocking();
   }
 
   void _startCountdown() {
@@ -320,22 +299,31 @@ class _CaptureScreenState extends State<CaptureScreen> {
 
       if (_countdown <= 0) {
         timer.cancel();
-        _beginLocking();
+        _startRecording();
       }
     });
   }
 
   // ------------------------------------------------------------------- locking
 
-  /// Measure what this fingertip reads as, then start recording against it.
+  /// Measure what this fingertip reads as, before asking the patient to move the phone.
   ///
-  /// **Placed after the chest countdown rather than before it, which is the one change to the
-  /// order the brief describes.** A baseline is only useful if it describes the finger as it will
-  /// sit for the next minute, and moving the phone from in front of the patient onto their
-  /// sternum moves the finger with it. Taken before that move, the baseline would describe a
-  /// position the capture never uses, and the motion check would then fire on the move itself —
-  /// aborting every capture for the one action the screen just asked for.
-  void _beginLocking() {
+  /// **The order here was the other way round and has been changed back deliberately.** The
+  /// baseline used to be taken after the chest countdown, on the argument that it should describe
+  /// the finger as it will sit for the next minute — moving the phone to the sternum moves the
+  /// finger with it, so a baseline taken beforehand describes a position the capture never uses,
+  /// and a tight motion check would then fire on the move the screen had just asked for.
+  ///
+  /// That argument was sound *given a tight, absolute, symmetric threshold*. It is not the
+  /// threshold any more. `fingerHasLeftLens` triggers on a 45% fall and ignores every rise, which
+  /// is far outside anything repositioning the handset produces while the finger stays on the
+  /// lens — so the objection that forced the swap no longer applies, and the cost of the old order
+  /// does: it locked while the phone was already flat against the chest, where the patient cannot
+  /// see the screen, cannot tell the lock from the countdown, and cannot act on either.
+  ///
+  /// The two changes are one change. Reverting the threshold without reverting this order would
+  /// abort on the chest move again.
+  Future<void> _beginLocking() async {
     _lockSamples.clear();
     _consecutiveMovedFrames = 0;
     setState(() {
@@ -343,6 +331,10 @@ class _CaptureScreenState extends State<CaptureScreen> {
       _isLocking = true;
       _lockProgress = 0;
     });
+
+    // Before the baseline, so the baseline and the recording share one exposure.
+    await _freezeCameraAdaptation();
+    if (!mounted) return;
 
     _lockTimer?.cancel();
     _lockTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
@@ -370,9 +362,46 @@ class _CaptureScreenState extends State<CaptureScreen> {
         '[TERA] locked: baselineRed=${_baselineRed!.toStringAsFixed(1)} '
         'from ${_lockSamples.length} frames',
       );
-      setState(() => _isLocking = false);
-      _startRecording();
+      setState(() {
+        _isLocking = false;
+        _isCountingDown = true;
+      });
+      _startCountdown();
     });
+  }
+
+  /// Freeze what the camera does to the picture, so the only thing changing is the finger.
+  ///
+  /// **Auto-exposure is the largest confound in a fingertip PPG.** The pipeline sees a nearly
+  /// uniform bright field, concludes it is overexposed, and pulls the gain — which moves the red
+  /// mean by far more than a pulse does, is indistinguishable downstream from the finger shifting,
+  /// and was one of the two things making the motion check fire on patients who had not moved.
+  /// Widening that threshold treats the symptom; this removes the cause.
+  ///
+  /// **White balance is not lockable through this plugin, and that gap is real.** `camera` 0.12
+  /// exposes `setExposureMode` and `setFocusMode` and nothing for AWB — there is no
+  /// `setWhiteBalanceMode` to call. Locking it would need a platform channel setting
+  /// `CaptureRequest.CONTROL_AWB_MODE` to `OFF` on the Camera2 session. Not done here; named
+  /// rather than left silent, because AWB drift moves the red channel specifically and is the
+  /// residual after this.
+  ///
+  /// Failures are swallowed per mode. Plenty of handsets refuse one or both, and a camera that
+  /// will not lock is a slightly noisier capture — not a reason to refuse someone a measurement.
+  Future<void> _freezeCameraAdaptation() async {
+    final controller = _cameraController;
+    if (controller == null) return;
+    try {
+      await controller.setExposureMode(ExposureMode.locked);
+      debugPrint('[TERA] exposure locked');
+    } on Object catch (e) {
+      debugPrint('[TERA] exposure lock unavailable: $e');
+    }
+    try {
+      await controller.setFocusMode(FocusMode.locked);
+      debugPrint('[TERA] focus locked');
+    } on Object catch (e) {
+      debugPrint('[TERA] focus lock unavailable: $e');
+    }
   }
 
   void _collectLockSample(CameraImage image) {
@@ -414,19 +443,21 @@ class _CaptureScreenState extends State<CaptureScreen> {
         ).listen((AccelerometerEvent event) {
           if (!_isRecording) return;
           final deliveredAtNanos = _clock.elapsedMicroseconds * 1000;
-          _accelSamples.add(AccelSample(
-            x: event.x,
-            y: event.y,
-            z: event.z,
-            // The platform's measurement stamp, re-based onto the shared clock. Not the delivery
-            // time — Android batches, and a burst of five samples would otherwise share one.
-            timestampNanos: _accelTimestampNanos(
-              event.timestamp.microsecondsSinceEpoch,
+          _accelSamples.add(
+            AccelSample(
+              x: event.x,
+              y: event.y,
+              z: event.z,
+              // The platform's measurement stamp, re-based onto the shared clock. Not the delivery
+              // time — Android batches, and a burst of five samples would otherwise share one.
+              timestampNanos: _accelTimestampNanos(
+                event.timestamp.microsecondsSinceEpoch,
+              ),
+              // Kept so the clock-basis check can still see how far delivery lagged measurement.
+              realtimeAtDeliveryNanos: deliveredAtNanos,
+              uptimeAtDeliveryNanos: deliveredAtNanos,
             ),
-            // Kept so the clock-basis check can still see how far delivery lagged measurement.
-            realtimeAtDeliveryNanos: deliveredAtNanos,
-            uptimeAtDeliveryNanos: deliveredAtNanos,
-          ));
+          );
         });
 
     _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -461,23 +492,28 @@ class _CaptureScreenState extends State<CaptureScreen> {
     // buffered frame delivered late, or one frame captured while the torch was still ramping is
     // enough to throw away a capture the patient sat through. A finger genuinely leaving the lens
     // stays gone for many consecutive frames, so that is what this requires.
-    if (_meanLuma(image) < _fingerLostLumaThreshold) {
+    if (lensReadsUncovered(_meanLuma(image))) {
       _consecutiveLostFrames++;
-      if (_consecutiveLostFrames >= _fingerLostFrameCount) {
+      if (_consecutiveLostFrames >= uncoveredLensFrameCount) {
         _abortForMotion();
       }
       return;
     }
     _consecutiveLostFrames = 0;
 
-    // Finger still on the lens but no longer where it was. A pulse moves the red mean by a
-    // couple of levels; a finger sliding or pressing differently moves it by tens, and every
-    // interval derived from the frames either side of that is measuring the movement rather than
-    // the patient.
+    // Finger no longer on the lens as it was when the baseline was taken.
+    //
+    // **This is the check that was rejecting still patients**, and it was wrong in two ways at
+    // once: it compared against an absolute number of levels, which means something different on
+    // every sensor, and it fired on a rise as readily as on a fall — so the exposure pipeline
+    // opening up counted as the patient moving. Both are fixed in `fingerHasLeftLens`, which is
+    // deliberately generous: what it has to catch is the finger *leaving*, and the uncovered-lens
+    // check above is already the second line for that.
     final baseline = _baselineRed;
-    if (baseline != null && (red - baseline).abs() > _motionThresholdRed) {
+    if (baseline != null &&
+        fingerHasLeftLens(red: red, baselineRed: baseline)) {
       _consecutiveMovedFrames++;
-      if (_consecutiveMovedFrames >= _motionFrameCount) {
+      if (_consecutiveMovedFrames >= fingerLiftFrameCount) {
         debugPrint(
           '[TERA] ABORT: motion, red=${red.toStringAsFixed(1)} '
           'baseline=${baseline.toStringAsFixed(1)}',
@@ -488,16 +524,18 @@ class _CaptureScreenState extends State<CaptureScreen> {
     }
     _consecutiveMovedFrames = 0;
 
-    _frameSamples.add(FrameSample(
-      roiMean: red,
-      timestampNanos: frameNanos,
-      processingNanos: 10000000,
-      frameNumber: _frameSamples.length,
-      realtimeAtDeliveryNanos: frameNanos,
-      uptimeAtDeliveryNanos: frameNanos,
-    ));
+    _frameSamples.add(
+      FrameSample(
+        roiMean: red,
+        timestampNanos: frameNanos,
+        processingNanos: 10000000,
+        frameNumber: _frameSamples.length,
+        realtimeAtDeliveryNanos: frameNanos,
+        uptimeAtDeliveryNanos: frameNanos,
+      ),
+    );
   }
-  
+
   /// Abandon the capture because the finger moved, and leave the screen ready to try again.
   ///
   /// Everything acquired so far is discarded rather than submitted short. A capture interrupted by
@@ -602,6 +640,16 @@ class _CaptureScreenState extends State<CaptureScreen> {
     if (controller == null) return;
     try {
       await controller.setFlashMode(FlashMode.torch);
+      // **Unlocked again, deliberately.** The exposure frozen for the previous attempt was chosen
+      // for a finger position that attempt has just established is no longer there. Leaving it
+      // locked would measure the next baseline through the last one's settings; auto-exposure is
+      // wanted here, during the waiting phase, and frozen again at the next lock.
+      try {
+        await controller.setExposureMode(ExposureMode.auto);
+        await controller.setFocusMode(FocusMode.auto);
+      } on Object {
+        // Same handsets that refuse the lock refuse the unlock. Nothing is worse than before.
+      }
       if (!controller.value.isStreamingImages) {
         await controller.startImageStream(_onFrame);
       }
@@ -622,6 +670,16 @@ class _CaptureScreenState extends State<CaptureScreen> {
       'accel ${_accelSamples.length} samples = ${accelHz.toStringAsFixed(1)} Hz, '
       'camera ${_frameSamples.length} frames = ${ppgHz.toStringAsFixed(1)} fps',
     );
+    // **Whether the two streams are still the same distance apart as when they started.**
+    //
+    // This is what `clock_unstable` now means, and it is the whole of the cross-stream timing
+    // question once one clock stamps both. See `_crossStreamDriftMillis`.
+    final drift = _crossStreamDriftMillis();
+    debugPrint(
+      '[Tera] cross-stream drift: '
+      '${drift == null ? 'not measurable' : '${drift.toStringAsFixed(1)} ms'}',
+    );
+
     setState(() {
       _isRecording = false;
     });
@@ -642,14 +700,49 @@ class _CaptureScreenState extends State<CaptureScreen> {
         startedAt: _recordingStartTime ?? DateTime.now(),
         endedAt: DateTime.now(),
       ),
-      clockBasis: const CrossStreamClockCheck(
+      // **The two verifications stay null, and that is why this had to change.**
+      //
+      // They answer "does this handset timestamp in the realtime base or the uptime base?", which
+      // needs both platform clocks read back to back at delivery — a platform channel this app
+      // does not have and the profiler does. Passing `const CrossStreamClockCheck(camera: null,
+      // accelerometer: null)` therefore made `sharedBasis` null on every capture, and the
+      // pipeline's precondition refused every one of them as `clock_unstable`. Not a threshold
+      // that was too tight: a question that could not be answered here at all.
+      //
+      // What this app can answer, because it stamps both streams off one `Stopwatch`, is whether
+      // they drifted apart. That is the figure the check now runs on.
+      clockBasis: CrossStreamClockCheck(
         camera: null,
         accelerometer: null,
+        observedDriftMillis: drift,
       ),
       startedAt: _recordingStartTime ?? DateTime.now(),
     );
 
     widget.onComplete(result);
+  }
+
+  /// Relative drift between the accelerometer and camera streams across the capture, in ms.
+  ///
+  /// Both streams are placed on `_clock`, so a *shared* offset between them is expected and
+  /// uninteresting — the accelerometer's first sample simply arrives a little before or after the
+  /// first frame, and a fixed offset cancels out of a change in transit time. What matters is
+  /// whether that gap is still the same at the end of the minute, so the start skew is subtracted
+  /// from the end skew and what remains is the part that does not cancel.
+  ///
+  /// Immune to dropped frames by construction: it reads the timestamps that arrived and never
+  /// counts how many were expected. A capture that lost a third of its frames but kept time still
+  /// passes here, and is judged on its rates by the quality gate instead.
+  ///
+  /// Null when either stream is too short to have two ends — a genuine failure, and one the
+  /// pipeline's precondition still refuses.
+  double? _crossStreamDriftMillis() {
+    if (_accelSamples.length < 2 || _frameSamples.length < 2) return null;
+    final startSkew =
+        _accelSamples.first.timestampNanos - _frameSamples.first.timestampNanos;
+    final endSkew =
+        _accelSamples.last.timestampNanos - _frameSamples.last.timestampNanos;
+    return (endSkew - startSkew) / 1e6;
   }
 
   @override
@@ -699,10 +792,16 @@ class _CaptureScreenState extends State<CaptureScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Padding(
-              padding: EdgeInsets.all(TeraSpacing.lg),
+            Padding(
+              padding: const EdgeInsets.all(TeraSpacing.lg),
               child: Text(
-                'Place your index finger over the rear camera and flash to lock. Stay relaxed and seated.',
+                _isRecording
+                    ? 'Perekaman berlangsung'
+                    : _isCountingDown
+                    ? 'Pindahkan HP ke dada'
+                    : _isLocking
+                    ? 'Mengunci baseline...'
+                    : 'Letakkan jari telunjuk Anda menutupi kamera dan flash.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: TeraText.section,
@@ -714,106 +813,103 @@ class _CaptureScreenState extends State<CaptureScreen> {
 
             Expanded(
               child: Center(
-                child: GestureDetector(
-                  onTap: _forceLock,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Container(
-                        width: 200,
-                        height: 200,
-                        decoration: BoxDecoration(
-                          color: Colors.black,
-                          borderRadius: BorderRadius.circular(TeraRadius.card),
-                          // Brand when the finger is placed, plum when it is not. Plum is the
-                          // system-state colour and that is exactly what this is: the app cannot
-                          // read the camera, which says nothing about the patient. Red was doing
-                          // the same job in a hue the palette forbids.
-                          border: Border.all(
-                            color: (_isFingerLocked || _isLocking)
-                                ? TeraColors.brand
-                                : TeraColors.plum,
-                            width: 6,
-                          ),
-                        ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(
-                            TeraRadius.card - 6,
-                          ),
-                          child: CameraPreview(_cameraController!),
+                child: Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Container(
+                      width: 200,
+                      height: 200,
+                      decoration: BoxDecoration(
+                        color: Colors.black,
+                        borderRadius: BorderRadius.circular(TeraRadius.card),
+                        // Brand when the finger is placed, plum when it is not. Plum is the
+                        // system-state colour and that is exactly what this is: the app cannot
+                        // read the camera, which says nothing about the patient. Red was doing
+                        // the same job in a hue the palette forbids.
+                        border: Border.all(
+                          color: (_isFingerLocked || _isLocking)
+                              ? TeraColors.brand
+                              : TeraColors.plum,
+                          width: 6,
                         ),
                       ),
-                      if (_isLocking)
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(
-                              width: 72,
-                              height: 72,
-                              child: CircularProgressIndicator(
-                                value: _lockProgress,
-                                strokeWidth: 6,
-                                backgroundColor: TeraColors.paper,
-                                valueColor: const AlwaysStoppedAnimation<Color>(
-                                  TeraColors.brand,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: TeraSpacing.sm),
-                            const Text(
-                              'Locking...',
-                              style: TextStyle(
-                                fontSize: TeraText.body,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                                shadows: [
-                                  Shadow(color: Colors.black, blurRadius: 10),
-                                ],
-                              ),
-                            ),
-                          ],
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(
+                          TeraRadius.card - 6,
                         ),
-                      if (_isCountingDown)
-                        Text(
-                          '$_countdown',
-                          style: const TextStyle(
-                            fontSize: 72,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                            shadows: [
-                              Shadow(color: Colors.black, blurRadius: 10),
-                            ],
+                        child: CameraPreview(_cameraController!),
+                      ),
+                    ),
+                    if (_isLocking)
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 72,
+                            height: 72,
+                            child: CircularProgressIndicator(
+                              value: _lockProgress,
+                              strokeWidth: 6,
+                              backgroundColor: TeraColors.paper,
+                              valueColor: const AlwaysStoppedAnimation<Color>(
+                                TeraColors.brand,
+                              ),
+                            ),
                           ),
-                        ),
-                      if (_isRecording)
-                        Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // Paper, not red. A recording indicator on top of a live camera
-                            // preview needs contrast, not a hue — and a red heart pulsing over a
-                            // blood-pressure capture is the most loaded image the app could put
-                            // in front of someone mid-measurement.
-                            const Icon(
-                              Icons.favorite,
-                              color: TeraColors.paper,
-                              size: 48,
+                          const SizedBox(height: TeraSpacing.sm),
+                          const Text(
+                            'Mengunci baseline...',
+                            style: TextStyle(
+                              fontSize: TeraText.body,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              shadows: [
+                                Shadow(color: Colors.black, blurRadius: 10),
+                              ],
                             ),
-                            const SizedBox(height: 8),
-                            Text(
-                              '$_recordingSeconds s',
-                              style: const TextStyle(
-                                fontSize: 36,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                                shadows: [
-                                  Shadow(color: Colors.black, blurRadius: 10),
-                                ],
-                              ),
-                            ),
+                          ),
+                        ],
+                      ),
+                    if (_isCountingDown)
+                      Text(
+                        '$_countdown',
+                        style: const TextStyle(
+                          fontSize: 72,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                          shadows: [
+                            Shadow(color: Colors.black, blurRadius: 10),
                           ],
                         ),
-                    ],
-                  ),
+                      ),
+                    if (_isRecording)
+                      Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Paper, not red. A recording indicator on top of a live camera
+                          // preview needs contrast, not a hue — and a red heart pulsing over a
+                          // blood-pressure capture is the most loaded image the app could put
+                          // in front of someone mid-measurement.
+                          const Icon(
+                            Icons.favorite,
+                            color: TeraColors.paper,
+                            size: 48,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            '$_recordingSeconds s',
+                            style: const TextStyle(
+                              fontSize: 36,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                              shadows: [
+                                Shadow(color: Colors.black, blurRadius: 10),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
                 ),
               ),
             ),
@@ -827,17 +923,17 @@ class _CaptureScreenState extends State<CaptureScreen> {
               ),
               child: Text(
                 _isLocking
-                    ? 'Hold still. Tera is measuring how your finger sits on the lens.'
+                    ? 'Tahan posisi. Tera sedang mengukur bagaimana jari Anda menempel pada '
+                          'lensa.'
                     : _isRecording
-                    ? 'Recording. Stay still, keep the phone against your chest, and do not '
-                          'talk.'
+                    ? 'Tetap diam, tempelkan HP di dada, dan jangan berbicara.'
                     // The chest-placement instruction lives here, in the countdown, and nowhere
-                    // earlier. Asking for it before the finger step meant asking someone to put
-                    // the phone flat on their sternum and *then* locate a rear lens they can no
-                    // longer see.
+                    // earlier — the finger step happens while the patient can still see both the
+                    // screen and the rear lens.
                     : _isCountingDown
-                    ? 'Place the phone on your chest now. Do not move your finger.'
-                    : 'Cover the rear camera and flash with your finger, and hold it steady.',
+                    ? 'Pindahkan HP ke dada sekarang. Jangan lepaskan jari Anda.'
+                    : 'Layar akan terlihat merah terang jika jari sudah menutupi kamera dan '
+                          'flash dengan benar.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: _isCountingDown ? TeraText.section : TeraText.body,
@@ -852,11 +948,12 @@ class _CaptureScreenState extends State<CaptureScreen> {
               ),
             ),
 
-            // The explicit confirmation Task 1 asks for. It stays disabled until the finger-lock
-            // baseline is met, so the button cannot start a recording of an uncovered lens — but
-            // the lock also fires on its own once held, so a patient who is already steady never
-            // has to reach for it.
-            if (!_isRecording && !_isCountingDown)
+            // **The gate.** Nothing before this point does anything but show the feed: no
+            // baseline, no countdown, no recording. It stays disabled until the frame check says
+            // the lens is covered, so the button cannot start a capture of an empty lens — that
+            // check no longer advances the screen by itself, it only decides whether this is
+            // offered.
+            if (!_isRecording && !_isCountingDown && !_isLocking)
               Padding(
                 padding: const EdgeInsets.fromLTRB(
                   TeraSpacing.lg,
@@ -867,7 +964,7 @@ class _CaptureScreenState extends State<CaptureScreen> {
                 child: SizedBox(
                   width: double.infinity,
                   child: FilledButton(
-                    onPressed: _fingerDetected ? _forceLock : null,
+                    onPressed: _fingerDetected ? _confirmFingerPlaced : null,
                     style: FilledButton.styleFrom(
                       backgroundColor: TeraColors.ink,
                       foregroundColor: TeraColors.paper,
@@ -882,8 +979,8 @@ class _CaptureScreenState extends State<CaptureScreen> {
                     ),
                     child: Text(
                       _fingerDetected
-                          ? 'My finger is ready'
-                          : 'Place your finger on the camera',
+                          ? 'Jari saya sudah pas'
+                          : 'Letakkan jari pada kamera',
                       style: const TextStyle(
                         fontSize: TeraText.body,
                         fontWeight: FontWeight.bold,

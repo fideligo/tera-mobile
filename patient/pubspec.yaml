@@ -53,6 +53,7 @@ dependencies:
   # a Tera-branded chrome around a page Tera does not control, which is the wrong claim to make
   # about someone else's document.
   url_launcher: ^6.3.1
+  sound_mode_advanced: ^4.0.0
 
 dev_dependencies:
   flutter_test:

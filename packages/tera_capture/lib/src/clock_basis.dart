@@ -52,6 +52,22 @@ const double minPlausibleDeliveryLagMillis = -5.0;
 /// Below this separation the two clocks cannot be distinguished from one another.
 const double indistinguishableClockSeparationMillis = 10.0;
 
+/// How far the two streams may drift apart across one capture before the intervals between them
+/// stop meaning anything.
+///
+/// **A rate tolerance, not an offset tolerance, and the distinction is the whole point.** A
+/// constant offset between the two streams cancels out of a *change* in transit time, which is
+/// all Tera claims — a camera frame that is always 40 ms late is 40 ms late at both ends of the
+/// episode. What does not cancel is the gap between them *growing*: that is two clocks running at
+/// different speeds, and every interval derived across them is wrong by an amount that increases
+/// through the capture while looking entirely normal on every other measure.
+///
+/// 500 ms over a 60-second capture is 0.8% relative rate error. The benign sources are far
+/// smaller: the two streams start and stop staggered by at most one camera frame (~33 ms) plus one
+/// sensor batch (~100 ms), and dropped frames do not move it at all, because this is measured from
+/// the timestamps that did arrive rather than from how many were expected.
+const double maxCrossStreamDriftMillis = 500.0;
+
 @immutable
 class ClockBasisVerification {
   const ClockBasisVerification({
@@ -112,7 +128,8 @@ class ClockBasisVerification {
     (_, ObservedClockBasis.neither) =>
       'timestamps match NEITHER clock — they are in some third base, and nothing can be '
           'aligned against them until it is identified',
-    (null, ObservedClockBasis.realtime) => 'behaves like realtime, as documented',
+    (null, ObservedClockBasis.realtime) =>
+      'behaves like realtime, as documented',
     (null, ObservedClockBasis.uptime) =>
       'BEHAVES LIKE UPTIME, not the documented realtime base',
   };
@@ -160,7 +177,9 @@ class ClockBasisVerification {
     for (var i = 0; i < count; i++) {
       realtimeLags.add((realtimeAtDeliveryNanos[i] - timestampsNanos[i]) / 1e6);
       uptimeLags.add((uptimeAtDeliveryNanos[i] - timestampsNanos[i]) / 1e6);
-      separations.add((realtimeAtDeliveryNanos[i] - uptimeAtDeliveryNanos[i]) / 1e6);
+      separations.add(
+        (realtimeAtDeliveryNanos[i] - uptimeAtDeliveryNanos[i]) / 1e6,
+      );
     }
 
     final medianRealtimeLag = _median(realtimeLags);
@@ -196,7 +215,8 @@ class ClockBasisVerification {
   }
 
   static bool _plausible(double lagMillis) =>
-      lagMillis >= minPlausibleDeliveryLagMillis && lagMillis <= maxPlausibleDeliveryLagMillis;
+      lagMillis >= minPlausibleDeliveryLagMillis &&
+      lagMillis <= maxPlausibleDeliveryLagMillis;
 
   static double _median(List<double> values) {
     final sorted = List<double>.from(values)..sort();
@@ -216,13 +236,45 @@ class ClockBasisVerification {
 /// asleep since it was last rebooted.
 @immutable
 class CrossStreamClockCheck {
-  const CrossStreamClockCheck({required this.camera, required this.accelerometer});
+  const CrossStreamClockCheck({
+    required this.camera,
+    required this.accelerometer,
+    this.observedDriftMillis,
+  });
 
   final ClockBasisVerification? camera;
   final ClockBasisVerification? accelerometer;
 
-  /// Null when either side could not be determined.
+  /// Measured drift between the two streams when a single in-process clock stamped both, in
+  /// milliseconds. Null when nothing measured it.
+  ///
+  /// This is the patient app's answer to the cross-stream question. The profiler's answer is the
+  /// two [ClockBasisVerification]s above, and the two are not interchangeable — see [sharedBasis].
+  final double? observedDriftMillis;
+
+  /// Whether the two streams can be placed on one timeline.
+  ///
+  /// Null when it could not be established either way.
   bool? get sharedBasis {
+    // **When one clock stamped both streams, the boot-clock question does not arise.**
+    //
+    // The two verifications below answer "is this handset timestamping in the realtime base or
+    // the uptime base?", and answering it needs both platform clocks read back to back at
+    // delivery. That is a profiler measurement: it requires a platform channel the patient app
+    // does not have.
+    //
+    // The patient app does something different and stronger. It starts one `Stopwatch` with the
+    // recording and places both streams on it, so there is exactly one base and they share it by
+    // construction. What can still go wrong is the two drifting apart over the minute, and that
+    // *is* measurable from the timestamps themselves — so when a drift figure is present it is the
+    // answer, and the verifications are not consulted.
+    //
+    // Without this branch the patient app could never satisfy the check at all: it passes no
+    // verifications, `sharedBasis` returned null for every capture, and the pipeline refused all
+    // of them as `clock_unstable`.
+    final drift = observedDriftMillis;
+    if (drift != null) return drift.abs() <= maxCrossStreamDriftMillis;
+
     final c = camera;
     final a = accelerometer;
     if (c == null || a == null) return null;
@@ -231,6 +283,19 @@ class CrossStreamClockCheck {
   }
 
   String get verdict {
+    final drift = observedDriftMillis;
+    if (drift != null) {
+      return drift.abs() <= maxCrossStreamDriftMillis
+          ? 'Both streams were stamped by one clock and drifted '
+                '${drift.abs().toStringAsFixed(0)} ms apart across the capture, within the '
+                '${maxCrossStreamDriftMillis.toStringAsFixed(0)} ms tolerance. They can be placed '
+                'on one timeline.'
+          : 'The two streams drifted ${drift.abs().toStringAsFixed(0)} ms apart across the '
+                'capture, beyond the ${maxCrossStreamDriftMillis.toStringAsFixed(0)} ms '
+                'tolerance. They are running at measurably different rates and any transit time '
+                'measured across them grows more wrong as the capture goes on.';
+    }
+
     final shared = sharedBasis;
     if (shared == null) {
       return 'Could not be established. Until it is, treat any cross-stream timing from this '
@@ -255,10 +320,12 @@ class CrossStreamClockCheck {
   Map<String, Object?> toJson() => {
     'camera': camera?.toJson(),
     'accelerometer': accelerometer?.toJson(),
+    'observed_drift_ms': observedDriftMillis,
     'shared_basis': sharedBasis,
     'verdict': verdict,
   };
 
   static bool _conclusive(ObservedClockBasis basis) =>
-      basis == ObservedClockBasis.realtime || basis == ObservedClockBasis.uptime;
+      basis == ObservedClockBasis.realtime ||
+      basis == ObservedClockBasis.uptime;
 }

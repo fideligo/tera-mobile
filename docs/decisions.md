@@ -2544,3 +2544,143 @@ Three things in the handover are real and are not in this change:
 The last of those is a genuine disagreement between the ML team's clinical position and ours, not
 an oversight. Azka argues no BP numeral should ever appear beside a trend. Worth resolving with him
 directly rather than by whichever code happens to ship.
+
+## What real hardware disagreed with
+
+Four fixes from the first captures on a physical handset. The brief named four separate symptoms;
+one of them had a different cause than it appeared to, and two of the others turn out to be a
+single change.
+
+### The cross-stream check could not be satisfied at all
+
+Reported as "the strict timestamp validation is instantly killing valid sessions" with a request to
+widen the drift tolerance. There was no tolerance. `_finishRecording` built
+`const CrossStreamClockCheck(camera: null, accelerometer: null)` for every capture, `sharedBasis`
+returns null when either verification is missing, and `signal_pipeline.dart` refuses anything that
+is not `true`. **Every capture on real hardware was refused as `clock_unstable`, unconditionally.**
+No threshold participated, and widening one would have changed nothing.
+
+The check is a *profiler* measurement wearing the wrong hat. It answers "does this handset stamp in
+the realtime base or the uptime base?", which requires both platform clocks read back to back at
+delivery — `SystemClock.elapsedRealtimeNanos()` and `SystemClock.uptimeNanos()` through a platform
+channel. The profiler has that channel. The patient app does not, so it passed nothing, so the
+question was structurally unanswerable in the app that was being gated on it. It would have kept
+failing even fully wired: both delivery fields are set to the same value there, which makes the
+clock separation zero, which is `indeterminate`, which is not `true` either.
+
+That question is also the wrong one here. The patient app starts one `Stopwatch` with the recording
+and re-bases both streams onto it, so there is exactly one clock and the two share it by
+construction. What survives is whether they *drift apart*, and that is measurable from the
+timestamps themselves:
+
+    drift = (accel_last - frame_last) - (accel_first - frame_first)
+
+A constant offset cancels — deliberately, and it is the same cancellation Azka's handover relies on
+when it accepts a fixed inter-stream offset, because a fixed lag cancels out of a *change* in
+transit time. What is left is relative rate error, the failure that grows through the minute and
+looks entirely normal on every other measure.
+
+`maxCrossStreamDriftMillis` is 500 ms, as asked. Over 60 seconds that is 0.8% relative rate error,
+against benign sources totalling at most ~133 ms (one camera frame plus one sensor batch, at both
+ends). Dropped frames do not enter it at all: it reads the timestamps that arrived and never counts
+how many were expected, which is the "tolerate minor dropped frames" half of the request satisfied
+structurally rather than by a second tolerance.
+
+`clock_offset_ms` now carries this figure and the backend field's documentation was rewritten to
+match. It is clamped to the schema's +/-10,000 ms on the handset, because a session that fails this
+gate is exactly the one whose drift can exceed the bound, and an out-of-range value is a 422 that
+would discard the row the reason was meant to explain (invariant 3).
+
+The profiler path is untouched and still tested: when no drift was measured, the two verifications
+are consulted exactly as before.
+
+### The motion check was an absolute threshold on a device-dependent quantity
+
+`(red - baseline).abs() > 28`, in 0-255 units. What 28 *means* depends on the sensor: against a
+baseline of 210 it is a 13% departure, which one routine auto-exposure step clears on its own;
+against a baseline of 60 it is 47%, which nothing short of the finger leaving produces. One constant
+cannot be both, so it was simultaneously aborting still patients on bright sensors and unable to
+notice a lift on dark ones.
+
+Now a fraction of the baseline (0.45) and **only on a fall**. A rise is not something a finger
+leaving a torch-lit lens produces; it is the gain control opening up or the torch finishing its
+ramp, and treating it as movement meant the camera's own behaviour could abort a capture in which
+nobody moved. Frame count 5 to 10, about a third of a second at 30 fps.
+
+Both constants moved to `capture/frame_gate.dart` with the reasoning. Not tidying: nothing in
+`capture_screen.dart` can be exercised without a `CameraImage`, and figures that cost a patient a
+whole minute when wrong should be somewhere they can be argued with. `hardware_tuning_test.dart`
+holds the rule to scale-independence across four baselines, which is the property the old one
+lacked.
+
+Auto-exposure and auto-focus are now locked before the baseline is measured, so the baseline and
+the recording share one exposure. That removes the cause rather than widening the tolerance around
+it. **White balance is not lockable through this plugin** — `camera` 0.12 exposes `setExposureMode`
+and `setFocusMode` and has nothing for AWB; it would need a platform channel setting
+`CaptureRequest.CONTROL_AWB_MODE`. Not done, and named in the code rather than left silent, because
+AWB drift moves the red channel specifically and is the residual after this. Both locks are released
+on a retry, so the next attempt's baseline is not measured through the failed attempt's settings.
+
+### The capture order changed back, and that is the same change as the threshold
+
+The baseline was taken *after* the chest countdown. The reasoning is in the old comment and it was
+sound: moving the phone to the sternum moves the finger with it, so a baseline taken beforehand
+describes a position the capture never uses, and a tight symmetric check would fire on the very move
+the screen had just requested.
+
+That argument depended on the threshold it was written against. At 45% drop-only, repositioning the
+handset with the finger still on the lens is nowhere near it. The cost of the old order is real and
+was being paid: it locked while the phone was already flat against the chest, where the patient
+cannot see the screen, cannot distinguish the lock from the countdown, and cannot act on either.
+
+So the order is now wait -> confirm -> lock -> chest countdown -> record, as the brief asks. **The
+two changes are one change.** Reverting the threshold without reverting this order aborts on the
+chest move again.
+
+The waiting state also no longer advances on its own. It called `_lockFinger()` after thirty
+consecutive covered frames — about a second — so the baseline started while the patient was still
+settling and the button that was meant to be the gate was frequently never reached. The frame check
+now decides one thing: whether the button is offered.
+
+### Do Not Disturb, and what can honestly be verified
+
+A notification during a capture does not add noise to the seismocardiogram. The vibration motor is
+on the same chassis as the accelerometer and is orders of magnitude louder than the chest wall, so
+it replaces the signal for as long as it runs, in the same band, unrecoverably.
+
+**The screen asks for DND and verifies the ringer, which is not the same question.** Deliberate:
+
+  * A silent ringer is *sufficient* — no ringer, no notification vibration, whatever the
+    interruption filter says. It is also readable on every Android device with no permission at all;
+    `AudioManager.getRingerMode()` is not privileged.
+  * DND alone is *not* sufficient. A policy that allows alarms still lets an alarm vibrate the
+    handset, and "priority only" still admits whatever the patient marked as priority.
+  * The interruption filter cannot be read here regardless. `getCurrentInterruptionFilter()` returns
+    `INTERRUPTION_FILTER_UNKNOWN` without notification-policy access, which is a Settings-level
+    grant — a worse thing to demand before a blood-pressure reading than a ringer flip — and
+    `sound_mode_advanced` exposes no getter for it anyway.
+
+So the gate instructs the stronger habit and enforces the condition it can actually verify. Nothing
+here stops a set alarm; nothing can.
+
+The manual bypass appears **only** when the read fails, never when it succeeds and says no. A bypass
+offered next to "your ringer is on" is not a safeguard, it is a button people press. It exists for
+the platform that will not answer — iOS restricts this outright — and is held to that by test.
+
+The check runs before `CaptureScreen`, not inside it, so a patient who has to go and change a
+setting has not spent the intervening minute with the torch against their finger.
+
+**Dependency: `sound_mode_advanced` ^4.0.0.** `flutter_dnd`, named in the brief, is unusable: last
+published November 2021 with `sdk: >=2.12.0 <3.0.0`, which excludes Dart 3 outright, so it will not
+resolve. `sound_mode` resolves but is discontinued in favour of this one. `sound_mode_advanced` is
+its maintained successor, Android and iOS, and provides both the ringer read and the DND settings
+deep link the warning state offers.
+
+### Counts
+
+395 patient tests (376 before), 21 profiler, 4 tera_capture, 0 analyzer errors. Backend session and
+invariant-2 suites re-run at 25 passing after the schema documentation change.
+
+Still true and unchanged by any of this: **none of it has been observed working on a handset.** The
+timestamp fix in particular is reasoned from the Android batching behaviour and the code, not from a
+capture that completed.

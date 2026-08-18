@@ -176,7 +176,7 @@ class SignalResult {
   final int nBeatsUsable;
   final Map<String, dynamic> quality;
   final SignalRejection? rejectionReason;
-  
+
   final List<double> scg;
   final List<double> ppg;
 }
@@ -243,19 +243,37 @@ class TeraSignalPipeline implements SignalPipeline {
       'snr_db': 0.0,
       'motion_index': 1.0,
     };
-    final offset = capture.clockBasis.camera?.clockSeparationMillis;
-    if (offset != null) quality['clock_offset_ms'] = offset;
+    // The drift figure when the handset measured one, the profiler's deep-sleep separation
+    // otherwise. Clamped because `SessionQuality.clock_offset_ms` is bounded +/-10,000 ms and a
+    // session that fails the drift gate is precisely the one likeliest to exceed it — an
+    // out-of-range value there is a 422 that discards the row, and invariant 3 says a rejected
+    // session is retained. The clamp costs a resolution nobody reads at that magnitude; the
+    // alternative loses the record of the failure.
+    final offset =
+        capture.clockBasis.observedDriftMillis ??
+        capture.clockBasis.camera?.clockSeparationMillis;
+    if (offset != null) {
+      quality['clock_offset_ms'] = offset.clamp(-10000.0, 10000.0);
+    }
 
     // **The clock basis is a precondition, not a correction.**
     //
     // PTT is the distance between a beat seen by the accelerometer and the same beat seen by the
     // camera, so the two streams have to be on one timeline before the subtraction means
-    // anything. `sharedBasis` is true only when both were verified and agree; false means they
-    // are on different bases and every interval is offset by however long the handset has slept
-    // since boot, and null means it could not be established at all. Neither of the latter two
-    // can be repaired after the fact, and both produce confident nonsense that looks entirely
-    // normal on every other measure — which is exactly why this is checked before analysis rather
-    // than inferred from the result.
+    // anything. Neither failure can be repaired after the fact, and both produce confident
+    // nonsense that looks entirely normal on every other measure — which is why this is checked
+    // before analysis rather than inferred from the result.
+    //
+    // **What `sharedBasis` answers changed, and this comment is the reason it had to.** It used
+    // to consult only the two per-stream verifications, which the patient app cannot produce: it
+    // has no platform channel to read both boot clocks at delivery, so it passed neither, so this
+    // returned null, so *every capture on real hardware was refused here* with `clock_unstable`.
+    // The refusal was not a tolerance being exceeded; the question was unanswerable in this app.
+    //
+    // The handset now stamps both streams off one `Stopwatch` and measures how far they drift
+    // apart across the capture, which is the part of the question that survives having one clock.
+    // A fixed offset between the streams cancels out of a change in transit time; a growing one
+    // does not, and `maxCrossStreamDriftMillis` is where growing stops being jitter.
     if (capture.clockBasis.sharedBasis != true) {
       return SignalResult(
         accepted: false,

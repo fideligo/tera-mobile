@@ -28,6 +28,7 @@ import '../signal/signal_pipeline.dart';
 import 'capture_screen.dart';
 import 'cuff_reading_screen.dart';
 import 'flow_stub_screen.dart';
+import 'preflight_screen.dart';
 import 'tokens.dart';
 
 /// AUTH-00. Checks auth, then device eligibility, then onboarding, and routes once.
@@ -708,6 +709,13 @@ class CaptureRouteScreen extends StatefulWidget {
 class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
   bool _walkthroughDone = false;
 
+  /// Whether the handset has been checked for anything that could vibrate mid-capture.
+  ///
+  /// Held here rather than inside `CaptureScreen` so the check runs *before* the torch comes on
+  /// and the camera opens: a patient who has to leave and change a setting should not have spent
+  /// the intervening minute with the flash burning against their finger.
+  bool _preflightDone = false;
+
   /// Set once the 60 s capture is done and a first-time calibration still owes its cuff reading.
   /// Held rather than passed onward immediately: the reading has to be entered before the session
   /// can be filed, so the flow pauses here instead of at the processing screen.
@@ -849,6 +857,16 @@ class _CaptureRouteScreenState extends State<CaptureRouteScreen> {
     if (!_walkthroughDone) {
       return ScgPpgWalkthroughScreen(
         onDone: () => setState(() => _walkthroughDone = true),
+      );
+    }
+
+    // Last thing before the camera. A notification arriving during a capture does not add noise
+    // to the seismocardiogram — the vibration motor is on the same chassis as the accelerometer
+    // and is orders of magnitude louder than the chest wall, so it replaces the signal for as long
+    // as it runs, in the same band, unrecoverably.
+    if (!_preflightDone) {
+      return PreflightScreen(
+        onReady: () => setState(() => _preflightDone = true),
       );
     }
     return CaptureScreen(
@@ -1221,10 +1239,9 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
       final resolved = await SessionContextResolver(
         api: widget.flow.api,
       ).resolveEpisode();
-      final id = await CheckSessionClient(api: widget.flow.api).open(
-        episodeId: resolved.episodeId,
-        mode: widget.session.mode,
-      );
+      final id = await CheckSessionClient(
+        api: widget.flow.api,
+      ).open(episodeId: resolved.episodeId, mode: widget.session.mode);
       debugPrint('[TERA] check session recovered late: $id');
       if (mounted) setState(() => _recoveredCheckSessionId = id);
     } on Object catch (e) {
@@ -1324,7 +1341,9 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
         'reference_cuff_reading_id': anchorId,
         'session_ids': [sessionId],
       });
-      debugPrint('[TERA] calibration established against cuff reading $anchorId');
+      debugPrint(
+        '[TERA] calibration established against cuff reading $anchorId',
+      );
       // Consumed. Leaving it would re-anchor every future check to the same old reading.
       await anchors.clear();
     } on Object catch (e) {
