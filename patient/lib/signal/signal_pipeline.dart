@@ -58,10 +58,25 @@ import '../ui/capture_screen.dart';
 
 /// Minimum intervals that must survive the gate for a session to be usable.
 ///
-/// Mirrors the backend's `min_usable_beats`. It is duplicated because the handset decides before
-/// it can ask anything, and reconciled by the threshold cross-check at device-profile time rather
-/// than by hoping the two stay in step.
-const int minUsableBeats = 30;
+/// **12, matching the ML reference's `MIN_PAIRS` and the backend's `min_usable_beats`.** It was 30
+/// on both sides, which put a second and stricter gate behind the chain's own: `qualityGate`
+/// accepts at 12 paired beats — the reference's figure, validated against the vectors in
+/// `test/fixtures/` — and this then refused the same capture as `insufficient_beats`. A recording
+/// the signal chain had accepted was thrown away here, and the patient was asked to sit through
+/// another minute.
+///
+/// The old rule was "half of a 60 s capture at 60 bpm". Half of a 60 bpm capture is not half of a
+/// 48 bpm one, so it fell hardest on the slowest heart rates, and it was never validated against
+/// anything. A trimmed mean over 12 beats *is* noisier than over 30; that cost is carried by the
+/// backend's confidence score, which rates a 12-beat session low, rather than by refusing to keep
+/// a record of it at all.
+///
+/// **This constant is duplicated in `backend/app/config.py` and nothing enforces that they
+/// agree.** The comment here used to claim a "threshold cross-check at device-profile time"
+/// reconciles them; there is no such check — no endpoint publishes the server's thresholds and
+/// nothing compares them. Changing one without the other does not fail a test, it moves where the
+/// patient is refused. Both were changed together here.
+const int minUsableBeats = 12;
 
 /// Plausible transit-time bounds, milliseconds. Mirrors the backend's `ptt_min_ms` / `ptt_max_ms`.
 ///

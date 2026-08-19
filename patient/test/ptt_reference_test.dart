@@ -14,6 +14,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tera_patient/capture/dsp/tera_ptt.dart';
+import 'package:tera_patient/signal/signal_pipeline.dart';
 
 class _Case {
   _Case(Map<String, dynamic> json)
@@ -296,6 +297,20 @@ void main() {
       expect(minPairYield, 0.50);
       expect(maxPttSdMs, 10.0);
       expect(scgOnsetFrac, 0.82);
+    });
+
+    test('the pipeline never refuses a capture its own gate accepted', () {
+      // **The defect this pins.** `minUsableBeats` was 30 while `minPairs` — the reference's
+      // `MIN_PAIRS`, and the figure `qualityGate` actually applies — was 12. A capture with 12 to
+      // 29 paired beats therefore passed the signal chain and was then thrown away one branch
+      // later as `insufficient_beats`, so the patient was asked to repeat a minute the chain had
+      // already accepted.
+      //
+      // Stated as an inequality rather than an equality because the two count slightly different
+      // things: `minPairs` bounds paired beats, `minUsableBeats` bounds intervals surviving the
+      // plausibility window. A second gate is allowed to exist; it is not allowed to be stricter
+      // than the first without someone deciding that on purpose.
+      expect(minUsableBeats, lessThanOrEqualTo(minPairs));
     });
 
     test('the HR tolerance is EC13, not a flat number', () {
