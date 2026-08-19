@@ -366,6 +366,7 @@ class TeraSignalPipeline implements SignalPipeline {
             '${result.gate.detail ?? "no detail"} '
             '[chest ${result.nScgBeats} beats, finger ${result.nPpgFeet} feet, '
             '${result.summary.n} paired of ${result.nPairedBeforeTrim}, '
+            'yield ${(100 * result.summary.pairYield).toStringAsFixed(0)}%, '
             'SD ${result.summary.sd.toStringAsFixed(1)} ms trimmed from '
             '${result.sdBeforeTrimMs.toStringAsFixed(1)} ms]',
           );
@@ -375,7 +376,9 @@ class TeraSignalPipeline implements SignalPipeline {
             'PTT median ${result.summary.median.toStringAsFixed(1)} ms, '
             'SD ${result.summary.sd.toStringAsFixed(1)} ms '
             '(untrimmed ${result.sdBeforeTrimMs.toStringAsFixed(1)} ms), '
-            'n=${result.summary.n} of ${result.nPairedBeforeTrim}',
+            'n=${result.summary.n} of ${result.nPairedBeforeTrim}, '
+            'yield ${(100 * result.summary.pairYield).toStringAsFixed(0)}%'
+            '${result.summary.pairYield < minPairYield ? " (below the reference's ${(100 * minPairYield).toStringAsFixed(0)}%, no longer a refusal)" : ""}',
           );
         }
 

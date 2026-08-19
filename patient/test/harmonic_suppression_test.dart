@@ -345,21 +345,25 @@ void main() {
       expect(formerlyRefused.passed, isTrue);
     });
 
-    test('the wider window cannot pair across two cardiac cycles', () {
-      // The property that makes 500 ms safe rather than merely permissive. At 60 bpm a cycle is
-      // 1000 ms, so the next beat's foot is never inside the window: a missed beat stays unpaired
-      // instead of becoming a wrong pair.
-      const restingCycleMs = 1000.0;
-      expect(pttMaxSeconds * 1000, lessThan(restingCycleMs / 2 + 1));
-
-      // A beat at t=0 and a foot belonging to the next cycle.
-      final paired = pairBeats(const [0.0], const [1.24]);
-      expect(paired, isEmpty);
+    test('the window cannot pair across two cardiac cycles', () {
+      // A beat at t=0 and a foot belonging to the next cycle at a resting rate.
+      expect(pairBeats(const [0.0], const [1.24]), isEmpty);
     });
 
-    test('the widened window admits an interval the old one dropped', () {
-      final paired = pairBeats(const [0.0], const [0.45]);
-      expect(paired.single, closeTo(450, 1e-9));
+    test('the 380-500 ms band is closed again, and that is the reversal', () {
+      // **This test asserted the opposite one commit ago**, when the ceiling was 0.50: it checked
+      // that a 450 ms interval was admitted, as evidence the widening had taken effect.
+      //
+      // It had. That band is also where a chest beat whose own foot was dropped can reach an
+      // unclaimed later one and produce an interval that is not a transit time — and enough of
+      // those form a second cluster, which an IQR fence cannot remove because the quartiles span
+      // both groups. Closing the band is the fix; the trim was never going to be.
+      expect(pairBeats(const [0.0], const [0.45]), isEmpty);
+
+      // What remains admitted is the fiducial headroom the widening was actually for: our AO mark
+      // is backtracked and our PPG foot is placed by intersecting tangents, so a real interval sits
+      // longer than the textbook figure and 0.38 still clears BUILD_SPEC's 0.40 minus a little.
+      expect(pairBeats(const [0.0], const [0.37]).single, closeTo(370, 1e-9));
     });
   });
 

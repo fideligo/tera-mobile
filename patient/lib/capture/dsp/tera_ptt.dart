@@ -38,25 +38,35 @@ import 'signal_ops.dart';
 
 /// Physiological acceptance window for a single transit time, seconds.
 ///
-/// **The ceiling is 0.50, not the reference's and BUILD_SPEC 4.4's 0.40.** A recorded deviation,
-/// and the reason is the fiducials at either end rather than the physiology between them: our AO
-/// mark is backtracked to [scgOnsetFrac] of the envelope rise, which places it *earlier* than the
-/// envelope peak, and the PPG foot is located by intersecting tangents, which places it earlier
-/// than the argmin. Both corrections are right and both lengthen the measured interval, so the
-/// number this window bounds is systematically larger than the textbook AO-to-foot figure it was
-/// written for.
+/// **0.38, chosen so the window can never reach the next cardiac cycle at any rate this chain
+/// accepts.** That is arithmetic, not taste:
 ///
-/// The floor stays at 0.08. Raising it to 0.10 was considered and rejected: it discards pairs
-/// rather than admitting them, which is the opposite of what a low pair count needs, and a
-/// transit time near 0.08 s is reachable in a stiff artery over a short arm.
+///     a foot from the following cycle enters the window only when
+///         cycle period <= pttMaxSeconds - pttMinSeconds
+///     0.38 - 0.08 = 0.30 s, and 60 / 0.30 = 200 bpm, which is exactly [maxBpm].
 ///
-/// **What makes widening safe is what happens downstream, not this bound.** At 60 bpm a cardiac
-/// cycle is 1000 ms, so 500 ms still cannot reach the next cycle's foot — a missed beat does not
-/// become a wrong pair, it stays unpaired. And a run that mixes true pairs with spurious ones
-/// scatters by hundreds of milliseconds, which [maxPttSdMs] refuses at 10 ms. The dispersion
-/// ceiling is the real guard; this window only decides what is offered to it.
+/// Since a beat faster than [maxBpm] is not treated as a beat at all, no accepted recording can
+/// have a cycle short enough for cross-cycle pairing. The ceiling was 0.50, where the same
+/// arithmetic gives 143 bpm — reachable, and inside the plausible band.
+///
+/// **This tightens a bound that was widened one commit ago, and the reason it was widened still
+/// stands.** Our AO mark is backtracked to [scgOnsetFrac] of the envelope rise and our PPG foot is
+/// placed by intersecting tangents; both are the reference's own definitions and both lengthen the
+/// measured interval relative to the textbook AO-to-foot figure that BUILD_SPEC 4.4's 0.40 was
+/// written against. 0.38 keeps almost all of that headroom while removing the 380-500 ms band,
+/// which is where a chest beat whose own foot was dropped can reach an unclaimed later one and
+/// produce an interval that is not a transit time.
+///
+/// The floor stays at 0.08 — raising it discards pairs, which is the opposite of what a low pair
+/// count needs, and 0.08 s is reachable in a stiff artery over a short arm.
+///
+/// **Why this had to be fixed here rather than by the outlier trim.** [tukeyTrim] removes a few
+/// stragglers; it cannot remove a *second cluster*. When a substantial share of the pairs are
+/// shifted by a consistent amount, the interquartile range spans both groups, the fence widens to
+/// match, and nothing is dropped. A bimodal set defeats an IQR fence by construction, so the
+/// second mode has to be prevented at the pairing step rather than cleaned up after it.
 const double pttMinSeconds = 0.08;
-const double pttMaxSeconds = 0.50;
+const double pttMaxSeconds = 0.38;
 
 /// ANSI/AAMI EC13 readout tolerance: ten percent of the rate, or five bpm, whichever is greater.
 ///
@@ -226,12 +236,32 @@ const double hrPlausibleMaxBpm = 140.0;
 // which is the only estimate available that is immune to this failure — a harmonic adds energy at
 // 2f, it does not move the peak at f.
 
-/// Fraction of the spectral fundamental period used as the refractory period on the second pass.
+/// Fraction of the spectral fundamental period used as the refractory period on the second pass,
+/// for the **chest**.
 ///
-/// Three quarters of a beat: wide enough to swallow a diastolic bump at any physiological systolic
-/// ejection period, narrow enough that genuine beat-to-beat variation — which at rest is a few
-/// percent of the interval, not a quarter of it — still resolves.
+/// Three quarters of a beat: wide enough to swallow the aortic-closing bump at any physiological
+/// systolic ejection period, narrow enough that genuine beat-to-beat variation — which at rest is a
+/// few percent of the interval, not a quarter of it — still resolves.
 const double harmonicRefractoryFraction = 0.75;
+
+/// The same, for the **finger**, and deliberately shorter.
+///
+/// The two streams see the same valve closure by different routes and it does not arrive with the
+/// same prominence. On the chest the closing complex is a mechanical event of comparable magnitude
+/// to the opening one, which is why 0.75 of a beat is needed to be sure of clearing it. At the
+/// fingertip it arrives as the dicrotic notch — a secondary inflection on a decaying pulse, far
+/// smaller relative to the systolic peak — and it sits around 45% of the cycle, so a refractory of
+/// 0.60 already covers it with room to spare.
+///
+/// The cost of the longer figure is what motivated splitting them: a refractory is a hard floor on
+/// the shortest interval the detector may report, so 0.75 of the *median* period silently discards
+/// any genuinely short beat. Heart-rate variability at rest is a few percent, but a single short
+/// cycle after a sigh is larger than that, and every beat it deletes is a beat the pairing step
+/// then cannot use.
+///
+/// Still comfortably above the notch it exists to block: 0.60 against a notch at roughly 0.45 of
+/// the cycle.
+const double harmonicRefractoryFractionPpg = 0.60;
 
 /// How far above the spectral fundamental the peak rate must sit before a second pass is tried.
 ///
@@ -316,6 +346,7 @@ double _hrFromPeakIndices(List<int> peaks, double fs) {
   required double fs,
   required double prominence,
   required double spectralHrBpm,
+  required double refractoryFraction,
 }) {
   final baseDistance = (fs * 60 / maxBpm).toInt();
   final first = findPeaks(
@@ -335,7 +366,7 @@ double _hrFromPeakIndices(List<int> peaks, double fs) {
   // Never narrower than the reference's floor: this pass exists to widen.
   final widened = math.max(
     baseDistance,
-    (harmonicRefractoryFraction * fs * 60.0 / spectralHrBpm).round(),
+    (refractoryFraction * fs * 60.0 / spectralHrBpm).round(),
   );
   final second = findPeaks(trace, distance: widened, prominence: prominence);
   final secondHr = _hrFromPeakIndices(second, fs);
@@ -366,6 +397,7 @@ BeatDetection detectScgBeats(List<double> scg, double fs) {
     fs: fs,
     prominence: 0.5 * std(env),
     spectralHrBpm: spectral,
+    refractoryFraction: harmonicRefractoryFraction,
   );
   final peaks = detected.peaks;
 
@@ -449,6 +481,7 @@ BeatDetection detectPpgFeet(List<double> ppg, double fs) {
     fs: fs,
     prominence: 0.3 * std(f),
     spectralHrBpm: spectral,
+    refractoryFraction: harmonicRefractoryFractionPpg,
   );
   final peaks = detected.peaks;
   if (peaks.length < 3) return BeatDetection.empty;
@@ -694,15 +727,25 @@ GateResult qualityGate({
     );
   }
 
-  if (summary.pairYield < minPairYield) {
-    return GateResult(
-      passed: false,
-      failure: GateFailure.lowPairYield,
-      detail:
-          'only ${(100 * summary.pairYield).toStringAsFixed(1)}% of beats paired, '
-          'need ${(100 * minPairYield).toStringAsFixed(0)}%',
-    );
-  }
+  // **The reference's 50% pair-yield gate no longer refuses, and this is a deviation.**
+  //
+  // It asked that at least half the detected chest beats find a partner. The absolute count is
+  // already checked at the top of this function, at [minPairs], and the two answer different
+  // questions: how many intervals there are to take a median of, and how much of the chest was
+  // matched. A capture with 22 pairs from 68 chest beats clears the first and failed the second,
+  // and 22 intervals is a usable median by the reference's own figure of 12.
+  //
+  // Removed rather than left unreachable. Passing whenever `summary.n >= minPairs` — which the
+  // check above already guarantees — would have made this branch dead code that reads as a live
+  // safeguard, which is worse than an honest absence.
+  //
+  // **What is given up.** A low yield is evidence that the two streams are not seeing the same
+  // heart, and the surviving pairs may be the wrong ones; that is a real signal and it is no
+  // longer a refusal. Two things carry it instead. The ratio still reaches the record — the
+  // payload submits `n_beats_total` and `n_beats_usable`, so the yield is recoverable server-side
+  // and a 32% session is identifiable. And `compute_confidence` scores on the absolute count, so a
+  // 22-beat session sits far below saturation and reports low confidence rather than passing
+  // silently. [minPairYield] is kept as the figure the log reports against.
 
   if (summary.sd.isFinite && summary.sd > maxPttSdMs) {
     return GateResult(

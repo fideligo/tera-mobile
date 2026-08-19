@@ -384,9 +384,114 @@ void main() {
       // Asserted rather than left implicit so the next person sees a decision instead of a
       // discrepancy, and so a further drift has to be argued for. The floor is unchanged: raising
       // it would discard pairs, which is the opposite of what a low pair count needs.
-      expect(pttMaxSeconds, 0.50);
+      expect(pttMaxSeconds, 0.38);
       expect(pttMinSeconds, 0.08);
     });
+
+    test('the window cannot reach the next cardiac cycle at any accepted rate', () {
+      // **This is why the ceiling is 0.38 and not a round number.** A foot from the following
+      // cycle enters the window only when the cycle period fits inside it:
+      //
+      //     period <= pttMaxSeconds - pttMinSeconds
+      //
+      // 0.38 - 0.08 = 0.30 s, and 60/0.30 = 200 bpm, which is exactly `maxBpm` — the rate above
+      // which this chain does not treat a peak as a beat at all. So no recording it accepts can
+      // have a cycle short enough to be paired across.
+      final span = pttMaxSeconds - pttMinSeconds;
+      expect(60.0 / span, closeTo(maxBpm.toDouble(), 1e-9));
+
+      // At the previous 0.50 the same arithmetic gives 142.9 bpm, against a plausibility ceiling
+      // of 140 — so cross-cycle pairing was blocked, by **2.9 bpm**, and only by a check that
+      // exists for an unrelated reason and could be retuned by someone who has never read this.
+      // A three-beat margin resting on a coincidence between two independent constants is not a
+      // safeguard; 0.38 makes the question unanswerable instead of narrowly answered.
+      final oldThresholdBpm = 60.0 / (0.50 - pttMinSeconds);
+      expect(oldThresholdBpm, closeTo(142.9, 0.1));
+      expect(oldThresholdBpm - hrPlausibleMaxBpm, lessThan(3.0));
+    });
+
+    test(
+      'a fence cannot remove a second cluster, which is why this is fixed at the window',
+      () {
+        // `tukeyTrim` handles a few stragglers. When a large share of the pairs are shifted by a
+        // consistent amount the interquartile range spans both groups, the fence widens to match,
+        // and nothing is dropped — a bimodal set defeats an IQR fence by construction.
+        final trueCluster = [for (int i = 0; i < 40; i++) 238.0 + (i % 5)];
+        final shiftedCluster = [for (int i = 0; i < 25; i++) 450.0 + (i % 5)];
+        final bimodal = [...trueCluster, ...shiftedCluster];
+
+        final trimmed = tukeyTrim(bimodal);
+        expect(
+          trimmed.length,
+          bimodal.length,
+          reason: 'the fence removes nothing from a bimodal set',
+        );
+        expect(summarise(trimmed, 70).sd, greaterThan(90));
+
+        // And the second cluster is outside the window now, so it is never formed.
+        expect(450.0, greaterThan(pttMaxSeconds * 1000));
+      },
+    );
+
+    test('the two harmonic refractories differ by stream, on purpose', () {
+      // The chest sees aortic closing as a mechanical event comparable to opening; the finger sees
+      // it as a dicrotic notch on a decaying pulse, at roughly 45% of the cycle. A shorter finger
+      // refractory still clears the notch and stops deleting genuinely short beats.
+      expect(harmonicRefractoryFraction, 0.75);
+      expect(harmonicRefractoryFractionPpg, 0.60);
+      expect(
+        harmonicRefractoryFractionPpg,
+        lessThan(harmonicRefractoryFraction),
+      );
+
+      // Still above the notch it exists to block.
+      const dicroticPositionInCycle = 0.45;
+      expect(
+        harmonicRefractoryFractionPpg,
+        greaterThan(dicroticPositionInCycle),
+      );
+    });
+
+    test(
+      'the pair-yield gate no longer refuses, and the figure is still reported',
+      () {
+        // A deviation from the reference's MIN_PAIR_YIELD. The absolute count is checked at
+        // minPairs; this asked a different question and refused captures that had enough intervals.
+        final lowYield = qualityGate(
+          scgHr: 63,
+          scgSpectralHr: 63,
+          ppgHr: 63,
+          ppgSpectralHr: 63,
+          summary: const PttSummary(
+            n: 22,
+            median: 240,
+            sd: 4,
+            iqr: 5,
+            pairYield: 0.32,
+          ),
+        );
+        expect(lowYield.passed, isTrue);
+
+        // The constant is kept because the log still reports against it.
+        expect(minPairYield, 0.50);
+
+        // And too few intervals is still a refusal — the two checks were never the same one.
+        final tooFew = qualityGate(
+          scgHr: 63,
+          scgSpectralHr: 63,
+          ppgHr: 63,
+          ppgSpectralHr: 63,
+          summary: const PttSummary(
+            n: 8,
+            median: 240,
+            sd: 4,
+            iqr: 5,
+            pairYield: 0.9,
+          ),
+        );
+        expect(tooFew.passed, isFalse);
+      },
+    );
 
     test(
       'the cross-sensor floor is relaxed, and the within-sensor floor is not',
