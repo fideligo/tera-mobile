@@ -410,7 +410,10 @@ void main() {
       expect(result.passed, isFalse);
       expect(result.detail, contains('chest'));
       expect(result.detail, contains('finger'));
-      expect(result.detail, contains('EC13'));
+      // Named "cross-sensor limit" rather than "EC13" since the floor stopped being EC13's: this
+      // limb carries the consumer-hardware floor, the within-sensor limb still carries EC13, and
+      // a log that called both EC13 would hide which one refused.
+      expect(result.detail, contains('cross-sensor limit'));
     });
 
     test('a spread refusal names the spread and the ceiling', () {

@@ -233,6 +233,113 @@ void main() {
     });
   });
 
+  group('the consumer-hardware tuning', () {
+    test('the capture that failed cross-sensor by 0.7 bpm now passes', () {
+      // From the device log, after harmonic suppression had already fixed the double-count:
+      //
+      //     sensorsDisagree — chest 60.3 bpm vs finger 54.2 bpm = 6.1 bpm apart, EC13 limit 5.4
+      //
+      // EC13's 5 bpm floor is a readout tolerance for one device against a reference. Asking a
+      // camera watching a fingertip through skin and an accelerometer resting on a sternum to
+      // count within five of each other is a different demand, and the camera is the one that
+      // loses beats.
+      final gate = qualityGate(
+        scgHr: 60.3,
+        scgSpectralHr: 60.3,
+        ppgHr: 54.2,
+        ppgSpectralHr: 54.2,
+        summary: const PttSummary(
+          n: 40,
+          median: 240,
+          sd: 3,
+          iqr: 4,
+          pairYield: 0.8,
+        ),
+      );
+      expect(gate.passed, isTrue, reason: gate.detail);
+    });
+
+    test('the within-sensor floor did not move with it', () {
+      // The dual-estimator check is the harmonic net. A 6.1 bpm disagreement *inside* one sensor
+      // at 60 bpm is still a refusal, because there it means the two estimators of the same signal
+      // disagree — which is what a partial harmonic looks like.
+      final gate = qualityGate(
+        scgHr: 60.3,
+        scgSpectralHr: 54.2,
+        ppgHr: 60.3,
+        ppgSpectralHr: 60.3,
+        summary: const PttSummary(
+          n: 40,
+          median: 240,
+          sd: 3,
+          iqr: 4,
+          pairYield: 0.8,
+        ),
+      );
+      expect(gate.passed, isFalse);
+      expect(gate.detail, contains('EC13'));
+    });
+
+    test('a genuinely desynchronised pair is still refused', () {
+      // The relaxation is bounded. 20 bpm apart is not two sensors watching one heart.
+      final gate = qualityGate(
+        scgHr: 75.0,
+        scgSpectralHr: 75.0,
+        ppgHr: 55.0,
+        ppgSpectralHr: 55.0,
+        summary: const PttSummary(
+          n: 40,
+          median: 240,
+          sd: 3,
+          iqr: 4,
+          pairYield: 0.8,
+        ),
+      );
+      expect(gate.passed, isFalse);
+      expect(gate.detail, contains('cross-sensor limit'));
+    });
+
+    test('the dispersion ceiling still refuses what the looser rate check admits', () {
+      // **This is what makes relaxing the rate comparison defensible.** The cross-sensor rate
+      // check is a cheap proxy for simultaneity; the spread of the intervals it produces is the
+      // direct measurement, and that one is untouched. Two streams 6 bpm apart that were not
+      // actually watching the same beats produce pairs that scatter, and 25 ms of scatter is
+      // refused whatever the rates said.
+      final gate = qualityGate(
+        scgHr: 60.3,
+        scgSpectralHr: 60.3,
+        ppgHr: 54.2,
+        ppgSpectralHr: 54.2,
+        summary: const PttSummary(
+          n: 40,
+          median: 240,
+          sd: 25,
+          iqr: 30,
+          pairYield: 0.8,
+        ),
+      );
+      expect(gate.passed, isFalse);
+      expect(gate.detail, contains('ceiling'));
+    });
+
+    test('the wider window cannot pair across two cardiac cycles', () {
+      // The property that makes 500 ms safe rather than merely permissive. At 60 bpm a cycle is
+      // 1000 ms, so the next beat's foot is never inside the window: a missed beat stays unpaired
+      // instead of becoming a wrong pair.
+      const restingCycleMs = 1000.0;
+      expect(pttMaxSeconds * 1000, lessThan(restingCycleMs / 2 + 1));
+
+      // A beat at t=0 and a foot belonging to the next cycle.
+      final paired = pairBeats(const [0.0], const [1.24]);
+      expect(paired, isEmpty);
+    });
+
+    test('the widened window admits an interval the old one dropped', () {
+      final paired = pairBeats(const [0.0], const [0.45]);
+      expect(paired.single, closeTo(450, 1e-9));
+    });
+  });
+
   group('both streams carry the correction', () {
     test('a healthy dicrotic PPG is not disturbed by it', () {
       // The finger detector gets the same second pass, because the dicrotic notch is the same

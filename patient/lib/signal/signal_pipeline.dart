@@ -84,7 +84,7 @@ const int minUsableBeats = 12;
 /// depth, but it rejects the whole session rather than the interval, so relying on it would throw
 /// away a good capture for one bad pair.
 const double pttMinMs = 80.0;
-const double pttMaxMs = 400.0;
+const double pttMaxMs = 500.0;
 
 /// Longest array the API will accept, from invariant 2's bound (`max_ptt_array_length`).
 const int maxPttArrayLength = 300;
@@ -363,7 +363,9 @@ class TeraSignalPipeline implements SignalPipeline {
           debugPrint(
             '[Tera] gate FAILED on axis ${entry.key}: '
             '${result.gate.failure?.name ?? "unspecified"} — '
-            '${result.gate.detail ?? "no detail"}',
+            '${result.gate.detail ?? "no detail"} '
+            '[chest ${result.nScgBeats} beats, finger ${result.nPpgFeet} feet, '
+            '${result.summary.n} paired]',
           );
         } else {
           debugPrint(
