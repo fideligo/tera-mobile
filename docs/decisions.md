@@ -2943,3 +2943,87 @@ retained list empty. At 12 values the Tukey fence is well defined.
 ### Counts
 
 391 backend tests (387 before), 410 Flutter (409 before), 0 analyzer errors.
+
+## The lub-dub double-count
+
+First successful hardware capture: 468 Hz accelerometer, 29.8 fps camera, 5.1 ms cross-stream drift
+— every earlier fix confirmed working — and every axis refused.
+
+```
+peak 119.2 bpm vs spectral 58.0 bpm = 61.2 bpm apart, EC13 limit 11.9 bpm at 119 bpm
+```
+
+119.2 / 58.0 = 2.06. The time-domain detector was counting aortic *opening* and aortic *closing* as
+two beats; the spectral estimator held the fundamental. Both events are genuine mechanical facts
+about a chest wall and both produce a real bump in the Hilbert envelope with a real trough between
+them, so no amount of prominence tuning separates them. They are both real. Only one is the beat.
+
+### The obvious fix is already implemented and is a no-op
+
+`find_peaks(distance=int(fs * 60 / max_bpm))` with `max_bpm = 200` is a 300 ms refractory period,
+present in the reference and faithfully ported — 140 samples at the 468 Hz this handset achieved.
+The spurious peaks sat **503 ms** apart. They were never inside 300 ms.
+
+A refractory derived from the fastest heart a human can have says nothing useful about a heart
+beating at 58. The systolic ejection period at rest is 300-400 ms, so the aortic-closing bump lands
+just outside a floor built for 200 bpm. The floor is not slightly too small; it is answering a
+different question. `harmonic_suppression_test.dart` asserts that arithmetic, because "add a 300 ms
+refractory" is the intuitive fix and would have changed nothing.
+
+### What was done
+
+A second pass, in both detectors. Pass one is the reference's, unchanged, and is the path almost
+every capture takes. Pass two runs only when the peak rate is at least `harmonicSuspicionRatio`
+(1.5) times the spectral fundamental, using a refractory of `harmonicRefractoryFraction` (0.75) of
+the fundamental period — 776 ms at 58 bpm, which swallows a 503 ms echo, and 375 ms at 120 bpm, so
+the rule adapts rather than imposing a resting-rate assumption on a fast heart.
+
+**Its result is adopted only if it agrees with the fundamental better than pass one did.** A wider
+refractory that makes things worse is not a correction and is discarded.
+
+Applied to the PPG as well as the SCG: the dicrotic notch is the same valve closure arriving by a
+different route, and correcting one stream alone would move the refusal to the cross-sensor check —
+the same no with a different reason attached.
+
+### What this costs, stated plainly
+
+The dual-estimator check compares peak against spectral, and its value is that the two are reached
+independently. On a capture where pass two fires, they no longer are: the spectral estimate has
+constrained the peak search. That limb is weaker for those captures and it would be dishonest to
+claim otherwise.
+
+Two things stop it being decorative. The constraint only ever *removes* peaks, so it cannot
+manufacture a beat train from a recording that has none — a wider refractory on noise gives fewer
+irregular peaks, not a regular series, and the noise case is tested. And the **cross-sensor check is
+untouched**: chest rate against finger rate, two sensors reading two different physical quantities,
+which the reference itself calls the strongest check it has. A capture that passes still had to
+satisfy that, and it remains fully independent.
+
+### The hole this opened, and the check that was missing
+
+Pushing the synthetic further exposed something worse than the original bug. With a diastolic
+complex nearly as strong as the systolic one, **both** estimators lock onto the harmonic — and then
+they *agree*. Measured: 187.7 bpm peak against 174.0 bpm spectral, 13.7 apart, inside EC13's 18.8 at
+that rate. The gate's central check is satisfied by a capture wrong by a factor of three, and the
+second pass correctly declines because its guide is wrong.
+
+Agreement between two fooled estimators is not evidence. The reference already has the answer and
+this port had dropped it: `HR_PLAUSIBLE = {"seated": (45.0, 140.0)}`. The reference applies it in
+`hr_gate`, which governs whether a *rate* may be reported; it is now applied in the PTT gate too,
+before the agreement check, because a rate outside that window describes the detector rather than
+the patient. `maxBpm` does not cover this — 200 is the fastest a heart can go at all and is the
+refractory's input, not the range a seated resting capture may occupy.
+
+That deviation from the reference's structure is deliberate and is invariant 7: where the signal is
+ambiguous, refuse. It is strictly more conservative, it uses the reference's own numbers, and the
+reference vectors still reach the same verdict on every case.
+
+### Counts
+
+421 patient tests (409 before), 0 analyzer errors. Reference vectors unchanged in every beat time,
+interval and gate verdict.
+
+Not yet seen on hardware. The synthetic reproduces the logged condition — spectral holding 58 while
+the peak detector doubles — but a real chest is the only thing that confirms the correction fires
+where it should and stays out of the way where it should not. `[Tera] harmonic suppression on axis
+...` prints whenever it does, so the next capture will say.

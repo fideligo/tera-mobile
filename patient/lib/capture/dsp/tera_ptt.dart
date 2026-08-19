@@ -87,12 +87,75 @@ const double scgOnsetFrac = 0.82;
 /// Beats faster than this are not beats.
 const int maxBpm = 200;
 
+/// Physiologically plausible seated heart rate, bpm. The reference's `HR_PLAUSIBLE["seated"]`.
+///
+/// **Present in `tera_ptt.py` and missing from this port until a real capture needed it.** The
+/// reference applies it in `hr_gate`, which decides whether a *rate* may be reported; it is applied
+/// here, in the PTT gate, as well.
+///
+/// The case that forced it: the dual-estimator check compares peak detection against spectral
+/// estimation on the assumption that two independent methods do not fail the same way. Usually
+/// true. But a chest whose diastolic complex nearly matches its systolic one puts so much energy at
+/// the harmonic that *both* estimators lock onto it — and then they agree, within EC13, on a rate
+/// that is wrong by a factor of two or three. The check passes and the capture is accepted with a
+/// heart rate of 187 bpm for a patient sitting still at 58.
+///
+/// Agreement between two fooled estimators is not evidence. A window is, because it is a fact about
+/// people rather than about either method: nobody produces 187 bpm sitting quietly in a chair, and
+/// a capture claiming they did is describing its own detector. Invariant 7 — where the signal is
+/// ambiguous, refuse rather than report.
+///
+/// `maxBpm` does not cover this. It is 200, the fastest a heart can go at all, and is the
+/// refractory period's input; this is the range a *seated resting* capture may occupy.
+const double hrPlausibleMinBpm = 45.0;
+const double hrPlausibleMaxBpm = 140.0;
+
+// --------------------------------------------------------- harmonic suppression
+//
+// **The first real captures failed here, on every axis, and the numbers name the cause:**
+//
+//     peak 119.2 bpm vs spectral 58.0 bpm = 61.2 bpm apart
+//
+// 119.2 / 58.0 = 2.06. The time-domain detector was counting the chest wall twice per cardiac
+// cycle — aortic *opening* and aortic *closing*, the "lub" and the "dub" — while the spectral
+// estimator correctly locked onto the fundamental. Both events produce a genuine bump in the
+// Hilbert envelope with a real trough between them, so no amount of prominence tuning separates
+// them: they are both real, and only one of them is the beat.
+//
+// **The refractory period the reference already has cannot fix this, and it is worth being precise
+// about why.** `find_peaks(distance=int(fs * 60 / max_bpm))` with `max_bpm = 200` is a 300 ms
+// floor, and it is already in force — at the 468 Hz this handset achieved, that is 140 samples.
+// But the spurious peaks sat 503 ms apart (119.2 bpm), comfortably *outside* 300 ms. A refractory
+// derived from the fastest heart a human can have says nothing useful about a heart beating at 58.
+// The systolic ejection period at rest is 300-400 ms, so the aortic-closing bump lands just past
+// a floor built for 200 bpm. The floor is not too small by a little; it is answering a different
+// question.
+//
+// So the second pass derives its refractory from the fundamental the spectral estimator found,
+// which is the only estimate available that is immune to this failure — a harmonic adds energy at
+// 2f, it does not move the peak at f.
+
+/// Fraction of the spectral fundamental period used as the refractory period on the second pass.
+///
+/// Three quarters of a beat: wide enough to swallow a diastolic bump at any physiological systolic
+/// ejection period, narrow enough that genuine beat-to-beat variation — which at rest is a few
+/// percent of the interval, not a quarter of it — still resolves.
+const double harmonicRefractoryFraction = 0.75;
+
+/// How far above the spectral fundamental the peak rate must sit before a second pass is tried.
+///
+/// Halfway to a doubling. A detector genuinely running 50% fast against the fundamental is not
+/// making a small counting error, and the honest readings this must not disturb sit within EC13 of
+/// the fundamental — a few percent, nowhere near this.
+const double harmonicSuspicionRatio = 1.5;
+
 @immutable
 class BeatDetection {
   const BeatDetection({
     required this.times,
     required this.peakHr,
     required this.spectralHr,
+    this.harmonicSuppressed = false,
   });
 
   /// Event times in seconds from the start of the capture.
@@ -104,11 +167,93 @@ class BeatDetection {
   /// Independent heart rate from the dominant envelope frequency.
   final double spectralHr;
 
+  /// True when the second pass ran and its result was adopted.
+  ///
+  /// Reported rather than silent: a capture that needed harmonic suppression is a capture whose
+  /// diastolic complex is as strong as its systolic one, which is a fact about how the phone sat
+  /// on the sternum and is worth seeing in a log before it is worth hiding in a median.
+  final bool harmonicSuppressed;
+
   static const empty = BeatDetection(
     times: [],
     peakHr: double.nan,
     spectralHr: double.nan,
   );
+}
+
+/// Heart rate implied by a run of peak *indices*, in bpm.
+///
+/// Same plausibility window as [_hrFromTimes], applied to sample gaps rather than to the
+/// backtracked event times. Used only to decide whether a second pass helped: the two differ by
+/// the backtrack, which shifts every peak by roughly the same amount and so leaves the intervals —
+/// and therefore the rate — alone.
+double _hrFromPeakIndices(List<int> peaks, double fs) {
+  final rr = <double>[
+    for (int i = 1; i < peaks.length; i++)
+      if ((peaks[i] - peaks[i - 1]) / fs > 60.0 / maxBpm &&
+          (peaks[i] - peaks[i - 1]) / fs < 60.0 / 40.0)
+        (peaks[i] - peaks[i - 1]) / fs,
+  ];
+  if (rr.isEmpty) return double.nan;
+  return 60.0 / median(rr);
+}
+
+/// Peak detection, with a second pass when the first looks like it counted harmonics.
+///
+/// Pass one is the reference's, unchanged, and is what almost every capture will use. Pass two
+/// only runs when the rate it produced is at least [harmonicSuspicionRatio] times the spectral
+/// fundamental, and **its result is adopted only if it agrees with that fundamental better than
+/// pass one did.** A wider refractory that makes the disagreement worse is not a correction, and
+/// is discarded.
+///
+/// # What this costs, stated plainly
+///
+/// The dual-estimator check compares the peak rate against the spectral rate, and its value is
+/// that the two are arrived at independently. On a capture where pass two fires, they no longer
+/// are: the spectral estimate has constrained the peak search. That limb of the gate is weaker for
+/// those captures and it would be dishonest to pretend otherwise.
+///
+/// Two things keep it from being decorative. The constraint only ever *removes* peaks, so it
+/// cannot manufacture a beat train from a recording that has none — a signal with no rhythm still
+/// fails, because a wider refractory on noise does not produce a regular series. And the
+/// cross-sensor check is untouched: chest rate against finger rate, two different sensors reading
+/// two different physical quantities, which `quality_gate` already calls the strongest check it
+/// has. That limb remains fully independent, and a capture that passes the gate still had to
+/// satisfy it.
+({List<int> peaks, bool suppressed}) _detectPeaks({
+  required List<double> trace,
+  required double fs,
+  required double prominence,
+  required double spectralHrBpm,
+}) {
+  final baseDistance = (fs * 60 / maxBpm).toInt();
+  final first = findPeaks(
+    trace,
+    distance: baseDistance,
+    prominence: prominence,
+  );
+
+  if (!spectralHrBpm.isFinite || spectralHrBpm <= 0) {
+    return (peaks: first, suppressed: false);
+  }
+  final firstHr = _hrFromPeakIndices(first, fs);
+  if (!firstHr.isFinite || firstHr < spectralHrBpm * harmonicSuspicionRatio) {
+    return (peaks: first, suppressed: false);
+  }
+
+  // Never narrower than the reference's floor: this pass exists to widen.
+  final widened = math.max(
+    baseDistance,
+    (harmonicRefractoryFraction * fs * 60.0 / spectralHrBpm).round(),
+  );
+  final second = findPeaks(trace, distance: widened, prominence: prominence);
+  final secondHr = _hrFromPeakIndices(second, fs);
+  if (!secondHr.isFinite) return (peaks: first, suppressed: false);
+
+  if ((secondHr - spectralHrBpm).abs() >= (firstHr - spectralHrBpm).abs()) {
+    return (peaks: first, suppressed: false);
+  }
+  return (peaks: second, suppressed: true);
 }
 
 /// Aortic-opening times from chest SCG.
@@ -121,11 +266,17 @@ BeatDetection detectScgBeats(List<double> scg, double fs) {
   final env = envelope(scg, fs, 1.0, 25.0);
   if (env.length < fs * 3) return BeatDetection.empty;
 
-  final peaks = findPeaks(
-    env,
-    distance: (fs * 60 / maxBpm).toInt(),
+  // The spectral estimate is computed first here, because the second pass needs it. It reads the
+  // envelope's dominant frequency and is unaffected by the double-counting: a harmonic puts energy
+  // at 2f, it does not move the peak at f.
+  final spectral = spectralHr(env, fs);
+  final detected = _detectPeaks(
+    trace: env,
+    fs: fs,
     prominence: 0.5 * std(env),
+    spectralHrBpm: spectral,
   );
+  final peaks = detected.peaks;
 
   final onsets = <double>[];
   final back = (0.12 * fs).toInt();
@@ -162,7 +313,8 @@ BeatDetection detectScgBeats(List<double> scg, double fs) {
   return BeatDetection(
     times: times,
     peakHr: _hrFromTimes(times),
-    spectralHr: spectralHr(env, fs),
+    spectralHr: spectral,
+    harmonicSuppressed: detected.suppressed,
   );
 }
 
@@ -195,11 +347,19 @@ BeatDetection detectPpgFeet(List<double> ppg, double fs) {
   final f = bandpass(x, fs, 0.5, math.min(8.0, 0.45 * fs));
   if (f.length < fs * 3) return BeatDetection.empty;
 
-  final peaks = findPeaks(
-    f,
-    distance: (fs * 60 / maxBpm).toInt(),
+  // **The same correction on the finger, and it is not optional here either.** A PPG has a
+  // dicrotic notch — the aortic valve closing, seen downstream — which is the same event that
+  // doubles the chest count, arriving by a different route. Correcting only one stream would leave
+  // the two rates disagreeing and fail the cross-sensor check instead, which is the same refusal
+  // wearing a different reason.
+  final spectral = spectralHr(hilbertEnvelope(f), fs);
+  final detected = _detectPeaks(
+    trace: f,
+    fs: fs,
     prominence: 0.3 * std(f),
+    spectralHrBpm: spectral,
   );
+  final peaks = detected.peaks;
   if (peaks.length < 3) return BeatDetection.empty;
 
   final gaps = <double>[
@@ -241,7 +401,8 @@ BeatDetection detectPpgFeet(List<double> ppg, double fs) {
   return BeatDetection(
     times: times,
     peakHr: _hrFromTimes(times),
-    spectralHr: spectralHr(hilbertEnvelope(f), fs),
+    spectralHr: spectral,
+    harmonicSuppressed: detected.suppressed,
   );
 }
 
@@ -367,6 +528,18 @@ GateResult qualityGate({
         detail: '$name heart rate could not be estimated',
       );
     }
+    // Before the agreement check, because two estimators agreeing on an impossible rate is a
+    // detector describing itself, not a measurement. See [hrPlausibleMinBpm].
+    if (a < hrPlausibleMinBpm || a > hrPlausibleMaxBpm) {
+      return GateResult(
+        passed: false,
+        failure: failure,
+        detail:
+            '$name rate ${a.toStringAsFixed(1)} bpm is outside the seated plausible window '
+            '${hrPlausibleMinBpm.toStringAsFixed(0)}-'
+            '${hrPlausibleMaxBpm.toStringAsFixed(0)} bpm',
+      );
+    }
     // EC13 at this sensor's own peak-detected rate, as the reference does.
     final tol = hrToleranceBpm(a);
     if ((a - b).abs() > tol) {
@@ -433,6 +606,8 @@ class PttAnalysis {
     required this.ppgHr,
     required this.scgSpectralHr,
     required this.ppgSpectralHr,
+    this.scgHarmonicSuppressed = false,
+    this.ppgHarmonicSuppressed = false,
   });
 
   final GateResult gate;
@@ -448,6 +623,10 @@ class PttAnalysis {
   final double ppgHr;
   final double scgSpectralHr;
   final double ppgSpectralHr;
+
+  /// Whether either detector needed its second pass. Logged by the pipeline; never submitted.
+  final bool scgHarmonicSuppressed;
+  final bool ppgHarmonicSuppressed;
 }
 
 /// One capture in, one analysis out. The whole chain.
@@ -478,5 +657,7 @@ PttAnalysis analyseCapture({
     ppgHr: ppgFeet.peakHr,
     scgSpectralHr: scgBeats.spectralHr,
     ppgSpectralHr: ppgFeet.spectralHr,
+    scgHarmonicSuppressed: scgBeats.harmonicSuppressed,
+    ppgHarmonicSuppressed: ppgFeet.harmonicSuppressed,
   );
 }

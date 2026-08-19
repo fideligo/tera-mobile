@@ -373,6 +373,18 @@ class TeraSignalPipeline implements SignalPipeline {
             'n=${result.summary.n}',
           );
         }
+
+        // A capture that needed the second pass has a diastolic complex as strong as its
+        // systolic one, which is a fact about how the phone sat on the sternum. Visible in the
+        // log rather than absorbed silently into a median.
+        if (result.scgHarmonicSuppressed || result.ppgHarmonicSuppressed) {
+          debugPrint(
+            '[Tera] harmonic suppression on axis ${entry.key}: '
+            'chest=${result.scgHarmonicSuppressed}, finger=${result.ppgHarmonicSuppressed} '
+            '(chest ${result.scgHr.toStringAsFixed(1)} bpm vs '
+            'spectral ${result.scgSpectralHr.toStringAsFixed(1)} bpm)',
+          );
+        }
       }
       analysis = best ?? primary!;
       debugPrint(
