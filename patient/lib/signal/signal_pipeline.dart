@@ -365,14 +365,17 @@ class TeraSignalPipeline implements SignalPipeline {
             '${result.gate.failure?.name ?? "unspecified"} — '
             '${result.gate.detail ?? "no detail"} '
             '[chest ${result.nScgBeats} beats, finger ${result.nPpgFeet} feet, '
-            '${result.summary.n} paired]',
+            '${result.summary.n} paired of ${result.nPairedBeforeTrim}, '
+            'SD ${result.summary.sd.toStringAsFixed(1)} ms trimmed from '
+            '${result.sdBeforeTrimMs.toStringAsFixed(1)} ms]',
           );
         } else {
           debugPrint(
             '[Tera] gate passed on axis ${entry.key}: '
             'PTT median ${result.summary.median.toStringAsFixed(1)} ms, '
-            'SD ${result.summary.sd.toStringAsFixed(1)} ms, '
-            'n=${result.summary.n}',
+            'SD ${result.summary.sd.toStringAsFixed(1)} ms '
+            '(untrimmed ${result.sdBeforeTrimMs.toStringAsFixed(1)} ms), '
+            'n=${result.summary.n} of ${result.nPairedBeforeTrim}',
           );
         }
 

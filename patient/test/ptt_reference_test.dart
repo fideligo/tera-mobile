@@ -175,6 +175,8 @@ void main() {
           // runs a wider ceiling by deliberate deviation; see `pttMaxSeconds`.
           pttLoSeconds: 0.08,
           pttHiSeconds: 0.40,
+          // The Python does not trim before summarising, so neither does the comparison.
+          trimOutliers: false,
         );
         final expected = (c.expect['ptt_ms'] as List)
             .map((v) => (v as num).toDouble())
@@ -208,6 +210,8 @@ void main() {
           // runs a wider ceiling by deliberate deviation; see `pttMaxSeconds`.
           pttLoSeconds: 0.08,
           pttHiSeconds: 0.40,
+          // The Python does not trim before summarising, so neither does the comparison.
+          trimOutliers: false,
         );
         final s = analysis.summary;
 
@@ -249,6 +253,8 @@ void main() {
           // runs a wider ceiling by deliberate deviation; see `pttMaxSeconds`.
           pttLoSeconds: 0.08,
           pttHiSeconds: 0.40,
+          // The Python does not trim before summarising, so neither does the comparison.
+          trimOutliers: false,
         );
 
         expect(
@@ -270,6 +276,7 @@ void main() {
         fsPpg: c.fsPpg,
         pttLoSeconds: 0.08,
         pttHiSeconds: 0.40,
+        trimOutliers: false,
       );
 
       expect(analysis.gate.passed, isTrue);
@@ -288,6 +295,7 @@ void main() {
         fsPpg: c.fsPpg,
         pttLoSeconds: 0.08,
         pttHiSeconds: 0.40,
+        trimOutliers: false,
       );
 
       expect(analysis.gate.passed, isFalse);
@@ -303,6 +311,7 @@ void main() {
         fsPpg: c.fsPpg,
         pttLoSeconds: 0.08,
         pttHiSeconds: 0.40,
+        trimOutliers: false,
       );
 
       expect(analysis.gate.passed, isFalse);
@@ -318,8 +327,52 @@ void main() {
       expect(pttMinSeconds, 0.08);
       expect(minPairs, 12);
       expect(minPairYield, 0.50);
-      expect(maxPttSdMs, 10.0);
       expect(scgOnsetFrac, 0.82);
+    });
+
+    test('the dispersion ceiling is a recorded deviation, and the loosest one', () {
+      // **The reference's 10 ms is the one figure in this file that was independently validated.**
+      // It is the proposal's sensing-chain budget, and on the PhysioNet PTT dataset's seated
+      // condition it keeps 6 recordings of 8 — so "unreachable outside a lab" is not what the
+      // reference measured. Its own comment says the seated recordings it rejects, at SD up to
+      // 87 ms, "should be refused".
+      //
+      // We run 45 anyway, on product instruction, to get a first end-to-end capture through
+      // consumer hardware that the reference never saw: a 30 fps camera and a phone accelerometer.
+      // Frame quantisation and respiratory modulation together account for roughly 15-25 ms of it,
+      // not 45, so this is a deliberate over-allowance and is the first number to revisit.
+      //
+      // Asserted separately from "nothing has been retuned" because it *is* a retune, and burying
+      // it under that heading is how the two flat HR constants survived for weeks.
+      expect(maxPttSdMs, 45.0);
+
+      // The clinically meaningful PTT change is 10 ms. This ceiling is four and a half times it,
+      // which is the sentence that matters and the reason this test exists.
+      expect(maxPttSdMs / 10.0, greaterThan(4));
+    });
+
+    test('outliers are trimmed before the spread is judged', () {
+      // The gate was deciding on untrimmed pairs while the backend has always trimmed with the
+      // same fence, so the handset refused sessions on a statistic the server would never use.
+      expect(iqrFenceMultiplier, 1.5);
+
+      // Two mispaired intervals in a coherent run must not set the verdict.
+      final coherent = [for (int i = 0; i < 40; i++) 238.0 + (i % 5)];
+      final withOutliers = [...coherent, 95.0, 470.0];
+
+      final rawSd = summarise(withOutliers, 42).sd;
+      final trimmedSd = summarise(tukeyTrim(withOutliers), 42).sd;
+
+      expect(rawSd, greaterThan(30));
+      expect(trimmedSd, lessThan(5));
+      expect(tukeyTrim(withOutliers).length, 40);
+    });
+
+    test('trimming cannot empty the set or fire on a short one', () {
+      // Both guards mirror the backend's `trimmed_session_ptt`.
+      expect(tukeyTrim(const [240.0, 241.0, 242.0]).length, 3);
+      final identical = List<double>.filled(20, 240.0);
+      expect(tukeyTrim(identical).length, 20);
     });
 
     test('the pairing ceiling is a recorded deviation, not a drift', () {

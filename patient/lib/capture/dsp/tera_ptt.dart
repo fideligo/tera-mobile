@@ -127,8 +127,49 @@ const int minPairs = 12;
 /// Fraction of detected SCG beats that must find a partner.
 const double minPairYield = 0.50;
 
-/// Within-session dispersion ceiling, milliseconds.
-const double maxPttSdMs = 10.0;
+/// Within-session dispersion ceiling, milliseconds, applied to the **trimmed** intervals.
+///
+/// **45, not the reference's 10, and this is the loosest thing in the chain. Read the whole note
+/// before moving it again.**
+///
+/// The reference's 10 ms is not a taste: it is the proposal's sensing-chain budget (SCG 0.57 ms
+/// plus PPG 4-7 ms against a 10-50 ms signal), and it was validated — on the PhysioNet PTT
+/// dataset's seated condition it keeps 6 recordings of 8 and rejects 13 of 16 walking or running
+/// ones. Its own comment says the two seated recordings it rejects "are genuinely noisy (SD up to
+/// 87 ms) and should be refused".
+///
+/// So the claim that 10 ms is unreachable outside a lab is not what the reference measured; three
+/// quarters of its seated recordings reached it. What those recordings did not have is a 30 fps
+/// camera and a consumer accelerometer. Two costs are ours and not theirs:
+///
+///   * **Frame quantisation.** One frame at 30 fps is 33 ms. Intersecting tangents place the foot
+///     sub-sample, which is why this is not simply hopeless, but the residual is several ms and it
+///     is irreducible without a faster camera.
+///   * **Respiratory modulation.** Intrathoracic pressure swings with breathing and moves transit
+///     time beat to beat. Real, and smaller than it is usually quoted — on the order of 5-15 ms
+///     peak to peak for pulse arrival time, not 20-40 ms of standard deviation.
+///
+/// Those add up to roughly 15-25 ms, not 45. **45 is a deliberate over-allowance, taken on product
+/// instruction to get a first end-to-end capture through, and it is the number to revisit first
+/// once there is more than one recording to look at.**
+///
+/// What it costs, stated so nobody has to rediscover it: `TREND_MIN_DELTA_MS` — the smallest PTT
+/// change this product calls clinically meaningful — is 10 ms. A session admitted at 45 ms of
+/// internal dispersion carries a median whose standard error over 60 pairs is around 7 ms, which
+/// is the same order as the effect being measured. Such a session is weak evidence of a direction,
+/// not a measurement, and the confidence score is what has to carry that: `snr_db` here is
+/// `20*log10(median/sd)`, so 10 ms scores 27.6 dB and 45 ms scores 14.5 dB against the backend's
+/// 20 dB confidence ceiling. The degradation is real but it is gentle, and it does not fully
+/// absorb a four-fold rise in dispersion.
+///
+/// **This is now the only limb of the gate that has not been loosened**, and the previous two
+/// relaxations — the cross-sensor floor and the pairing ceiling — were each argued as safe
+/// *because* this one held at 10. That argument no longer applies. Nothing downstream re-checks
+/// dispersion: there is no server-side SD ceiling.
+const double maxPttSdMs = 45.0;
+
+/// Tukey fence multiplier for outlier rejection, matching the backend's `iqr_fence_multiplier`.
+const double iqrFenceMultiplier = 1.5;
 
 /// Envelope fraction marking aortic valve opening. Swept, not guessed: 0.20 overshoots to -25 ms
 /// and the envelope peak itself is +18 ms.
@@ -512,6 +553,32 @@ class PttSummary {
   final double pairYield;
 }
 
+/// Drop intervals beyond Tukey's fence before anything is concluded from the set.
+///
+/// **The gate was deciding on untrimmed pairs, and that is what refused a usable capture.** A
+/// standard deviation is not robust: pairing a systolic chest event to a diastolic finger foot
+/// produces an interval a hundred milliseconds from its neighbours, and two or three of those in
+/// sixty inflate the spread far past anything the recording actually did. The observed failure was
+/// 70.6 ms across 61 pairs, which is not what 61 coherent intervals look like.
+///
+/// The backend has always done this — `trimmed_session_ptt` applies the same 1.5x IQR fence before
+/// computing the session value — so the handset was refusing sessions on a statistic the server
+/// would never have used. Same fence, same multiplier, now on both sides.
+///
+/// Guards match the backend's: fewer than four values has no defined quartile and is returned
+/// whole, and a degenerate fence that would retain nothing falls back to the full set.
+List<double> tukeyTrim(List<double> values) {
+  if (values.length < 4) return values;
+  final q1 = percentile(values, 25);
+  final q3 = percentile(values, 75);
+  final fence = iqrFenceMultiplier * (q3 - q1);
+  final retained = [
+    for (final v in values)
+      if (v >= q1 - fence && v <= q3 + fence) v,
+  ];
+  return retained.isEmpty ? values : retained;
+}
+
 PttSummary summarise(List<double> pttMs, int nScgBeats) {
   if (pttMs.isEmpty) {
     return const PttSummary(
@@ -664,6 +731,8 @@ class PttAnalysis {
     required this.ppgSpectralHr,
     this.scgHarmonicSuppressed = false,
     this.ppgHarmonicSuppressed = false,
+    this.nPairedBeforeTrim = 0,
+    this.sdBeforeTrimMs = double.nan,
   });
 
   final GateResult gate;
@@ -683,6 +752,10 @@ class PttAnalysis {
   /// Whether either detector needed its second pass. Logged by the pipeline; never submitted.
   final bool scgHarmonicSuppressed;
   final bool ppgHarmonicSuppressed;
+
+  /// Pairs found before Tukey trimming, and the spread they had. Diagnostics only.
+  final int nPairedBeforeTrim;
+  final double sdBeforeTrimMs;
 }
 
 /// One capture in, one analysis out. The whole chain.
@@ -700,16 +773,25 @@ PttAnalysis analyseCapture({
   // defect.
   double pttLoSeconds = pttMinSeconds,
   double pttHiSeconds = pttMaxSeconds,
+  // Off for the fidelity test, which compares against a Python run that does not trim. Production
+  // trims: see [tukeyTrim] for why the untrimmed spread was refusing usable captures.
+  bool trimOutliers = true,
 }) {
   final scgBeats = detectScgBeats(scg, fsScg);
   final ppgFeet = detectPpgFeet(ppg, fsPpg);
-  final pttMs = pairBeats(
+  final paired = pairBeats(
     scgBeats.times,
     ppgFeet.times,
     lo: pttLoSeconds,
     hi: pttHiSeconds,
   );
+  final pttMs = trimOutliers ? tukeyTrim(paired) : paired;
   final summary = summarise(pttMs, scgBeats.times.length);
+
+  // Kept so the log can show what trimming did. A capture whose spread only comes inside the
+  // ceiling after a third of its pairs were dropped is a different thing from one that was always
+  // coherent, and the difference should be visible rather than absorbed.
+  final untrimmed = summarise(paired, scgBeats.times.length);
 
   return PttAnalysis(
     gate: qualityGate(
@@ -729,5 +811,7 @@ PttAnalysis analyseCapture({
     ppgSpectralHr: ppgFeet.spectralHr,
     scgHarmonicSuppressed: scgBeats.harmonicSuppressed,
     ppgHarmonicSuppressed: ppgFeet.harmonicSuppressed,
+    nPairedBeforeTrim: paired.length,
+    sdBeforeTrimMs: untrimmed.sd,
   );
 }

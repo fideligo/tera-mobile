@@ -300,12 +300,36 @@ void main() {
     });
 
     test('the dispersion ceiling still refuses what the looser rate check admits', () {
-      // **This is what makes relaxing the rate comparison defensible.** The cross-sensor rate
-      // check is a cheap proxy for simultaneity; the spread of the intervals it produces is the
-      // direct measurement, and that one is untouched. Two streams 6 bpm apart that were not
-      // actually watching the same beats produce pairs that scatter, and 25 ms of scatter is
-      // refused whatever the rates said.
+      // **This test used 25 ms and passed when the ceiling was 10. It does not any more, and that
+      // is the honest record of what raising the ceiling to 45 cost.**
+      //
+      // Relaxing the cross-sensor rate comparison was argued as safe because the dispersion of the
+      // resulting intervals is the direct measurement and was untouched at 10 ms. The ceiling has
+      // since moved to 45, so the margin that argument relied on is four and a half times wider:
+      // two streams that drifted apart now have to scatter past 45 ms rather than past 10 before
+      // anything refuses them.
+      //
+      // The guard still exists — that is what this asserts — but it is no longer the tight one it
+      // was, and the two relaxations should be revisited together rather than separately.
       final gate = qualityGate(
+        scgHr: 60.3,
+        scgSpectralHr: 60.3,
+        ppgHr: 54.2,
+        ppgSpectralHr: 54.2,
+        summary: const PttSummary(
+          n: 40,
+          median: 240,
+          sd: 60,
+          iqr: 70,
+          pairYield: 0.8,
+        ),
+      );
+      expect(gate.passed, isFalse);
+      expect(gate.detail, contains('ceiling'));
+
+      // And the scatter that used to be refused now is not. Stated as a fact rather than left for
+      // someone to discover from a patient's record.
+      final formerlyRefused = qualityGate(
         scgHr: 60.3,
         scgSpectralHr: 60.3,
         ppgHr: 54.2,
@@ -318,8 +342,7 @@ void main() {
           pairYield: 0.8,
         ),
       );
-      expect(gate.passed, isFalse);
-      expect(gate.detail, contains('ceiling'));
+      expect(formerlyRefused.passed, isTrue);
     });
 
     test('the wider window cannot pair across two cardiac cycles', () {
@@ -337,6 +360,95 @@ void main() {
     test('the widened window admits an interval the old one dropped', () {
       final paired = pairBeats(const [0.0], const [0.45]);
       expect(paired.single, closeTo(450, 1e-9));
+    });
+  });
+
+  group('the dispersion gate, from the second device capture', () {
+    // From the log:
+    //
+    //   gate FAILED on axis z: pttTooVariable — PTT spread 70.6 ms, ceiling 10.0 ms
+    //   [chest 66 beats, finger 71 feet, 61 paired]
+    //
+    // 61 pairs is a good capture. 70.6 ms across 61 coherent intervals is not what a good capture
+    // looks like, which is what pointed at the spread being computed on untrimmed pairs.
+
+    test('a handful of mispairs can produce that spread from a clean run', () {
+      // Reconstructed rather than asserted: a run tight enough to be usable, with three intervals
+      // that paired a chest event to the wrong finger foot. This is the shape the log describes.
+      final coherent = [for (int i = 0; i < 58; i++) 236.0 + (i % 7) * 1.5];
+      final withMispairs = [...coherent, 110.0, 480.0, 95.0];
+
+      final raw = summarise(withMispairs, 66);
+      final trimmed = summarise(tukeyTrim(withMispairs), 66);
+
+      // The untrimmed spread is in the register the device reported, and it is dominated by three
+      // intervals out of sixty-one.
+      expect(raw.sd, greaterThan(40));
+      expect(trimmed.sd, lessThan(10));
+
+      // And the trimmed run would have passed even the reference's original ceiling.
+      expect(trimmed.sd, lessThan(10.0));
+    });
+
+    test(
+      'trimming is not a licence: a genuinely scattered capture still fails',
+      () {
+        // Every interval independently noisy, nothing for a fence to remove. This is the case the
+        // reference's PhysioNet note says must be refused, and it still is.
+        final rng = math.Random(3);
+        final scattered = [
+          for (int i = 0; i < 60; i++) 240.0 + (rng.nextDouble() - 0.5) * 260,
+        ];
+        final trimmed = tukeyTrim(scattered);
+
+        expect(
+          trimmed.length,
+          greaterThan(50),
+          reason: 'a fence finds few outliers when everything is an outlier',
+        );
+        expect(summarise(trimmed, 60).sd, greaterThan(maxPttSdMs));
+      },
+    );
+
+    test(
+      'the ceiling still refuses the recording the reference says to refuse',
+      () {
+        // The reference rejects seated recordings at SD up to 87 ms and says they should be. 45 is
+        // looser than 10 and is still well under that.
+        expect(maxPttSdMs, lessThan(87.0));
+
+        final gate = qualityGate(
+          scgHr: 63.0,
+          scgSpectralHr: 63.0,
+          ppgHr: 63.0,
+          ppgSpectralHr: 63.0,
+          summary: const PttSummary(
+            n: 60,
+            median: 240,
+            sd: 70.6,
+            iqr: 80,
+            pairYield: 0.9,
+          ),
+        );
+        expect(gate.passed, isFalse, reason: 'as measured on the device');
+        expect(gate.detail, contains('70.6'));
+      },
+    );
+
+    test('a session at the new ceiling reports itself as poor signal', () {
+      // The cost of 45 ms is carried by the confidence score, and this is the arithmetic that
+      // carries it: snr_db is 20*log10(median/sd), against the backend's 20 dB ceiling.
+      double snrDb(double median, double sd) =>
+          20.0 * (math.log(median / sd) / math.ln10);
+
+      expect(snrDb(240, 10), closeTo(27.6, 0.2));
+      expect(snrDb(240, 45), closeTo(14.5, 0.2));
+
+      // Below the backend's confidence ceiling, so such a session cannot score full marks on the
+      // quality limb. It is a real degradation and it is not a large one - which is the honest
+      // reading, and the reason the ceiling is the thing to revisit rather than the score.
+      expect(snrDb(240, 45), lessThan(20.0));
+      expect(snrDb(240, 10), greaterThan(20.0));
     });
   });
 

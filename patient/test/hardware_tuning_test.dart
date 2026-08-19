@@ -422,12 +422,14 @@ void main() {
         scgSpectralHr: 70,
         ppgHr: 70,
         ppgSpectralHr: 70,
-        summary: summaryWith(n: 40, sd: 25),
+        summary: summaryWith(n: 40, sd: 70.6),
       );
 
       expect(result.passed, isFalse);
-      expect(result.detail, contains('25.0'));
-      expect(result.detail, contains('10.0'), reason: 'the ceiling it missed');
+      // The figures from the second device capture. 25 ms was used here while the ceiling was 10;
+      // it is inside the ceiling now, so the example moved rather than the assertion.
+      expect(result.detail, contains('70.6'));
+      expect(result.detail, contains('45.0'), reason: 'the ceiling it missed');
     });
 
     test('no refusal detail is ever blank, whatever failed', () {

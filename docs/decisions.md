@@ -3124,3 +3124,91 @@ question this could not answer from the outside.
 Neither tuning is validated against real data — there is one capture, and both figures were chosen
 to admit it. That is a legitimate thing to do once and a bad habit to form. The dispersion ceiling
 is what stands between these and a wrong number, and it has not moved.
+
+## The dispersion ceiling, and the outlier trim that should have come first
+
+Second device capture. Z-axis harmonic suppression aligned to 0.6 bpm, 61 pairs found, and:
+
+```
+gate FAILED on axis z: pttTooVariable — PTT spread 70.6 ms, ceiling 10.0 ms
+[chest 66 beats, finger 71 feet, 61 paired]
+```
+
+### The spread was being computed on untrimmed pairs
+
+`summarise` takes the standard deviation of **every** paired interval. A standard deviation is not
+robust: pairing a systolic chest event to a diastolic finger foot produces an interval a hundred
+milliseconds from its neighbours, and two or three of those in sixty inflate the spread far past
+anything the recording did. 70.6 ms across 61 pairs is not what 61 coherent intervals look like.
+
+**The backend has always trimmed.** `trimmed_session_ptt` applies a 1.5x IQR Tukey fence before
+computing the session value, and has since it was written. So the handset was refusing sessions on a
+statistic the server would never have used. Same fence, same multiplier, now on both sides —
+`tukeyTrim` in `tera_ptt.dart`, with the same guards (fewer than four values has no defined
+quartile; a degenerate fence that would retain nothing falls back to the full set).
+
+The trim runs in `analyseCapture` before `summarise`, so what is judged and what is submitted are
+the same set. The untrimmed spread and the pre-trim count are kept and logged, because a capture
+whose spread only comes inside the ceiling after a third of its pairs were dropped is a different
+thing from one that was always coherent, and the difference should be visible.
+
+**This is the change that decides the reported capture.** At the requested 45 ms ceiling, 70.6 ms
+still fails — the trim is what can bring it under, not the ceiling.
+
+### The ceiling, 10 ms to 45
+
+Recorded as a deviation, and it is the loosest thing in the chain.
+
+The reference's 10 ms is the one figure here that was independently validated: the proposal's
+sensing-chain budget (SCG 0.57 ms + PPG 4-7 ms), and on the PhysioNet PTT dataset's seated condition
+it keeps 6 recordings of 8. So "unattainable outside a lab" is not what the reference measured —
+three quarters of its seated recordings reached it. Its own comment says the ones it rejects, at SD
+up to 87 ms, "are genuinely noisy and should be refused".
+
+What those recordings did not have is our hardware, and two costs are ours:
+
+  * **Frame quantisation.** One frame at 30 fps is 33 ms. Intersecting tangents place the foot
+    sub-sample, which is why this is not hopeless, but the residual is several ms and is
+    irreducible without a faster camera.
+  * **Respiratory modulation.** Intrathoracic pressure swings with breathing and moves transit time
+    beat to beat. Real — and smaller than usually quoted: order 5-15 ms peak to peak for pulse
+    arrival time, not 20-40 ms of standard deviation.
+
+Those total roughly 15-25 ms. **45 is a deliberate over-allowance, taken on product instruction to
+get a first end-to-end capture through, and it is the first number to revisit once there is more
+than one recording.**
+
+### What it costs, so nobody has to rediscover it
+
+`TREND_MIN_DELTA_MS` — the smallest PTT change this product calls clinically meaningful — is 10 ms.
+A session admitted at 45 ms of internal dispersion carries a median whose standard error over 60
+pairs is around 7 ms: the same order as the effect. That session is weak evidence of a direction,
+not a measurement.
+
+The confidence score is what has to carry that, and it only partly does. `snr_db` is
+`20*log10(median/sd)`, so a 10 ms session scores 27.6 dB and a 45 ms session 14.5 dB against the
+backend's 20 dB confidence ceiling — a real degradation, and a gentle one for a four-fold rise in
+dispersion.
+
+**The previous two relaxations were each argued as safe because this one held at 10.** The
+cross-sensor floor went from 5 bpm to 10 on the grounds that "the dispersion of the intervals it
+produces is the direct measurement, and that one is untouched"; the pairing ceiling went from 400 ms
+to 500 on the grounds that a mixed run "scatters by hundreds of milliseconds, which `maxPttSdMs`
+refuses at 10". That reasoning is now four and a half times weaker. `harmonic_suppression_test.dart`
+records it directly: the 25 ms scatter that test used to assert was refused is asserted to pass now.
+Nothing downstream re-checks dispersion — there is no server-side SD ceiling.
+
+The three should be revisited together, not separately.
+
+### Fidelity
+
+`analyseCapture` gained `trimOutliers`, defaulting on, and the reference test passes `false` — the
+Python does not trim, so the comparison does not either. Same pattern as the pairing window: the
+algorithm is still proved identical to the Python at identical settings, and the product's tuning is
+asserted separately as a deviation. `maxPttSdMs` moved out of the "nothing has been retuned" block
+for the same reason the two flat HR constants should never have been in it.
+
+### Counts
+
+436 patient tests (429 before), 393 backend (unchanged — the SD gate is handset-only), 0 analyzer
+errors.
